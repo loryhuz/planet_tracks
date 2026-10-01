@@ -1,0 +1,6 @@
+/target
+.DS_Store
+# Per-player tuning session (profiles, records, ghosts)
+/tuning/
+# Rejected engine sound experiments
+/docs/audio/

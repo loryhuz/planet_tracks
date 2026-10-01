@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/track", "crates/physics", "crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+track = { path = "crates/track" }
+physics = { path = "crates/physics" }
+# libm: the same sin/cos/atan2 on every platform; scalar-math: no SIMD, so sums are
+# evaluated in the same order on arm64 (NEON) and wasm32. Both are needed for
+# bit-identical physics across iOS, Android, macOS and WebAssembly.
+glam = { version = "0.33", features = ["libm", "scalar-math", "serde"] }
+libm = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The game must run at full speed in debug builds too.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

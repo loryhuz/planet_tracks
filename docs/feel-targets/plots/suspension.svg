@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" width="980" height="420" role="img" aria-label="Suspension : débattement et amortissement">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a}
+ .ring{stroke:#fcfcfb}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70}
+  .ring{stroke:#1a1a19}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="980" height="420"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Suspension : débattement et amortissement</text>
+<text class="ink2" x="16" y="46" font-size="12">Oscillation au spawn ≈ 2 Hz, amortissement ≈ 0,26 ; aucune plongée au freinage ; butée franche à l’atterrissage.</text>
+<line class="s1" x1="16" x2="38" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="44" y="70" font-size="12">avant gauche (w0)</text>
+<line class="s2" x1="168.2" x2="190.2" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="196.2" y="70" font-size="12">avant droite (w1)</text>
+<line class="grid" x1="70.0" x2="470.0" y1="360.0" y2="360.0"/>
+<text class="mut num" x="64.0" y="364.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="470.0" y1="312.7" y2="312.7"/>
+<text class="mut num" x="64.0" y="316.7" font-size="11" text-anchor="end">0.1</text>
+<line class="grid" x1="70.0" x2="470.0" y1="265.5" y2="265.5"/>
+<text class="mut num" x="64.0" y="269.5" font-size="11" text-anchor="end">0.2</text>
+<line class="grid" x1="70.0" x2="470.0" y1="218.2" y2="218.2"/>
+<text class="mut num" x="64.0" y="222.2" font-size="11" text-anchor="end">0.3</text>
+<line class="grid" x1="70.0" x2="470.0" y1="170.9" y2="170.9"/>
+<text class="mut num" x="64.0" y="174.9" font-size="11" text-anchor="end">0.4</text>
+<line class="grid" x1="70.0" x2="470.0" y1="123.6" y2="123.6"/>
+<text class="mut num" x="64.0" y="127.6" font-size="11" text-anchor="end">0.5</text>
+<text class="mut num" x="70.0" y="376.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="136.7" y="376.0" font-size="11" text-anchor="middle">0.25</text>
+<text class="mut num" x="203.3" y="376.0" font-size="11" text-anchor="middle">0.5</text>
+<text class="mut num" x="270.0" y="376.0" font-size="11" text-anchor="middle">0.75</text>
+<text class="mut num" x="336.7" y="376.0" font-size="11" text-anchor="middle">1</text>
+<text class="mut num" x="403.3" y="376.0" font-size="11" text-anchor="middle">1.25</text>
+<text class="mut num" x="470.0" y="376.0" font-size="11" text-anchor="middle">1.5</text>
+<line class="axis" x1="70.0" x2="470.0" y1="360.0" y2="360.0"/>
+<text class="ink2" x="270.0" y="394.0" font-size="12" text-anchor="middle">temps (s)</text>
+<text class="ink2" x="26.0" y="230.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 230.0)">valeur amortisseur (0,5 = détendu)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Chute au spawn puis plein gaz (accel.csv)</text>
+<path class="s1" d="M70.0,123.6 L72.7,123.6 L75.3,130.6 L78.0,132.4 L80.7,135.4 L83.3,139.9 L86.0,145.7 L88.7,152.8 L91.3,160.9 L94.0,169.8 L96.7,179.4 L99.3,189.3 L102.0,199.5 L104.7,209.7 L107.3,219.8 L110.0,229.6 L112.7,238.9 L115.3,247.7 L118.0,255.9 L120.7,263.2 L123.3,269.8 L126.0,275.4 L128.7,280.2 L131.3,284.0 L134.0,286.8 L136.7,288.8 L139.3,289.8 L142.0,289.9 L144.7,289.3 L147.3,287.9 L150.0,285.8 L152.7,283.2 L155.3,280.0 L158.0,276.4 L160.7,272.5 L163.3,268.3 L166.0,264.0 L168.7,259.5 L171.3,255.1 L174.0,250.7 L176.7,246.5 L179.3,242.4 L182.0,238.6 L184.7,235.1 L187.3,232.0 L190.0,229.2 L192.7,226.8 L195.3,224.8 L198.0,223.2 L200.7,222.0 L203.3,221.3 L206.0,220.9 L208.7,220.9 L211.3,221.2 L214.0,221.9 L216.7,222.8 L219.3,224.0 L222.0,225.4 L224.7,227.0 L227.3,228.8 L230.0,230.6 L232.7,232.5 L235.3,234.4 L238.0,236.4 L240.7,238.3 L243.3,240.1 L246.0,241.8 L248.7,243.5 L251.3,245.0 L254.0,246.3 L256.7,247.5 L259.3,248.5 L262.0,249.4 L264.7,250.0 L267.3,250.5 L270.0,250.8 L272.7,251.0 L275.3,250.9 L278.0,250.8 L280.7,250.5 L283.3,250.0 L286.0,249.5 L288.7,248.9 L291.3,248.1 L294.0,247.4 L296.7,246.6 L299.3,245.7 L302.0,244.9 L304.7,244.0 L307.3,243.2 L310.0,242.4 L312.7,241.7 L315.3,241.0 L318.0,240.3 L320.7,239.8 L323.3,239.3 L326.0,238.8 L328.7,238.5 L331.3,238.2 L334.0,238.0 L336.7,237.9 L339.3,237.8 L342.0,237.9 L344.7,237.9 L347.3,238.1 L350.0,238.3 L352.7,238.5 L355.3,238.8 L358.0,239.1 L360.7,239.5 L363.3,239.8 L366.0,240.2 L368.7,240.5 L371.3,240.9 L374.0,241.3 L376.7,241.6 L379.3,241.9 L382.0,242.2 L384.7,242.5 L387.3,242.8 L390.0,243.0 L392.7,243.2 L395.3,243.3 L398.0,243.4 L400.7,243.5 L403.3,243.5 L406.0,243.5 L408.7,243.5 L411.3,243.5 L414.0,243.4 L416.7,243.3 L419.3,243.2 L422.0,243.1 L424.7,243.0 L427.3,242.8 L430.0,242.7 L432.7,242.5 L435.3,242.4 L438.0,242.2 L440.7,242.0 L443.3,241.9 L446.0,241.8 L448.7,241.6 L451.3,241.5 L454.0,241.4 L456.7,241.3 L459.3,241.2 L462.0,241.2 L464.7,241.1 L467.3,241.1 L470.0,241.1" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>roue avant gauche</title></path>
+<line class="grid" x1="70.0" x2="470.0" y1="241.8" y2="241.8"/>
+<text class="ink2" x="456.7" y="235.8" font-size="11" text-anchor="end">repos 0,25</text>
+<line class="grid" x1="560.0" x2="940.0" y1="360.0" y2="360.0"/>
+<text class="mut num" x="554.0" y="364.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="560.0" x2="940.0" y1="312.7" y2="312.7"/>
+<text class="mut num" x="554.0" y="316.7" font-size="11" text-anchor="end">0.1</text>
+<line class="grid" x1="560.0" x2="940.0" y1="265.5" y2="265.5"/>
+<text class="mut num" x="554.0" y="269.5" font-size="11" text-anchor="end">0.2</text>
+<line class="grid" x1="560.0" x2="940.0" y1="218.2" y2="218.2"/>
+<text class="mut num" x="554.0" y="222.2" font-size="11" text-anchor="end">0.3</text>
+<line class="grid" x1="560.0" x2="940.0" y1="170.9" y2="170.9"/>
+<text class="mut num" x="554.0" y="174.9" font-size="11" text-anchor="end">0.4</text>
+<line class="grid" x1="560.0" x2="940.0" y1="123.6" y2="123.6"/>
+<text class="mut num" x="554.0" y="127.6" font-size="11" text-anchor="end">0.5</text>
+<text class="mut num" x="627.1" y="376.0" font-size="11" text-anchor="middle">7.6</text>
+<text class="mut num" x="716.5" y="376.0" font-size="11" text-anchor="middle">7.8</text>
+<text class="mut num" x="805.9" y="376.0" font-size="11" text-anchor="middle">8</text>
+<text class="mut num" x="895.3" y="376.0" font-size="11" text-anchor="middle">8.2</text>
+<line class="axis" x1="560.0" x2="940.0" y1="360.0" y2="360.0"/>
+<text class="ink2" x="750.0" y="394.0" font-size="12" text-anchor="middle">temps (s)</text>
+<text class="ink2" x="516.0" y="230.0" font-size="12" text-anchor="middle" transform="rotate(-90 516.0 230.0)">valeur amortisseur</text>
+<text class="ink" x="560.0" y="90.0" font-size="13" font-weight="600">Atterrissage sur neige (x_ramp_off_left)</text>
+<path class="s1" d="M560.0,150.2 L564.5,151.3 L568.9,157.0 L573.4,161.6 L577.9,165.2 L582.4,165.6 L586.8,166.6 L591.3,168.3 L595.8,170.7 L600.2,173.1 L604.7,175.7 L609.2,179.5 L613.6,183.5 L618.1,187.9 L622.6,192.4 L627.1,197.1 L631.5,201.8 L636.0,206.5 L640.5,211.0 L644.9,215.4 L649.4,219.5 L653.9,223.3 L658.4,230.9 L662.8,232.6 L667.3,233.6 L671.8,234.0 L676.2,234.0 L680.7,233.6 L685.2,232.8 L689.6,231.8 L694.1,230.8 L698.6,229.9 L703.1,226.7 L707.5,226.2 L712.0,221.1 L716.5,216.2 L720.9,211.6 L725.4,207.2 L729.9,203.0 L734.4,199.0 L738.8,195.3 L743.3,205.6 L747.8,218.9 L752.2,231.8 L756.7,243.8 L761.2,254.7 L765.6,264.6 L770.1,273.2 L774.6,280.7 L779.1,287.0 L783.5,292.0 L788.0,295.9 L792.5,298.7 L796.9,300.3 L801.4,300.9 L805.9,300.5 L810.4,299.2 L814.8,297.0 L819.3,294.1 L823.8,290.6 L828.2,286.5 L832.7,282.0 L837.2,277.1 L841.6,272.0 L846.1,266.8 L850.6,261.6 L855.1,256.3 L859.5,251.2 L864.0,246.3 L868.5,241.7 L872.9,237.3 L877.4,233.4 L881.9,229.8 L886.4,226.7 L890.8,224.0 L895.3,221.8 L899.8,220.1 L904.2,218.8 L908.7,218.0 L913.2,217.6 L917.6,217.7 L922.1,218.2 L926.6,219.0 L931.1,220.1 L935.5,221.5 L940.0,223.1" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>avant gauche (w0)</title></path>
+<path class="s2" d="M560.0,155.9 L564.5,154.3 L568.9,152.8 L573.4,151.4 L577.9,150.0 L582.4,148.7 L586.8,147.4 L591.3,146.2 L595.8,145.1 L600.2,144.0 L604.7,143.0 L609.2,142.0 L613.6,141.1 L618.1,140.2 L622.6,139.4 L627.1,138.6 L631.5,137.9 L636.0,137.2 L640.5,136.5 L644.9,135.8 L649.4,135.2 L653.9,134.7 L658.4,134.1 L662.8,133.6 L667.3,133.1 L671.8,132.6 L676.2,132.2 L680.7,165.7 L685.2,214.8 L689.6,260.2 L694.1,301.6 L698.6,339.1 L703.1,348.2 L707.5,348.2 L712.0,348.2 L716.5,348.2 L720.9,348.2 L725.4,348.2 L729.9,348.2 L734.4,348.2 L738.8,348.2 L743.3,348.2 L747.8,344.3 L752.2,338.8 L756.7,332.1 L761.2,324.5 L765.6,316.1 L770.1,307.1 L774.6,298.0 L779.1,289.3 L783.5,281.0 L788.0,273.9 L792.5,269.5 L796.9,265.2 L801.4,260.8 L805.9,256.3 L810.4,251.9 L814.8,247.5 L819.3,243.4 L823.8,239.4 L828.2,235.8 L832.7,232.4 L837.2,229.4 L841.6,226.8 L846.1,224.6 L850.6,222.8 L855.1,221.4 L859.5,220.4 L864.0,219.9 L868.5,219.7 L872.9,219.8 L877.4,220.3 L881.9,221.1 L886.4,222.2 L890.8,223.6 L895.3,225.1 L899.8,226.8 L904.2,228.7 L908.7,230.6 L913.2,232.6 L917.6,234.6 L922.1,236.7 L926.6,238.7 L931.1,240.6 L935.5,242.4 L940.0,244.1" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>avant droit (w1) : touche la butée</title></path>
+<text class="ink2" x="722.5" y="342.2" font-size="11" text-anchor="start">butée 0,025</text>
+</svg>

@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 440" width="660" height="440" role="img" aria-label="Accélération : identique sur terre, champ et pavé">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a} .s4{stroke:#8a63d2}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a} .f4{fill:#8a63d2}
+ .ring{stroke:#fcfcfb} .band{fill:#898781;fill-opacity:.10} .sm{stroke:#898781}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .s4{stroke:#9b79e0}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70} .f4{fill:#9b79e0}
+  .ring{stroke:#1a1a19} .band{fill:#c3c2b7;fill-opacity:.10}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="660" height="440"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Accélération : identique sur terre, champ et pavé</text>
+<text class="ink2" x="16" y="46" font-size="12">Médiane par tranche de 5 km/h, 4 roues sur la surface, tout droit.</text>
+<circle class="f2" cx="27" cy="66" r="4.5"/>
+<text class="ink2" x="44" y="70" font-size="12">piste en terre (17)</text>
+<circle class="f1" cx="192.39999999999998" cy="66" r="4.5"/>
+<text class="ink2" x="209.39999999999998" y="70" font-size="12">champ labouré (6)</text>
+<circle class="f3" cx="344.59999999999997" cy="66" r="4.5"/>
+<text class="ink2" x="361.59999999999997" y="70" font-size="12">pavé (19)</text>
+<line class="grid" x1="70.0" x2="630.0" y1="380.0" y2="380.0"/>
+<text class="mut num" x="64.0" y="384.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="630.0" y1="334.8" y2="334.8"/>
+<text class="mut num" x="64.0" y="338.8" font-size="11" text-anchor="end">10</text>
+<line class="grid" x1="70.0" x2="630.0" y1="289.7" y2="289.7"/>
+<text class="mut num" x="64.0" y="293.7" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="630.0" y1="244.5" y2="244.5"/>
+<text class="mut num" x="64.0" y="248.5" font-size="11" text-anchor="end">30</text>
+<line class="grid" x1="70.0" x2="630.0" y1="199.4" y2="199.4"/>
+<text class="mut num" x="64.0" y="203.4" font-size="11" text-anchor="end">40</text>
+<line class="grid" x1="70.0" x2="630.0" y1="154.2" y2="154.2"/>
+<text class="mut num" x="64.0" y="158.2" font-size="11" text-anchor="end">50</text>
+<line class="grid" x1="70.0" x2="630.0" y1="109.0" y2="109.0"/>
+<text class="mut num" x="64.0" y="113.0" font-size="11" text-anchor="end">60</text>
+<text class="mut num" x="70.0" y="396.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="154.8" y="396.0" font-size="11" text-anchor="middle">50</text>
+<text class="mut num" x="239.7" y="396.0" font-size="11" text-anchor="middle">100</text>
+<text class="mut num" x="324.5" y="396.0" font-size="11" text-anchor="middle">150</text>
+<text class="mut num" x="409.4" y="396.0" font-size="11" text-anchor="middle">200</text>
+<text class="mut num" x="494.2" y="396.0" font-size="11" text-anchor="middle">250</text>
+<text class="mut num" x="579.1" y="396.0" font-size="11" text-anchor="middle">300</text>
+<line class="axis" x1="70.0" x2="630.0" y1="380.0" y2="380.0"/>
+<text class="ink2" x="350.0" y="414.0" font-size="12" text-anchor="middle">vitesse (km/h)</text>
+<text class="ink2" x="26.0" y="240.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 240.0)">accélération avant (m/s²)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Plein gaz en ligne droite</text>
+<g><circle class="ring" stroke-width="1.5" cx="82.7" cy="109.0" r="4.5" fill="none"/><circle class="f2" cx="82.7" cy="109.0" r="3"><title>dirt_road : 7,5 km/h → 60 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="91.2" cy="109.0" r="4.5" fill="none"/><circle class="f2" cx="91.2" cy="109.0" r="3"><title>dirt_road : 12,5 km/h → 60 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="99.7" cy="109.0" r="4.5" fill="none"/><circle class="f2" cx="99.7" cy="109.0" r="3"><title>dirt_road : 17,5 km/h → 60 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="108.2" cy="109.0" r="4.5" fill="none"/><circle class="f2" cx="108.2" cy="109.0" r="3"><title>dirt_road : 22,5 km/h → 60 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="116.7" cy="221.9" r="4.5" fill="none"/><circle class="f2" cx="116.7" cy="221.9" r="3"><title>dirt_road : 27,5 km/h → 35 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="125.2" cy="221.9" r="4.5" fill="none"/><circle class="f2" cx="125.2" cy="221.9" r="3"><title>dirt_road : 32,5 km/h → 35 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="133.6" cy="221.9" r="4.5" fill="none"/><circle class="f2" cx="133.6" cy="221.9" r="3"><title>dirt_road : 37,5 km/h → 35 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="142.1" cy="221.9" r="4.5" fill="none"/><circle class="f2" cx="142.1" cy="221.9" r="3"><title>dirt_road : 42,5 km/h → 35 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="150.6" cy="221.9" r="4.5" fill="none"/><circle class="f2" cx="150.6" cy="221.9" r="3"><title>dirt_road : 47,5 km/h → 35 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="159.1" cy="267.1" r="4.5" fill="none"/><circle class="f2" cx="159.1" cy="267.1" r="3"><title>dirt_road : 52,5 km/h → 25 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="167.6" cy="267.1" r="4.5" fill="none"/><circle class="f2" cx="167.6" cy="267.1" r="3"><title>dirt_road : 57,5 km/h → 25 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="176.1" cy="267.1" r="4.5" fill="none"/><circle class="f2" cx="176.1" cy="267.1" r="3"><title>dirt_road : 62,5 km/h → 25 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="184.5" cy="267.1" r="4.5" fill="none"/><circle class="f2" cx="184.5" cy="267.1" r="3"><title>dirt_road : 67,5 km/h → 25 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="193.0" cy="267.1" r="4.5" fill="none"/><circle class="f2" cx="193.0" cy="267.1" r="3"><title>dirt_road : 72,5 km/h → 25 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="260.9" cy="343.6" r="4.5" fill="none"/><circle class="f2" cx="260.9" cy="343.6" r="3"><title>dirt_road : 112,5 km/h → 8,06 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="269.4" cy="344.0" r="4.5" fill="none"/><circle class="f2" cx="269.4" cy="344.0" r="3"><title>dirt_road : 117,5 km/h → 7,97 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="277.9" cy="343.9" r="4.5" fill="none"/><circle class="f2" cx="277.9" cy="343.9" r="3"><title>dirt_road : 122,5 km/h → 8 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="286.4" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="286.4" cy="352.9" r="3"><title>dirt_road : 127,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="294.8" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="294.8" cy="352.9" r="3"><title>dirt_road : 132,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="303.3" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="303.3" cy="352.9" r="3"><title>dirt_road : 137,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="311.8" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="311.8" cy="352.9" r="3"><title>dirt_road : 142,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="320.3" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="320.3" cy="352.9" r="3"><title>dirt_road : 147,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="328.8" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="328.8" cy="352.9" r="3"><title>dirt_road : 152,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="337.3" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="337.3" cy="352.9" r="3"><title>dirt_road : 157,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="345.8" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="345.8" cy="352.9" r="3"><title>dirt_road : 162,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="354.2" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="354.2" cy="352.9" r="3"><title>dirt_road : 167,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="362.7" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="362.7" cy="352.9" r="3"><title>dirt_road : 172,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="371.2" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="371.2" cy="352.9" r="3"><title>dirt_road : 177,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="379.7" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="379.7" cy="352.9" r="3"><title>dirt_road : 182,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="388.2" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="388.2" cy="352.9" r="3"><title>dirt_road : 187,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="396.7" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="396.7" cy="352.9" r="3"><title>dirt_road : 192,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="405.2" cy="352.9" r="4.5" fill="none"/><circle class="f2" cx="405.2" cy="352.9" r="3"><title>dirt_road : 197,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="413.6" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="413.6" cy="361.9" r="3"><title>dirt_road : 202,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="422.1" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="422.1" cy="361.9" r="3"><title>dirt_road : 207,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="430.6" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="430.6" cy="361.9" r="3"><title>dirt_road : 212,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="439.1" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="439.1" cy="361.9" r="3"><title>dirt_road : 217,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="447.6" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="447.6" cy="361.9" r="3"><title>dirt_road : 222,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="456.1" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="456.1" cy="361.9" r="3"><title>dirt_road : 227,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="464.5" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="464.5" cy="361.9" r="3"><title>dirt_road : 232,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="473.0" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="473.0" cy="361.9" r="3"><title>dirt_road : 237,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="481.5" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="481.5" cy="361.9" r="3"><title>dirt_road : 242,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="490.0" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="490.0" cy="361.9" r="3"><title>dirt_road : 247,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="498.5" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="498.5" cy="361.9" r="3"><title>dirt_road : 252,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="507.0" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="507.0" cy="361.9" r="3"><title>dirt_road : 257,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="515.5" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="515.5" cy="361.9" r="3"><title>dirt_road : 262,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="523.9" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="523.9" cy="361.9" r="3"><title>dirt_road : 267,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="532.4" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="532.4" cy="361.9" r="3"><title>dirt_road : 272,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="540.9" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="540.9" cy="361.9" r="3"><title>dirt_road : 277,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="549.4" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="549.4" cy="361.9" r="3"><title>dirt_road : 282,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="557.9" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="557.9" cy="361.9" r="3"><title>dirt_road : 287,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="566.4" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="566.4" cy="361.9" r="3"><title>dirt_road : 292,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="574.8" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="574.8" cy="361.9" r="3"><title>dirt_road : 297,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="583.3" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="583.3" cy="361.9" r="3"><title>dirt_road : 302,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="591.8" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="591.8" cy="361.9" r="3"><title>dirt_road : 307,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="600.3" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="600.3" cy="361.9" r="3"><title>dirt_road : 312,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="608.8" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="608.8" cy="361.9" r="3"><title>dirt_road : 317,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="617.3" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="617.3" cy="361.9" r="3"><title>dirt_road : 322,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="625.8" cy="361.9" r="4.5" fill="none"/><circle class="f2" cx="625.8" cy="361.9" r="3"><title>dirt_road : 327,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="159.1" cy="267.5" r="4.5" fill="none"/><circle class="f1" cx="159.1" cy="267.5" r="3"><title>field : 52,5 km/h → 24,92 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="184.5" cy="266.7" r="4.5" fill="none"/><circle class="f1" cx="184.5" cy="266.7" r="3"><title>field : 67,5 km/h → 25,09 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="193.0" cy="267.3" r="4.5" fill="none"/><circle class="f1" cx="193.0" cy="267.3" r="3"><title>field : 72,5 km/h → 24,95 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="201.5" cy="290.0" r="4.5" fill="none"/><circle class="f1" cx="201.5" cy="290.0" r="3"><title>field : 77,5 km/h → 19,93 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="210.0" cy="289.8" r="4.5" fill="none"/><circle class="f1" cx="210.0" cy="289.8" r="3"><title>field : 82,5 km/h → 19,98 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="218.5" cy="289.6" r="4.5" fill="none"/><circle class="f1" cx="218.5" cy="289.6" r="3"><title>field : 87,5 km/h → 20,02 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="227.0" cy="289.6" r="4.5" fill="none"/><circle class="f1" cx="227.0" cy="289.6" r="3"><title>field : 92,5 km/h → 20,02 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="235.5" cy="289.7" r="4.5" fill="none"/><circle class="f1" cx="235.5" cy="289.7" r="3"><title>field : 97,5 km/h → 20 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="243.9" cy="343.9" r="4.5" fill="none"/><circle class="f1" cx="243.9" cy="343.9" r="3"><title>field : 102,5 km/h → 7,99 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="252.4" cy="343.9" r="4.5" fill="none"/><circle class="f1" cx="252.4" cy="343.9" r="3"><title>field : 107,5 km/h → 8 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="260.9" cy="343.9" r="4.5" fill="none"/><circle class="f1" cx="260.9" cy="343.9" r="3"><title>field : 112,5 km/h → 8 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="269.4" cy="343.9" r="4.5" fill="none"/><circle class="f1" cx="269.4" cy="343.9" r="3"><title>field : 117,5 km/h → 8 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="277.9" cy="343.9" r="4.5" fill="none"/><circle class="f1" cx="277.9" cy="343.9" r="3"><title>field : 122,5 km/h → 8 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="286.4" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="286.4" cy="352.9" r="3"><title>field : 127,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="294.8" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="294.8" cy="352.9" r="3"><title>field : 132,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="303.3" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="303.3" cy="352.9" r="3"><title>field : 137,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="311.8" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="311.8" cy="352.9" r="3"><title>field : 142,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="320.3" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="320.3" cy="352.9" r="3"><title>field : 147,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="328.8" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="328.8" cy="352.9" r="3"><title>field : 152,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="337.3" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="337.3" cy="352.9" r="3"><title>field : 157,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="345.8" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="345.8" cy="352.9" r="3"><title>field : 162,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="354.2" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="354.2" cy="352.9" r="3"><title>field : 167,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="362.7" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="362.7" cy="352.9" r="3"><title>field : 172,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="371.2" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="371.2" cy="352.9" r="3"><title>field : 177,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="379.7" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="379.7" cy="352.9" r="3"><title>field : 182,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="388.2" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="388.2" cy="352.9" r="3"><title>field : 187,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="396.7" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="396.7" cy="352.9" r="3"><title>field : 192,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="405.2" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="405.2" cy="352.9" r="3"><title>field : 197,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="413.6" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="413.6" cy="361.9" r="3"><title>field : 202,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="422.1" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="422.1" cy="361.9" r="3"><title>field : 207,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="430.6" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="430.6" cy="361.9" r="3"><title>field : 212,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="439.1" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="439.1" cy="361.9" r="3"><title>field : 217,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="447.6" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="447.6" cy="361.9" r="3"><title>field : 222,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="456.1" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="456.1" cy="361.9" r="3"><title>field : 227,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="464.5" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="464.5" cy="361.9" r="3"><title>field : 232,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="473.0" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="473.0" cy="361.9" r="3"><title>field : 237,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="481.5" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="481.5" cy="361.9" r="3"><title>field : 242,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="490.0" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="490.0" cy="361.9" r="3"><title>field : 247,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="498.5" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="498.5" cy="361.9" r="3"><title>field : 252,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="507.0" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="507.0" cy="361.9" r="3"><title>field : 257,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="515.5" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="515.5" cy="361.9" r="3"><title>field : 262,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="523.9" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="523.9" cy="361.9" r="3"><title>field : 267,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="532.4" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="532.4" cy="361.9" r="3"><title>field : 272,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="540.9" cy="361.9" r="4.5" fill="none"/><circle class="f1" cx="540.9" cy="361.9" r="3"><title>field : 277,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="252.4" cy="344.0" r="4.5" fill="none"/><circle class="f3" cx="252.4" cy="344.0" r="3"><title>paved : 107,5 km/h → 7,97 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="260.9" cy="344.1" r="4.5" fill="none"/><circle class="f3" cx="260.9" cy="344.1" r="3"><title>paved : 112,5 km/h → 7,96 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="269.4" cy="343.7" r="4.5" fill="none"/><circle class="f3" cx="269.4" cy="343.7" r="3"><title>paved : 117,5 km/h → 8,04 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="277.9" cy="343.9" r="4.5" fill="none"/><circle class="f3" cx="277.9" cy="343.9" r="3"><title>paved : 122,5 km/h → 7,99 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="286.4" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="286.4" cy="352.9" r="3"><title>paved : 127,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="294.8" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="294.8" cy="352.9" r="3"><title>paved : 132,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="303.3" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="303.3" cy="352.9" r="3"><title>paved : 137,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="311.8" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="311.8" cy="352.9" r="3"><title>paved : 142,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="320.3" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="320.3" cy="352.9" r="3"><title>paved : 147,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="328.8" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="328.8" cy="352.9" r="3"><title>paved : 152,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="337.3" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="337.3" cy="352.9" r="3"><title>paved : 157,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="345.8" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="345.8" cy="352.9" r="3"><title>paved : 162,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="354.2" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="354.2" cy="352.9" r="3"><title>paved : 167,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="362.7" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="362.7" cy="352.9" r="3"><title>paved : 172,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="371.2" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="371.2" cy="352.9" r="3"><title>paved : 177,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="379.7" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="379.7" cy="352.9" r="3"><title>paved : 182,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="388.2" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="388.2" cy="352.9" r="3"><title>paved : 187,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="396.7" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="396.7" cy="352.9" r="3"><title>paved : 192,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="405.2" cy="352.9" r="4.5" fill="none"/><circle class="f3" cx="405.2" cy="352.9" r="3"><title>paved : 197,5 km/h → 6 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="413.6" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="413.6" cy="361.9" r="3"><title>paved : 202,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="422.1" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="422.1" cy="361.9" r="3"><title>paved : 207,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="430.6" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="430.6" cy="361.9" r="3"><title>paved : 212,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="439.1" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="439.1" cy="361.9" r="3"><title>paved : 217,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="447.6" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="447.6" cy="361.9" r="3"><title>paved : 222,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="456.1" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="456.1" cy="361.9" r="3"><title>paved : 227,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="464.5" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="464.5" cy="361.9" r="3"><title>paved : 232,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="473.0" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="473.0" cy="361.9" r="3"><title>paved : 237,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="481.5" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="481.5" cy="361.9" r="3"><title>paved : 242,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="490.0" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="490.0" cy="361.9" r="3"><title>paved : 247,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="498.5" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="498.5" cy="361.9" r="3"><title>paved : 252,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="507.0" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="507.0" cy="361.9" r="3"><title>paved : 257,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="515.5" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="515.5" cy="361.9" r="3"><title>paved : 262,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="523.9" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="523.9" cy="361.9" r="3"><title>paved : 267,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="532.4" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="532.4" cy="361.9" r="3"><title>paved : 272,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="540.9" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="540.9" cy="361.9" r="3"><title>paved : 277,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="549.4" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="549.4" cy="361.9" r="3"><title>paved : 282,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="557.9" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="557.9" cy="361.9" r="3"><title>paved : 287,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="566.4" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="566.4" cy="361.9" r="3"><title>paved : 292,5 km/h → 4 m/s²</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="574.8" cy="361.9" r="4.5" fill="none"/><circle class="f3" cx="574.8" cy="361.9" r="3"><title>paved : 297,5 km/h → 4 m/s²</title></circle></g>
+</svg>

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 680" width="640" height="680" role="img" aria-label="Contre-braquage et transfert de charge">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a} .s4{stroke:#8a63d2}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a} .f4{fill:#8a63d2}
+ .ring{stroke:#fcfcfb} .band{fill:#898781;fill-opacity:.10} .sm{stroke:#898781}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .s4{stroke:#9b79e0}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70} .f4{fill:#9b79e0}
+  .ring{stroke:#1a1a19} .band{fill:#c3c2b7;fill-opacity:.10}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="640" height="680"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Contre-braquage et transfert de charge</text>
+<text class="ink2" x="16" y="46" font-size="12">Dérive : + = queue sortie dans le premier virage (à droite). Trait gris : volant. Freinage : courbe arrêtée à l’arrêt de la voiture.</text>
+<line class="s2" x1="16" x2="38" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="44" y="70" font-size="12">dérive / freinage en appui</text>
+<line class="s1" x1="227.6" x2="249.6" y1="66" y2="66" stroke-width="2.5" stroke-dasharray="6 4"/>
+<text class="ink2" x="255.6" y="70" font-size="12">lacet ×10</text>
+<line class="s3" x1="327.0" x2="349.0" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="355.0" y="70" font-size="12">lever de pied</text>
+<line class="grid" x1="70.0" x2="590.0" y1="320.0" y2="320.0"/>
+<text class="mut num" x="64.0" y="324.0" font-size="11" text-anchor="end">-40</text>
+<line class="grid" x1="70.0" x2="590.0" y1="265.0" y2="265.0"/>
+<text class="mut num" x="64.0" y="269.0" font-size="11" text-anchor="end">-20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="210.0" y2="210.0"/>
+<text class="mut num" x="64.0" y="214.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="590.0" y1="155.0" y2="155.0"/>
+<text class="mut num" x="64.0" y="159.0" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="100.0" y2="100.0"/>
+<text class="mut num" x="64.0" y="104.0" font-size="11" text-anchor="end">40</text>
+<text class="mut num" x="169.7" y="336.0" font-size="11" text-anchor="middle">6</text>
+<text class="mut num" x="312.2" y="336.0" font-size="11" text-anchor="middle">7</text>
+<text class="mut num" x="454.7" y="336.0" font-size="11" text-anchor="middle">8</text>
+<line class="axis" x1="70.0" x2="590.0" y1="210.0" y2="210.0"/>
+<text class="ink2" x="330.0" y="354.0" font-size="12" text-anchor="middle">temps de course (s)</text>
+<text class="ink2" x="26.0" y="210.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 210.0)">dérive (°) / lacet ×10 (rad/s)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Contre-braquage à 100 km/h (champ)</text>
+<path class="s2" d="M70.0,210.0 L77.1,210.0 L84.2,210.0 L91.4,210.0 L98.5,210.0 L105.6,212.2 L112.7,210.6 L119.9,209.4 L127.0,206.2 L134.1,204.8 L141.2,200.7 L148.4,197.6 L155.5,194.6 L162.6,191.3 L169.7,188.3 L176.8,185.5 L184.0,183.1 L191.1,181.1 L198.2,179.8 L205.3,178.9 L212.5,178.7 L219.6,179.5 L226.7,181.1 L233.8,183.6 L241.0,186.9 L248.1,192.7 L255.2,203.9 L262.3,207.5 L269.5,209.2 L276.6,210.0 L283.7,212.8 L290.8,218.5 L297.9,218.2 L305.1,217.4 L312.2,216.9 L319.3,216.6 L326.4,216.3 L333.6,216.3 L340.7,216.6 L347.8,216.9 L354.9,217.2 L362.1,217.4 L369.2,217.7 L376.3,217.7 L383.4,217.7 L390.5,216.3 L397.7,212.8 L404.8,211.7 L411.9,210.8 L419.0,210.6 L426.2,210.3 L433.3,210.0 L440.4,210.0 L447.5,210.0 L454.7,210.0 L461.8,210.0 L468.9,210.0 L476.0,210.0 L483.2,210.0 L490.3,210.0 L497.4,210.0 L504.5,210.0 L511.6,210.0 L518.8,210.0 L525.9,210.0 L533.0,210.0 L540.1,210.0 L547.3,210.0 L554.4,210.0 L561.5,210.0 L568.6,210.0 L575.8,210.0 L582.9,210.0 L590.0,210.0" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>dérive (°), + = queue sortie dans le premier virage (droite)</title></path>
+<path class="s1" d="M70.0,210.0 L77.1,210.0 L84.2,210.0 L91.4,210.0 L98.5,210.0 L105.6,193.8 L112.7,169.3 L119.9,155.3 L127.0,145.1 L134.1,139.1 L141.2,135.5 L148.4,133.6 L155.5,132.4 L162.6,131.9 L169.7,131.6 L176.8,131.6 L184.0,131.9 L191.1,132.2 L198.2,132.4 L205.3,133.0 L212.5,133.8 L219.6,134.4 L226.7,135.2 L233.8,136.0 L241.0,137.1 L248.1,154.7 L255.2,203.1 L262.3,235.0 L269.5,253.2 L276.6,263.6 L283.7,271.6 L290.8,277.9 L297.9,281.8 L305.1,283.7 L312.2,284.8 L319.3,285.4 L326.4,285.6 L333.6,285.9 L340.7,286.2 L347.8,286.2 L354.9,286.2 L362.1,286.2 L369.2,286.2 L376.3,286.2 L383.4,286.2 L390.5,268.9 L397.7,243.0 L404.8,228.4 L411.9,220.2 L419.0,215.8 L426.2,213.3 L433.3,211.9 L440.4,211.1 L447.5,210.6 L454.7,210.3 L461.8,210.3 L468.9,210.0 L476.0,210.0 L483.2,210.0 L490.3,210.0 L497.4,210.0 L504.5,210.0 L511.6,210.0 L518.8,210.0 L525.9,210.0 L533.0,210.0 L540.1,210.0 L547.3,210.0 L554.4,210.0 L561.5,210.0 L568.6,210.0 L575.8,210.0 L582.9,210.0 L590.0,210.0" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="5 3"><title>lacet ×10 (rad/s), + = vers la droite</title></path>
+<path class="sm" d="M70.0,210.0 L77.1,210.0 L84.2,210.0 L91.4,210.0 L98.5,210.0 L105.6,127.5 L112.7,127.5 L119.9,127.5 L127.0,127.5 L134.1,127.5 L141.2,127.5 L148.4,127.5 L155.5,127.5 L162.6,127.5 L169.7,127.5 L176.8,127.5 L184.0,127.5 L191.1,127.5 L198.2,127.5 L205.3,127.5 L212.5,127.5 L219.6,127.5 L226.7,127.5 L233.8,127.5 L241.0,127.5 L248.1,292.5 L255.2,292.5 L262.3,292.5 L269.5,292.5 L276.6,292.5 L283.7,292.5 L290.8,292.5 L297.9,292.5 L305.1,292.5 L312.2,292.5 L319.3,292.5 L326.4,292.5 L333.6,292.5 L340.7,292.5 L347.8,292.5 L354.9,292.5 L362.1,292.5 L369.2,292.5 L376.3,292.5 L383.4,292.5 L390.5,210.0 L397.7,210.0 L404.8,210.0 L411.9,210.0 L419.0,210.0 L426.2,210.0 L433.3,210.0 L440.4,210.0 L447.5,210.0 L454.7,210.0 L461.8,210.0 L468.9,210.0 L476.0,210.0 L483.2,210.0 L490.3,210.0 L497.4,210.0 L504.5,210.0 L511.6,210.0 L518.8,210.0 L525.9,210.0 L533.0,210.0 L540.1,210.0 L547.3,210.0 L554.4,210.0 L561.5,210.0 L568.6,210.0 L575.8,210.0 L582.9,210.0 L590.0,210.0" fill="none" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"><title>volant (droite +)</title></path>
+<line class="grid" x1="70.0" x2="590.0" y1="588.6" y2="588.6"/>
+<text class="mut num" x="64.0" y="592.6" font-size="11" text-anchor="end">-0</text>
+<line class="grid" x1="70.0" x2="590.0" y1="525.7" y2="525.7"/>
+<text class="mut num" x="64.0" y="529.7" font-size="11" text-anchor="end">10</text>
+<line class="grid" x1="70.0" x2="590.0" y1="462.9" y2="462.9"/>
+<text class="mut num" x="64.0" y="466.9" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="400.0" y2="400.0"/>
+<text class="mut num" x="64.0" y="404.0" font-size="11" text-anchor="end">30</text>
+<text class="mut num" x="145.4" y="636.0" font-size="11" text-anchor="middle">8</text>
+<text class="mut num" x="296.1" y="636.0" font-size="11" text-anchor="middle">9</text>
+<text class="mut num" x="446.8" y="636.0" font-size="11" text-anchor="middle">10</text>
+<line class="axis" x1="70.0" x2="590.0" y1="588.6" y2="588.6"/>
+<text class="ink2" x="330.0" y="654.0" font-size="12" text-anchor="middle">temps de course (s)</text>
+<text class="ink2" x="26.0" y="510.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 510.0)">dérive (°)</text>
+<text class="ink" x="70.0" y="390.0" font-size="13" font-weight="600">Lever de pied / freiner en appui (cercle à 100 km/h)</text>
+<path class="s3" d="M70.0,574.1 L77.5,574.1 L85.1,574.1 L92.6,574.1 L100.1,574.1 L107.7,574.1 L115.2,574.1 L122.8,574.1 L130.3,574.1 L137.8,574.1 L145.4,574.1 L152.9,574.1 L160.4,574.1 L168.0,574.1 L175.5,574.1 L183.0,574.1 L190.6,574.1 L198.1,574.1 L205.7,574.1 L213.2,574.1 L220.7,574.1 L228.3,574.1 L235.8,574.1 L243.3,574.1 L250.9,574.1 L258.4,574.7 L265.9,574.7 L273.5,574.7 L281.0,574.7 L288.6,575.4 L296.1,575.4 L303.6,575.4 L311.2,576.0 L318.7,576.0 L326.2,576.0 L333.8,576.0 L341.3,576.6 L348.8,576.6 L356.4,576.6 L363.9,577.3 L371.4,577.3 L379.0,577.3 L386.5,577.9 L394.1,577.9 L401.6,577.9 L409.1,578.5 L416.7,578.5 L424.2,578.5 L431.7,579.1 L439.3,579.1 L446.8,579.1 L454.3,579.8 L461.9,579.8 L469.4,580.4 L477.0,580.4 L484.5,580.4 L492.0,581.0 L499.6,581.0 L507.1,581.0 L514.6,581.7 L522.2,581.7 L529.7,582.3 L537.2,582.3 L544.8,582.3 L552.3,582.9 L559.9,582.9 L567.4,583.5 L574.9,583.5 L582.5,584.2 L590.0,584.2" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>r_field_liftoff100 : dérive</title></path>
+<path class="s2" d="M70.0,574.1 L77.5,574.1 L85.1,574.1 L92.6,574.1 L100.1,574.1 L107.7,574.1 L115.2,574.1 L122.8,574.1 L130.3,574.1 L137.8,574.1 L145.4,574.1 L152.9,574.1 L160.4,574.1 L168.0,574.1 L175.5,574.1 L183.0,574.1 L190.6,574.1 L198.1,574.1 L205.7,574.1 L213.2,574.1 L220.7,574.1 L228.3,571.0 L235.8,571.6 L243.3,577.9 L250.9,581.7 L258.4,586.7 L265.9,592.3 L273.5,598.6 L281.0,619.4" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>r_field_braketurn100 : dérive</title></path>
+</svg>

@@ -1,0 +1,82 @@
+//! The demo map, « Jezero »: about 2.1 km, three checkpoints, built only from kit pieces.
+//!
+//! Route (compass as seen from above with north = +Z, east = −X):
+//! 1. start block, then a 2-cell right and a 3-cell left sweeper at ground level;
+//! 2. a 2-level climb over 4 cells onto a platform 16 m up;
+//! 3. elevated S-bends: 2-cell right banked 18°, 1-cell left hairpin, 3-cell right sweeper;
+//! 4. checkpoint 1, which is also the run-up, a 4° jump ramp, an 8 m gap and a 7-cell landing
+//!    descent back to the ground (see [`crate::jump`] for which speeds and gravities it catches);
+//! 5. road → dirt, a 2-cell dirt left, 3 cells of whoops, a U-turn berm banked 18°, checkpoint 2,
+//!    another 2-cell dirt left, dirt → road;
+//! 6. a 3-cell right sweeper, a 1-level climb, 2-cell right, checkpoint 3 on the 8 m platform,
+//!    2-cell left, 1-level descent, then a 1-cell right, 2-cell left, 2-cell right S to the finish.
+//!
+//! 2077 m of centreline: 37 s at a 200 km/h average. Crests: the 4-cell climb has a 333 m crest
+//! radius and the 3-cell slopes 374 m, so the car stays on the ground over them up to
+//! √(g·R): 206/218 km/h at 9.81 m/s², 412/437 km/h at 40 m/s² (the reference). The whoops
+//! (0.6 m, every 32 m, 86 m crest radius) make it hop above 105 km/h at 9.81 and 212 km/h at 40,
+//! which is their purpose.
+//!
+//! # Jump envelope
+//!
+//! Lip speeds that clear the 8 m gap and touch down within 5° of the landing slope (the design
+//! angle is 4.0° on the whole parabolic part; `cargo run -p track --example plan` prints and
+//! draws it):
+//!
+//! | gravity (m/s²) | clean lip speeds (km/h) | at 200 km/h |
+//! |---|---|---|
+//! | 3.71 (Mars) | 52 – 171 | flies 236 m, lands on the flat at 12° |
+//! | 9.81 | 84 – 279 | 60 m, 1.1 s in the air |
+//! | 20 | 120 – 398 | 25 m, 0.45 s |
+//! | 30 | 146 – 488 | 16 m, 0.28 s |
+//! | 40 (reference) | 169 – 564 | 12 m, 0.21 s |
+//!
+//! A fast player reaches the lip at roughly 200-240 km/h, so every gravity from Earth to the
+//! reference lands cleanly; Mars gravity needs to lift off below ~170 km/h. The price of that
+//! range is a short hop under heavy gravity: the air time for a given touchdown angle only grows
+//! when the landing follows one gravity's parabola, which would throw the others off.
+
+use crate::Surface;
+use crate::kit::{Connector, Gate, Heading, Kind, Layout, Piece, Side};
+
+pub const NAME: &str = "Jezero";
+
+/// The demo layout. The start block sits in cell (13, −10) so the map is centred on the origin.
+pub fn layout() -> Layout {
+    use Side::{Left, Right};
+    let road = Piece::road;
+    let dirt = Piece::dirt;
+    let mut l = Layout::new(NAME, Connector::entering((13, -10), 0, Heading::North));
+    l.push(road(Kind::Straight { cells: 1 }).gate(Gate::Start))
+        .push(road(Kind::turn(2, Right)))
+        .push(road(Kind::turn(3, Left)))
+        .push(road(Kind::Slope { cells: 4, levels: 2 }))
+        // Elevated S-bends, 16 m up.
+        .push(road(Kind::banked(2, Right, 18.0)))
+        .push(road(Kind::turn(1, Left)))
+        .push(road(Kind::turn(3, Right)))
+        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
+        // The jump.
+        .push(road(Kind::JumpRamp { lip_deg: 4.0 }))
+        .push(road(Kind::Landing { cells: 7, levels: -2, gap: 8.0, epsilon: 0.07, outrun: 48.0 }))
+        // Dirt.
+        .push(road(Kind::Transition { to: Surface::Dirt }))
+        .push(dirt(Kind::turn(2, Left)))
+        .push(dirt(Kind::Whoops { cells: 3, bumps: 3, height: 0.6 }))
+        .push(dirt(Kind::berm(2, Right, 2, 18.0)))
+        .push(dirt(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
+        .push(dirt(Kind::turn(2, Left)))
+        .push(dirt(Kind::Transition { to: Surface::Road }))
+        // Back on the road: second, lower platform.
+        .push(road(Kind::turn(3, Right)))
+        .push(road(Kind::Slope { cells: 3, levels: 1 }))
+        .push(road(Kind::turn(2, Right)))
+        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
+        .push(road(Kind::turn(2, Left)))
+        .push(road(Kind::Slope { cells: 3, levels: -1 }))
+        .push(road(Kind::turn(1, Right)))
+        .push(road(Kind::turn(2, Left)))
+        .push(road(Kind::turn(2, Right)))
+        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Finish));
+    l
+}

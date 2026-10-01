@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 450" width="680" height="450" role="img" aria-label="Accélération plein gaz selon la vitesse">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a}
+ .ring{stroke:#fcfcfb}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70}
+  .ring{stroke:#1a1a19}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="680" height="450"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Accélération plein gaz selon la vitesse</text>
+<text class="ink2" x="16" y="46" font-size="12">Seuils 55 / 80 / 115 / 140 / 240 km/h, indépendants des rapports. Pente : −30 m/s² par unité de sinus.</text>
+<line class="s1" x1="16" x2="38" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="44" y="70" font-size="12">route (paliers)</text>
+<circle class="f3" cx="166.0" cy="66" r="4.5"/>
+<text class="ink2" x="183.0" y="70" font-size="12">neige, braquage max</text>
+<circle class="f2" cx="331.4" cy="66" r="4.5"/>
+<text class="ink2" x="348.4" y="70" font-size="12">neige, tout droit</text>
+<line class="grid" x1="70.0" x2="630.0" y1="400.0" y2="400.0"/>
+<text class="mut num" x="64.0" y="404.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="630.0" y1="353.1" y2="353.1"/>
+<text class="mut num" x="64.0" y="357.1" font-size="11" text-anchor="end">5</text>
+<line class="grid" x1="70.0" x2="630.0" y1="306.2" y2="306.2"/>
+<text class="mut num" x="64.0" y="310.2" font-size="11" text-anchor="end">10</text>
+<line class="grid" x1="70.0" x2="630.0" y1="259.4" y2="259.4"/>
+<text class="mut num" x="64.0" y="263.4" font-size="11" text-anchor="end">15</text>
+<line class="grid" x1="70.0" x2="630.0" y1="212.5" y2="212.5"/>
+<text class="mut num" x="64.0" y="216.5" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="630.0" y1="165.6" y2="165.6"/>
+<text class="mut num" x="64.0" y="169.6" font-size="11" text-anchor="end">25</text>
+<line class="grid" x1="70.0" x2="630.0" y1="118.8" y2="118.8"/>
+<text class="mut num" x="64.0" y="122.8" font-size="11" text-anchor="end">30</text>
+<text class="mut num" x="70.0" y="416.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="177.7" y="416.0" font-size="11" text-anchor="middle">50</text>
+<text class="mut num" x="285.4" y="416.0" font-size="11" text-anchor="middle">100</text>
+<text class="mut num" x="393.1" y="416.0" font-size="11" text-anchor="middle">150</text>
+<text class="mut num" x="500.8" y="416.0" font-size="11" text-anchor="middle">200</text>
+<text class="mut num" x="608.5" y="416.0" font-size="11" text-anchor="middle">250</text>
+<line class="axis" x1="70.0" x2="630.0" y1="400.0" y2="400.0"/>
+<text class="ink2" x="350.0" y="434.0" font-size="12" text-anchor="middle">vitesse (km/h)</text>
+<text class="ink2" x="26.0" y="250.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 250.0)">accélération avant (m/s²)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Plein gaz en ligne droite : paliers constants</text>
+<path class="s1" d="M70.0,118.8 L188.5,118.8 L188.5,232.7 L242.3,232.7 L242.3,315.6 L317.7,315.6 L317.7,353.1 L371.5,353.1 L371.5,376.6 L586.9,376.6 L586.9,390.6 L630.0,390.6" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>route plate (paliers mesurés)</title></path>
+<g><circle class="ring" stroke-width="1.5" cx="140.0" cy="118.8" r="4.5" fill="none"/><circle class="f1" cx="140.0" cy="118.8" r="3"><title>32 km/h : 30.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="150.8" cy="118.8" r="4.5" fill="none"/><circle class="f1" cx="150.8" cy="118.8" r="3"><title>38 km/h : 30.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="161.5" cy="118.8" r="4.5" fill="none"/><circle class="f1" cx="161.5" cy="118.8" r="3"><title>42 km/h : 30.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="172.3" cy="118.8" r="4.5" fill="none"/><circle class="f1" cx="172.3" cy="118.8" r="3"><title>48 km/h : 30.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="183.1" cy="118.8" r="4.5" fill="none"/><circle class="f1" cx="183.1" cy="118.8" r="3"><title>52 km/h : 30.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="193.8" cy="232.7" r="4.5" fill="none"/><circle class="f1" cx="193.8" cy="232.7" r="3"><title>58 km/h : 17.85 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="204.6" cy="232.7" r="4.5" fill="none"/><circle class="f1" cx="204.6" cy="232.7" r="3"><title>62 km/h : 17.85 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="215.4" cy="232.7" r="4.5" fill="none"/><circle class="f1" cx="215.4" cy="232.7" r="3"><title>68 km/h : 17.85 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="226.2" cy="232.7" r="4.5" fill="none"/><circle class="f1" cx="226.2" cy="232.7" r="3"><title>72 km/h : 17.85 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="236.9" cy="232.7" r="4.5" fill="none"/><circle class="f1" cx="236.9" cy="232.7" r="3"><title>78 km/h : 17.85 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="247.7" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="247.7" cy="315.6" r="3"><title>82 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="258.5" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="258.5" cy="315.6" r="3"><title>88 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="269.2" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="269.2" cy="315.6" r="3"><title>92 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.0" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="280.0" cy="315.6" r="3"><title>98 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="290.8" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="290.8" cy="315.6" r="3"><title>102 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="301.5" cy="315.6" r="4.5" fill="none"/><circle class="f1" cx="301.5" cy="315.6" r="3"><title>108 km/h : 9.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="312.3" cy="315.4" r="4.5" fill="none"/><circle class="f1" cx="312.3" cy="315.4" r="3"><title>112 km/h : 9.02 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="323.1" cy="352.9" r="4.5" fill="none"/><circle class="f1" cx="323.1" cy="352.9" r="3"><title>118 km/h : 5.02 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="333.8" cy="353.1" r="4.5" fill="none"/><circle class="f1" cx="333.8" cy="353.1" r="3"><title>122 km/h : 5.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="344.6" cy="353.1" r="4.5" fill="none"/><circle class="f1" cx="344.6" cy="353.1" r="3"><title>128 km/h : 5.00 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="355.4" cy="353.0" r="4.5" fill="none"/><circle class="f1" cx="355.4" cy="353.0" r="3"><title>132 km/h : 5.01 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="366.2" cy="353.0" r="4.5" fill="none"/><circle class="f1" cx="366.2" cy="353.0" r="3"><title>138 km/h : 5.01 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="376.9" cy="376.5" r="4.5" fill="none"/><circle class="f1" cx="376.9" cy="376.5" r="3"><title>142 km/h : 2.51 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="387.7" cy="376.6" r="4.5" fill="none"/><circle class="f1" cx="387.7" cy="376.6" r="3"><title>148 km/h : 2.50 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="398.5" cy="376.6" r="4.5" fill="none"/><circle class="f1" cx="398.5" cy="376.6" r="3"><title>152 km/h : 2.50 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="409.2" cy="376.6" r="4.5" fill="none"/><circle class="f1" cx="409.2" cy="376.6" r="3"><title>158 km/h : 2.50 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="420.0" cy="376.4" r="4.5" fill="none"/><circle class="f1" cx="420.0" cy="376.4" r="3"><title>162 km/h : 2.52 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="430.8" cy="376.3" r="4.5" fill="none"/><circle class="f1" cx="430.8" cy="376.3" r="3"><title>168 km/h : 2.53 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="441.5" cy="376.1" r="4.5" fill="none"/><circle class="f1" cx="441.5" cy="376.1" r="3"><title>172 km/h : 2.55 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="452.3" cy="376.0" r="4.5" fill="none"/><circle class="f1" cx="452.3" cy="376.0" r="3"><title>178 km/h : 2.56 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="463.1" cy="376.3" r="4.5" fill="none"/><circle class="f1" cx="463.1" cy="376.3" r="3"><title>182 km/h : 2.53 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="473.8" cy="376.6" r="4.5" fill="none"/><circle class="f1" cx="473.8" cy="376.6" r="3"><title>188 km/h : 2.50 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="484.6" cy="376.8" r="4.5" fill="none"/><circle class="f1" cx="484.6" cy="376.8" r="3"><title>192 km/h : 2.48 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="495.4" cy="377.1" r="4.5" fill="none"/><circle class="f1" cx="495.4" cy="377.1" r="3"><title>198 km/h : 2.44 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="506.2" cy="376.8" r="4.5" fill="none"/><circle class="f1" cx="506.2" cy="376.8" r="3"><title>202 km/h : 2.48 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="516.9" cy="376.4" r="4.5" fill="none"/><circle class="f1" cx="516.9" cy="376.4" r="3"><title>208 km/h : 2.52 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="527.7" cy="376.5" r="4.5" fill="none"/><circle class="f1" cx="527.7" cy="376.5" r="3"><title>212 km/h : 2.51 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="538.5" cy="376.7" r="4.5" fill="none"/><circle class="f1" cx="538.5" cy="376.7" r="3"><title>218 km/h : 2.49 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="549.2" cy="376.7" r="4.5" fill="none"/><circle class="f1" cx="549.2" cy="376.7" r="3"><title>222 km/h : 2.49 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="560.0" cy="376.4" r="4.5" fill="none"/><circle class="f1" cx="560.0" cy="376.4" r="3"><title>228 km/h : 2.52 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="581.5" cy="376.6" r="4.5" fill="none"/><circle class="f1" cx="581.5" cy="376.6" r="3"><title>238 km/h : 2.50 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="592.3" cy="390.5" r="4.5" fill="none"/><circle class="f1" cx="592.3" cy="390.5" r="3"><title>242 km/h : 1.01 m/s² (route, pente corrigée)</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="102.3" cy="259.4" r="5.5" fill="none"/><circle class="f3" cx="102.3" cy="259.4" r="4"><title>neige, braquage max : 15.0 m/s² à 15 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="123.8" cy="252.8" r="5.5" fill="none"/><circle class="f3" cx="123.8" cy="252.8" r="4"><title>neige, braquage max : 15.7 m/s² à 25 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="145.4" cy="249.1" r="5.5" fill="none"/><circle class="f3" cx="145.4" cy="249.1" r="4"><title>neige, braquage max : 16.1 m/s² à 35 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="166.9" cy="248.1" r="5.5" fill="none"/><circle class="f3" cx="166.9" cy="248.1" r="4"><title>neige, braquage max : 16.2 m/s² à 45 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="188.5" cy="317.5" r="5.5" fill="none"/><circle class="f3" cx="188.5" cy="317.5" r="4"><title>neige, braquage max : 8.8 m/s² à 55 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="210.0" cy="326.9" r="5.5" fill="none"/><circle class="f3" cx="210.0" cy="326.9" r="4"><title>neige, braquage max : 7.8 m/s² à 65 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="253.1" cy="366.2" r="5.5" fill="none"/><circle class="f3" cx="253.1" cy="366.2" r="4"><title>neige, braquage max : 3.6 m/s² à 85 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="210.0" cy="299.7" r="5.5" fill="none"/><circle class="f2" cx="210.0" cy="299.7" r="4"><title>neige, tout droit : 10.7 m/s² à 65 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="253.1" cy="346.6" r="5.5" fill="none"/><circle class="f2" cx="253.1" cy="346.6" r="4"><title>neige, tout droit : 5.7 m/s² à 85 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="274.6" cy="347.5" r="5.5" fill="none"/><circle class="f2" cx="274.6" cy="347.5" r="4"><title>neige, tout droit : 5.6 m/s² à 95 km/h</title></circle></g>
+<text class="ink" x="129.2" y="111.8" font-size="11" text-anchor="middle">30</text>
+<text class="ink" x="215.4" y="225.7" font-size="11" text-anchor="middle">17,85</text>
+<text class="ink" x="280.0" y="308.6" font-size="11" text-anchor="middle">9</text>
+<text class="ink" x="344.6" y="346.1" font-size="11" text-anchor="middle">5</text>
+<text class="ink" x="479.2" y="369.6" font-size="11" text-anchor="middle">2,5</text>
+<text class="ink" x="597.7" y="383.6" font-size="11" text-anchor="middle">1</text>
+</svg>

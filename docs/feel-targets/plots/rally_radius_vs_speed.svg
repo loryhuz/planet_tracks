@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 680" width="640" height="680" role="img" aria-label="Rayon et dérive : adhérence puis glisse">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a} .s4{stroke:#8a63d2}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a} .f4{fill:#8a63d2}
+ .ring{stroke:#fcfcfb} .band{fill:#898781;fill-opacity:.10} .sm{stroke:#898781}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .s4{stroke:#9b79e0}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70} .f4{fill:#9b79e0}
+  .ring{stroke:#1a1a19} .band{fill:#c3c2b7;fill-opacity:.10}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="640" height="680"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Rayon et dérive : adhérence puis glisse</text>
+<text class="ink2" x="16" y="46" font-size="12">Points : cercles à vitesse tenue (régime établi). Courbes : braquage max en roue libre depuis 140 km/h (glisse, la vitesse chute).</text>
+<circle class="f1" cx="27" cy="66" r="4.5"/>
+<text class="ink2" x="44" y="70" font-size="12">champ</text>
+<circle class="f3" cx="100.0" cy="66" r="4.5"/>
+<text class="ink2" x="117.0" y="70" font-size="12">pavé</text>
+<circle class="f2" cx="166.4" cy="66" r="4.5"/>
+<text class="ink2" x="183.4" y="70" font-size="12">herbe</text>
+<circle class="f4" cx="239.4" cy="66" r="4.5"/>
+<text class="ink2" x="256.4" y="70" font-size="12">demi-braquage</text>
+<line class="s2" x1="354.2" x2="376.2" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="382.2" y="70" font-size="12">glisse champ</text>
+<line class="s3" x1="473.4" x2="495.4" y1="66" y2="66" stroke-width="2.5" stroke-dasharray="6 4"/>
+<text class="ink2" x="501.4" y="70" font-size="12">glisse pavé</text>
+<line class="grid" x1="70.0" x2="590.0" y1="350.0" y2="350.0"/>
+<text class="mut num" x="64.0" y="354.0" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="590.0" y1="310.9" y2="310.9"/>
+<text class="mut num" x="64.0" y="314.9" font-size="11" text-anchor="end">5</text>
+<line class="grid" x1="70.0" x2="590.0" y1="271.9" y2="271.9"/>
+<text class="mut num" x="64.0" y="275.9" font-size="11" text-anchor="end">10</text>
+<line class="grid" x1="70.0" x2="590.0" y1="232.8" y2="232.8"/>
+<text class="mut num" x="64.0" y="236.8" font-size="11" text-anchor="end">15</text>
+<line class="grid" x1="70.0" x2="590.0" y1="193.8" y2="193.8"/>
+<text class="mut num" x="64.0" y="197.8" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="154.7" y2="154.7"/>
+<text class="mut num" x="64.0" y="158.7" font-size="11" text-anchor="end">25</text>
+<line class="grid" x1="70.0" x2="590.0" y1="115.6" y2="115.6"/>
+<text class="mut num" x="64.0" y="119.6" font-size="11" text-anchor="end">30</text>
+<text class="mut num" x="70.0" y="366.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="156.7" y="366.0" font-size="11" text-anchor="middle">25</text>
+<text class="mut num" x="243.3" y="366.0" font-size="11" text-anchor="middle">50</text>
+<text class="mut num" x="330.0" y="366.0" font-size="11" text-anchor="middle">75</text>
+<text class="mut num" x="416.7" y="366.0" font-size="11" text-anchor="middle">100</text>
+<text class="mut num" x="503.3" y="366.0" font-size="11" text-anchor="middle">125</text>
+<text class="mut num" x="590.0" y="366.0" font-size="11" text-anchor="middle">150</text>
+<line class="axis" x1="70.0" x2="590.0" y1="350.0" y2="350.0"/>
+<text class="ink2" x="330.0" y="384.0" font-size="12" text-anchor="middle">vitesse (km/h)</text>
+<text class="ink2" x="26.0" y="225.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 225.0)">rayon de la trajectoire (m)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Rayon de trajectoire</text>
+<path class="s2" d="M217.3,332.8 L234.7,327.3 L252.0,321.1 L269.3,314.1 L286.7,307.0 L304.0,298.4 L321.3,291.4 L338.7,282.8 L356.0,274.2 L373.3,266.4 L390.7,257.8 L408.0,250.0 L425.3,240.6 L442.7,232.0 L460.0,224.2 L477.3,215.6 L494.7,207.0 L512.0,198.4 L529.3,189.8 L546.7,143.8" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>champ : glisse en roue libre, braquage max depuis 140 km/h (la vitesse chute pendant la glisse)</title></path>
+<path class="s3" d="M217.3,311.7 L234.7,301.6 L269.3,284.4 L286.7,274.2 L304.0,264.8 L321.3,255.5 L338.7,246.9 L356.0,239.1 L373.3,231.2 L390.7,223.4 L408.0,214.8 L425.3,205.5 L442.7,197.7 L460.0,189.8 L477.3,182.0 L494.7,174.2 L512.0,165.6 L529.3,157.0 L546.7,125.0" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>pavé : glisse en roue libre, braquage max depuis 140 km/h (la vitesse chute pendant la glisse)</title></path>
+<g><circle class="ring" stroke-width="1.5" cx="403.8" cy="276.6" r="5.5" fill="none"/><circle class="f1" cx="403.8" cy="276.6" r="4"><title>champ, braquage max (r_field_circle100) : 96,3 km/h, R 9,4 m, dérive 2,3°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="403.5" cy="276.6" r="5.5" fill="none"/><circle class="f1" cx="403.5" cy="276.6" r="4"><title>champ, braquage max (r_field_circle120) : 96,2 km/h, R 9,4 m, dérive 2,3°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="212.5" cy="289.1" r="5.5" fill="none"/><circle class="f1" cx="212.5" cy="289.1" r="4"><title>champ, braquage max (r_field_circle40) : 41,1 km/h, R 7,8 m, dérive -1,1°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.1" cy="285.2" r="5.5" fill="none"/><circle class="f1" cx="280.1" cy="285.2" r="4"><title>champ, braquage max (r_field_circle60) : 60,6 km/h, R 8,3 m, dérive -0,2°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="348.7" cy="277.3" r="5.5" fill="none"/><circle class="f1" cx="348.7" cy="277.3" r="4"><title>champ, braquage max (r_field_circle80) : 80,4 km/h, R 9,3 m, dérive 0,4°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="307.1" cy="281.2" r="5.5" fill="none"/><circle class="f3" cx="307.1" cy="281.2" r="4"><title>pavé, braquage max (r_paved_circle100) : 68,4 km/h, R 8,8 m, dérive 1°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="212.5" cy="289.1" r="5.5" fill="none"/><circle class="f3" cx="212.5" cy="289.1" r="4"><title>pavé, braquage max (r_paved_circle40) : 41,1 km/h, R 7,8 m, dérive -1,1°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.1" cy="290.6" r="5.5" fill="none"/><circle class="f3" cx="280.1" cy="290.6" r="4"><title>pavé, braquage max (r_paved_circle60) : 60,6 km/h, R 7,6 m, dérive 0,7°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="278.3" cy="290.6" r="5.5" fill="none"/><circle class="f2" cx="278.3" cy="290.6" r="4"><title>herbe, braquage max (r_grass_circle60) : 60,1 km/h, R 7,6 m, dérive 1,8°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="418.1" cy="182.0" r="5.5" fill="none"/><circle class="f4" cx="418.1" cy="182.0" r="4"><title>champ, demi-braquage (r_field_half100) : 100,4 km/h, R 21,5 m, dérive 0,4°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="555.3" cy="118.0" r="5.5" fill="none"/><circle class="f4" cx="555.3" cy="118.0" r="4"><title>champ, demi-braquage (r_field_half140) : 140 km/h, R 29,7 m, dérive 0,5°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.8" cy="219.5" r="5.5" fill="none"/><circle class="f4" cx="280.8" cy="219.5" r="4"><title>champ, demi-braquage (r_field_half60) : 60,8 km/h, R 16,7 m, dérive -0,1°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="414.9" cy="183.6" r="5.5" fill="none"/><circle class="f4" cx="414.9" cy="183.6" r="4"><title>pavé, demi-braquage (r_paved_half100) : 99,5 km/h, R 21,3 m, dérive 0,4°</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="373.0" cy="208.6" r="5.5" fill="none"/><circle class="f4" cx="373.0" cy="208.6" r="4"><title>pavé, demi-braquage (r_paved_half140) : 87,4 km/h, R 18,1 m, dérive 0,5°</title></circle></g>
+<text class="ink2" x="412.3" y="292.6" font-size="10" text-anchor="start">plafond : 96 km/h en braquage max (plein gaz)</text>
+<text class="ink2" x="482.0" y="154.5" font-size="10" text-anchor="start">glisse : R 14–25 m</text>
+<line class="grid" x1="70.0" x2="590.0" y1="614.6" y2="614.6"/>
+<text class="mut num" x="64.0" y="618.6" font-size="11" text-anchor="end">-0</text>
+<line class="grid" x1="70.0" x2="590.0" y1="583.8" y2="583.8"/>
+<text class="mut num" x="64.0" y="587.8" font-size="11" text-anchor="end">10</text>
+<line class="grid" x1="70.0" x2="590.0" y1="553.1" y2="553.1"/>
+<text class="mut num" x="64.0" y="557.1" font-size="11" text-anchor="end">20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="522.3" y2="522.3"/>
+<text class="mut num" x="64.0" y="526.3" font-size="11" text-anchor="end">30</text>
+<line class="grid" x1="70.0" x2="590.0" y1="491.5" y2="491.5"/>
+<text class="mut num" x="64.0" y="495.5" font-size="11" text-anchor="end">40</text>
+<line class="grid" x1="70.0" x2="590.0" y1="460.8" y2="460.8"/>
+<text class="mut num" x="64.0" y="464.8" font-size="11" text-anchor="end">50</text>
+<line class="grid" x1="70.0" x2="590.0" y1="430.0" y2="430.0"/>
+<text class="mut num" x="64.0" y="434.0" font-size="11" text-anchor="end">60</text>
+<text class="mut num" x="70.0" y="646.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="156.7" y="646.0" font-size="11" text-anchor="middle">25</text>
+<text class="mut num" x="243.3" y="646.0" font-size="11" text-anchor="middle">50</text>
+<text class="mut num" x="330.0" y="646.0" font-size="11" text-anchor="middle">75</text>
+<text class="mut num" x="416.7" y="646.0" font-size="11" text-anchor="middle">100</text>
+<text class="mut num" x="503.3" y="646.0" font-size="11" text-anchor="middle">125</text>
+<text class="mut num" x="590.0" y="646.0" font-size="11" text-anchor="middle">150</text>
+<line class="axis" x1="70.0" x2="590.0" y1="614.6" y2="614.6"/>
+<text class="ink2" x="330.0" y="664.0" font-size="12" text-anchor="middle">vitesse (km/h)</text>
+<text class="ink2" x="26.0" y="530.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 530.0)">angle de dérive (°)</text>
+<text class="ink" x="70.0" y="420.0" font-size="13" font-weight="600">Angle de dérive</text>
+<path class="s2" d="M217.3,558.9 L234.7,532.8 L252.0,518.9 L269.3,510.6 L286.7,505.7 L304.0,503.2 L321.3,502.6 L338.7,503.5 L356.0,505.7 L373.3,508.8 L390.7,512.8 L408.0,517.1 L425.3,522.9 L442.7,529.1 L460.0,535.5 L477.3,543.2 L494.7,553.1 L512.0,563.8 L529.3,577.4 L546.7,605.4" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>champ : glisse en roue libre depuis 140 km/h</title></path>
+<path class="s3" d="M217.3,437.1 L234.7,436.8 L269.3,439.8 L286.7,443.5 L304.0,448.2 L321.3,453.4 L338.7,459.2 L356.0,465.4 L373.3,471.8 L390.7,478.6 L408.0,486.6 L425.3,495.8 L442.7,504.2 L460.0,513.7 L477.3,524.5 L494.7,536.5 L512.0,550.6 L529.3,566.9 L546.7,602.3" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>pavé : glisse en roue libre depuis 140 km/h</title></path>
+<g><circle class="ring" stroke-width="1.5" cx="403.8" cy="607.5" r="5.5" fill="none"/><circle class="f1" cx="403.8" cy="607.5" r="4"><title>champ, braquage max (r_field_circle100) : dérive 2,3° à 96,3 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="403.5" cy="607.5" r="5.5" fill="none"/><circle class="f1" cx="403.5" cy="607.5" r="4"><title>champ, braquage max (r_field_circle120) : dérive 2,3° à 96,2 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="212.5" cy="618.0" r="5.5" fill="none"/><circle class="f1" cx="212.5" cy="618.0" r="4"><title>champ, braquage max (r_field_circle40) : dérive -1,1° à 41,1 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.1" cy="615.2" r="5.5" fill="none"/><circle class="f1" cx="280.1" cy="615.2" r="4"><title>champ, braquage max (r_field_circle60) : dérive -0,2° à 60,6 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="348.7" cy="613.4" r="5.5" fill="none"/><circle class="f1" cx="348.7" cy="613.4" r="4"><title>champ, braquage max (r_field_circle80) : dérive 0,4° à 80,4 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="307.1" cy="611.5" r="5.5" fill="none"/><circle class="f3" cx="307.1" cy="611.5" r="4"><title>pavé, braquage max (r_paved_circle100) : dérive 1° à 68,4 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="212.5" cy="618.0" r="5.5" fill="none"/><circle class="f3" cx="212.5" cy="618.0" r="4"><title>pavé, braquage max (r_paved_circle40) : dérive -1,1° à 41,1 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.1" cy="612.5" r="5.5" fill="none"/><circle class="f3" cx="280.1" cy="612.5" r="4"><title>pavé, braquage max (r_paved_circle60) : dérive 0,7° à 60,6 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="278.3" cy="609.1" r="5.5" fill="none"/><circle class="f2" cx="278.3" cy="609.1" r="4"><title>herbe, braquage max (r_grass_circle60) : dérive 1,8° à 60,1 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="418.1" cy="613.4" r="5.5" fill="none"/><circle class="f4" cx="418.1" cy="613.4" r="4"><title>champ, demi-braquage (r_field_half100) : dérive 0,4° à 100,4 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="555.3" cy="613.1" r="5.5" fill="none"/><circle class="f4" cx="555.3" cy="613.1" r="4"><title>champ, demi-braquage (r_field_half140) : dérive 0,5° à 140 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="280.8" cy="614.9" r="5.5" fill="none"/><circle class="f4" cx="280.8" cy="614.9" r="4"><title>champ, demi-braquage (r_field_half60) : dérive -0,1° à 60,8 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="414.9" cy="613.4" r="5.5" fill="none"/><circle class="f4" cx="414.9" cy="613.4" r="4"><title>pavé, demi-braquage (r_paved_half100) : dérive 0,4° à 99,5 km/h</title></circle></g>
+<g><circle class="ring" stroke-width="1.5" cx="373.0" cy="613.1" r="5.5" fill="none"/><circle class="f4" cx="373.0" cy="613.1" r="4"><title>pavé, demi-braquage (r_paved_half140) : dérive 0,5° à 87,4 km/h</title></circle></g>
+<text class="ink2" x="347.3" y="500.8" font-size="10" text-anchor="start">glisse (transitoire)</text>
+<text class="ink2" x="278.0" y="599.2" font-size="10" text-anchor="start">adhérence : dérive ≤ 2,5°</text>
+</svg>

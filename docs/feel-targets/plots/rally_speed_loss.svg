@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 460" width="640" height="460" role="img" aria-label="Plus la voiture dérive, plus elle perd de vitesse">
+
+<style>
+ .bg{fill:#fcfcfb} .ink{fill:#0b0b0b} .ink2{fill:#52514e} .mut{fill:#898781}
+ .grid{stroke:#e1e0d9;stroke-width:1} .axis{stroke:#c3c2b7;stroke-width:1}
+ .s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a} .s4{stroke:#8a63d2}
+ .f1{fill:#2a78d6} .f2{fill:#eb6834} .f3{fill:#1baf7a} .f4{fill:#8a63d2}
+ .ring{stroke:#fcfcfb} .band{fill:#898781;fill-opacity:.10} .sm{stroke:#898781}
+ text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+ .num{font-variant-numeric:tabular-nums}
+ @media (prefers-color-scheme: dark){
+  .bg{fill:#1a1a19} .ink{fill:#ffffff} .ink2{fill:#c3c2b7}
+  .grid{stroke:#2c2c2a} .axis{stroke:#383835}
+  .s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .s4{stroke:#9b79e0}
+  .f1{fill:#3987e5} .f2{fill:#d95926} .f3{fill:#199e70} .f4{fill:#9b79e0}
+  .ring{stroke:#1a1a19} .band{fill:#c3c2b7;fill-opacity:.10}
+ }
+</style>
+<rect class="bg" x="0" y="0" width="640" height="460"/>
+<text class="ink" x="16" y="26" font-size="16" font-weight="600">Plus la voiture dérive, plus elle perd de vitesse</text>
+<text class="ink2" x="16" y="46" font-size="12">Médiane par tranche de 2,5° de dérive, ticks où les 4 roues sont sur la surface.</text>
+<line class="s2" x1="16" x2="38" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="44" y="70" font-size="12">champ, plein gaz</text>
+<line class="s1" x1="161.6" x2="183.6" y1="66" y2="66" stroke-width="2.5"/>
+<text class="ink2" x="189.6" y="70" font-size="12">champ, sans gaz</text>
+<line class="s3" x1="300.6" x2="322.6" y1="66" y2="66" stroke-width="2.5" stroke-dasharray="6 4"/>
+<text class="ink2" x="328.6" y="70" font-size="12">pavé, sans gaz</text>
+<line class="s4" x1="433.0" x2="455.0" y1="66" y2="66" stroke-width="2.5" stroke-dasharray="6 4"/>
+<text class="ink2" x="461.0" y="70" font-size="12">herbe, plein gaz</text>
+<line class="grid" x1="70.0" x2="590.0" y1="358.5" y2="358.5"/>
+<text class="mut num" x="64.0" y="362.5" font-size="11" text-anchor="end">-50</text>
+<line class="grid" x1="70.0" x2="590.0" y1="315.4" y2="315.4"/>
+<text class="mut num" x="64.0" y="319.4" font-size="11" text-anchor="end">-40</text>
+<line class="grid" x1="70.0" x2="590.0" y1="272.3" y2="272.3"/>
+<text class="mut num" x="64.0" y="276.3" font-size="11" text-anchor="end">-30</text>
+<line class="grid" x1="70.0" x2="590.0" y1="229.2" y2="229.2"/>
+<text class="mut num" x="64.0" y="233.2" font-size="11" text-anchor="end">-20</text>
+<line class="grid" x1="70.0" x2="590.0" y1="186.2" y2="186.2"/>
+<text class="mut num" x="64.0" y="190.2" font-size="11" text-anchor="end">-10</text>
+<line class="grid" x1="70.0" x2="590.0" y1="143.1" y2="143.1"/>
+<text class="mut num" x="64.0" y="147.1" font-size="11" text-anchor="end">0</text>
+<line class="grid" x1="70.0" x2="590.0" y1="100.0" y2="100.0"/>
+<text class="mut num" x="64.0" y="104.0" font-size="11" text-anchor="end">10</text>
+<text class="mut num" x="70.0" y="396.0" font-size="11" text-anchor="middle">0</text>
+<text class="mut num" x="156.7" y="396.0" font-size="11" text-anchor="middle">10</text>
+<text class="mut num" x="243.3" y="396.0" font-size="11" text-anchor="middle">20</text>
+<text class="mut num" x="330.0" y="396.0" font-size="11" text-anchor="middle">30</text>
+<text class="mut num" x="416.7" y="396.0" font-size="11" text-anchor="middle">40</text>
+<text class="mut num" x="503.3" y="396.0" font-size="11" text-anchor="middle">50</text>
+<text class="mut num" x="590.0" y="396.0" font-size="11" text-anchor="middle">60</text>
+<line class="axis" x1="70.0" x2="590.0" y1="143.1" y2="143.1"/>
+<text class="ink2" x="330.0" y="414.0" font-size="12" text-anchor="middle">angle de dérive (°)</text>
+<text class="ink2" x="26.0" y="240.0" font-size="12" text-anchor="middle" transform="rotate(-90 26.0 240.0)">variation de vitesse (m/s²)</text>
+<text class="ink" x="70.0" y="90.0" font-size="13" font-weight="600">Taux de perte de vitesse selon l’angle de dérive (braquage max)</text>
+<path class="s2" d="M80.4,109.0 L102.9,158.2 L123.7,175.0 L146.3,187.9 L167.1,196.9 L189.6,223.2 L210.4,233.5 L232.9,239.1 L253.7,246.0 L276.3,254.6 L297.1,276.2 L319.6,280.5 L340.4,291.7 L362.9,295.6 L383.7,297.3" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>champ, plein gaz</title></path>
+<g><circle cx="80.4" cy="109.0" r="2.5" fill="none"/><circle class="f2" cx="80.4" cy="109.0" r="2.5"><title>champ, plein gaz : 1,2° → 7,9 m/s²</title></circle></g>
+<g><circle cx="102.9" cy="158.2" r="2.5" fill="none"/><circle class="f2" cx="102.9" cy="158.2" r="2.5"><title>champ, plein gaz : 3,8° → -3,5 m/s²</title></circle></g>
+<g><circle cx="123.7" cy="175.0" r="2.5" fill="none"/><circle class="f2" cx="123.7" cy="175.0" r="2.5"><title>champ, plein gaz : 6,2° → -7,4 m/s²</title></circle></g>
+<g><circle cx="146.3" cy="187.9" r="2.5" fill="none"/><circle class="f2" cx="146.3" cy="187.9" r="2.5"><title>champ, plein gaz : 8,8° → -10,4 m/s²</title></circle></g>
+<g><circle cx="167.1" cy="196.9" r="2.5" fill="none"/><circle class="f2" cx="167.1" cy="196.9" r="2.5"><title>champ, plein gaz : 11,2° → -12,5 m/s²</title></circle></g>
+<g><circle cx="189.6" cy="223.2" r="2.5" fill="none"/><circle class="f2" cx="189.6" cy="223.2" r="2.5"><title>champ, plein gaz : 13,8° → -18,6 m/s²</title></circle></g>
+<g><circle cx="210.4" cy="233.5" r="2.5" fill="none"/><circle class="f2" cx="210.4" cy="233.5" r="2.5"><title>champ, plein gaz : 16,2° → -21 m/s²</title></circle></g>
+<g><circle cx="232.9" cy="239.1" r="2.5" fill="none"/><circle class="f2" cx="232.9" cy="239.1" r="2.5"><title>champ, plein gaz : 18,8° → -22,3 m/s²</title></circle></g>
+<g><circle cx="253.7" cy="246.0" r="2.5" fill="none"/><circle class="f2" cx="253.7" cy="246.0" r="2.5"><title>champ, plein gaz : 21,2° → -23,9 m/s²</title></circle></g>
+<g><circle cx="276.3" cy="254.6" r="2.5" fill="none"/><circle class="f2" cx="276.3" cy="254.6" r="2.5"><title>champ, plein gaz : 23,8° → -25,9 m/s²</title></circle></g>
+<g><circle cx="297.1" cy="276.2" r="2.5" fill="none"/><circle class="f2" cx="297.1" cy="276.2" r="2.5"><title>champ, plein gaz : 26,2° → -30,9 m/s²</title></circle></g>
+<g><circle cx="319.6" cy="280.5" r="2.5" fill="none"/><circle class="f2" cx="319.6" cy="280.5" r="2.5"><title>champ, plein gaz : 28,8° → -31,9 m/s²</title></circle></g>
+<g><circle cx="340.4" cy="291.7" r="2.5" fill="none"/><circle class="f2" cx="340.4" cy="291.7" r="2.5"><title>champ, plein gaz : 31,2° → -34,5 m/s²</title></circle></g>
+<g><circle cx="362.9" cy="295.6" r="2.5" fill="none"/><circle class="f2" cx="362.9" cy="295.6" r="2.5"><title>champ, plein gaz : 33,8° → -35,4 m/s²</title></circle></g>
+<g><circle cx="383.7" cy="297.3" r="2.5" fill="none"/><circle class="f2" cx="383.7" cy="297.3" r="2.5"><title>champ, plein gaz : 36,2° → -35,8 m/s²</title></circle></g>
+<path class="s1" d="M80.4,153.8 L102.9,153.4 L123.7,183.1 L146.3,196.1 L167.1,208.6 L189.6,220.2 L210.4,232.2 L232.9,246.5 L253.7,257.2 L276.3,268.4 L297.1,281.4 L319.6,293.0 L340.4,303.8 L362.9,314.5 L383.7,323.1" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>champ, sans gaz</title></path>
+<g><circle cx="80.4" cy="153.8" r="2.5" fill="none"/><circle class="f1" cx="80.4" cy="153.8" r="2.5"><title>champ, sans gaz : 1,2° → -2,5 m/s²</title></circle></g>
+<g><circle cx="102.9" cy="153.4" r="2.5" fill="none"/><circle class="f1" cx="102.9" cy="153.4" r="2.5"><title>champ, sans gaz : 3,8° → -2,4 m/s²</title></circle></g>
+<g><circle cx="123.7" cy="183.1" r="2.5" fill="none"/><circle class="f1" cx="123.7" cy="183.1" r="2.5"><title>champ, sans gaz : 6,2° → -9,3 m/s²</title></circle></g>
+<g><circle cx="146.3" cy="196.1" r="2.5" fill="none"/><circle class="f1" cx="146.3" cy="196.1" r="2.5"><title>champ, sans gaz : 8,8° → -12,3 m/s²</title></circle></g>
+<g><circle cx="167.1" cy="208.6" r="2.5" fill="none"/><circle class="f1" cx="167.1" cy="208.6" r="2.5"><title>champ, sans gaz : 11,2° → -15,2 m/s²</title></circle></g>
+<g><circle cx="189.6" cy="220.2" r="2.5" fill="none"/><circle class="f1" cx="189.6" cy="220.2" r="2.5"><title>champ, sans gaz : 13,8° → -17,9 m/s²</title></circle></g>
+<g><circle cx="210.4" cy="232.2" r="2.5" fill="none"/><circle class="f1" cx="210.4" cy="232.2" r="2.5"><title>champ, sans gaz : 16,2° → -20,7 m/s²</title></circle></g>
+<g><circle cx="232.9" cy="246.5" r="2.5" fill="none"/><circle class="f1" cx="232.9" cy="246.5" r="2.5"><title>champ, sans gaz : 18,8° → -24 m/s²</title></circle></g>
+<g><circle cx="253.7" cy="257.2" r="2.5" fill="none"/><circle class="f1" cx="253.7" cy="257.2" r="2.5"><title>champ, sans gaz : 21,2° → -26,5 m/s²</title></circle></g>
+<g><circle cx="276.3" cy="268.4" r="2.5" fill="none"/><circle class="f1" cx="276.3" cy="268.4" r="2.5"><title>champ, sans gaz : 23,8° → -29,1 m/s²</title></circle></g>
+<g><circle cx="297.1" cy="281.4" r="2.5" fill="none"/><circle class="f1" cx="297.1" cy="281.4" r="2.5"><title>champ, sans gaz : 26,2° → -32,1 m/s²</title></circle></g>
+<g><circle cx="319.6" cy="293.0" r="2.5" fill="none"/><circle class="f1" cx="319.6" cy="293.0" r="2.5"><title>champ, sans gaz : 28,8° → -34,8 m/s²</title></circle></g>
+<g><circle cx="340.4" cy="303.8" r="2.5" fill="none"/><circle class="f1" cx="340.4" cy="303.8" r="2.5"><title>champ, sans gaz : 31,2° → -37,3 m/s²</title></circle></g>
+<g><circle cx="362.9" cy="314.5" r="2.5" fill="none"/><circle class="f1" cx="362.9" cy="314.5" r="2.5"><title>champ, sans gaz : 33,8° → -39,8 m/s²</title></circle></g>
+<g><circle cx="383.7" cy="323.1" r="2.5" fill="none"/><circle class="f1" cx="383.7" cy="323.1" r="2.5"><title>champ, sans gaz : 36,2° → -41,8 m/s²</title></circle></g>
+<path class="s3" d="M80.4,151.7 L102.9,164.6 L146.3,188.3 L167.1,198.6 L189.6,207.7 L210.4,218.9 L232.9,229.7 L253.7,239.1 L276.3,248.6 L297.1,259.4 L319.6,269.7 L340.4,278.3 L362.9,287.0 L383.7,296.9 L406.3,305.9 L427.1,313.7 L449.6,321.0 L470.4,329.2 L492.9,336.5 L513.7,344.2 L536.3,351.6 L557.1,358.9 L579.6,361.9" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>pavé, sans gaz</title></path>
+<g><circle cx="80.4" cy="151.7" r="2.5" fill="none"/><circle class="f3" cx="80.4" cy="151.7" r="2.5"><title>pavé, sans gaz : 1,2° → -2 m/s²</title></circle></g>
+<g><circle cx="102.9" cy="164.6" r="2.5" fill="none"/><circle class="f3" cx="102.9" cy="164.6" r="2.5"><title>pavé, sans gaz : 3,8° → -5 m/s²</title></circle></g>
+<g><circle cx="146.3" cy="188.3" r="2.5" fill="none"/><circle class="f3" cx="146.3" cy="188.3" r="2.5"><title>pavé, sans gaz : 8,8° → -10,5 m/s²</title></circle></g>
+<g><circle cx="167.1" cy="198.6" r="2.5" fill="none"/><circle class="f3" cx="167.1" cy="198.6" r="2.5"><title>pavé, sans gaz : 11,2° → -12,9 m/s²</title></circle></g>
+<g><circle cx="189.6" cy="207.7" r="2.5" fill="none"/><circle class="f3" cx="189.6" cy="207.7" r="2.5"><title>pavé, sans gaz : 13,8° → -15 m/s²</title></circle></g>
+<g><circle cx="210.4" cy="218.9" r="2.5" fill="none"/><circle class="f3" cx="210.4" cy="218.9" r="2.5"><title>pavé, sans gaz : 16,2° → -17,6 m/s²</title></circle></g>
+<g><circle cx="232.9" cy="229.7" r="2.5" fill="none"/><circle class="f3" cx="232.9" cy="229.7" r="2.5"><title>pavé, sans gaz : 18,8° → -20,1 m/s²</title></circle></g>
+<g><circle cx="253.7" cy="239.1" r="2.5" fill="none"/><circle class="f3" cx="253.7" cy="239.1" r="2.5"><title>pavé, sans gaz : 21,2° → -22,3 m/s²</title></circle></g>
+<g><circle cx="276.3" cy="248.6" r="2.5" fill="none"/><circle class="f3" cx="276.3" cy="248.6" r="2.5"><title>pavé, sans gaz : 23,8° → -24,5 m/s²</title></circle></g>
+<g><circle cx="297.1" cy="259.4" r="2.5" fill="none"/><circle class="f3" cx="297.1" cy="259.4" r="2.5"><title>pavé, sans gaz : 26,2° → -27 m/s²</title></circle></g>
+<g><circle cx="319.6" cy="269.7" r="2.5" fill="none"/><circle class="f3" cx="319.6" cy="269.7" r="2.5"><title>pavé, sans gaz : 28,8° → -29,4 m/s²</title></circle></g>
+<g><circle cx="340.4" cy="278.3" r="2.5" fill="none"/><circle class="f3" cx="340.4" cy="278.3" r="2.5"><title>pavé, sans gaz : 31,2° → -31,4 m/s²</title></circle></g>
+<g><circle cx="362.9" cy="287.0" r="2.5" fill="none"/><circle class="f3" cx="362.9" cy="287.0" r="2.5"><title>pavé, sans gaz : 33,8° → -33,4 m/s²</title></circle></g>
+<g><circle cx="383.7" cy="296.9" r="2.5" fill="none"/><circle class="f3" cx="383.7" cy="296.9" r="2.5"><title>pavé, sans gaz : 36,2° → -35,7 m/s²</title></circle></g>
+<g><circle cx="406.3" cy="305.9" r="2.5" fill="none"/><circle class="f3" cx="406.3" cy="305.9" r="2.5"><title>pavé, sans gaz : 38,8° → -37,8 m/s²</title></circle></g>
+<g><circle cx="427.1" cy="313.7" r="2.5" fill="none"/><circle class="f3" cx="427.1" cy="313.7" r="2.5"><title>pavé, sans gaz : 41,2° → -39,6 m/s²</title></circle></g>
+<g><circle cx="449.6" cy="321.0" r="2.5" fill="none"/><circle class="f3" cx="449.6" cy="321.0" r="2.5"><title>pavé, sans gaz : 43,8° → -41,3 m/s²</title></circle></g>
+<g><circle cx="470.4" cy="329.2" r="2.5" fill="none"/><circle class="f3" cx="470.4" cy="329.2" r="2.5"><title>pavé, sans gaz : 46,2° → -43,2 m/s²</title></circle></g>
+<g><circle cx="492.9" cy="336.5" r="2.5" fill="none"/><circle class="f3" cx="492.9" cy="336.5" r="2.5"><title>pavé, sans gaz : 48,8° → -44,9 m/s²</title></circle></g>
+<g><circle cx="513.7" cy="344.2" r="2.5" fill="none"/><circle class="f3" cx="513.7" cy="344.2" r="2.5"><title>pavé, sans gaz : 51,2° → -46,7 m/s²</title></circle></g>
+<g><circle cx="536.3" cy="351.6" r="2.5" fill="none"/><circle class="f3" cx="536.3" cy="351.6" r="2.5"><title>pavé, sans gaz : 53,8° → -48,4 m/s²</title></circle></g>
+<g><circle cx="557.1" cy="358.9" r="2.5" fill="none"/><circle class="f3" cx="557.1" cy="358.9" r="2.5"><title>pavé, sans gaz : 56,2° → -50,1 m/s²</title></circle></g>
+<g><circle cx="579.6" cy="361.9" r="2.5" fill="none"/><circle class="f3" cx="579.6" cy="361.9" r="2.5"><title>pavé, sans gaz : 58,8° → -50,8 m/s²</title></circle></g>
+<path class="s4" d="M80.4,133.6 L102.9,147.4 L146.3,147.4 L362.9,203.0 L383.7,206.0 L406.3,195.6 L427.1,212.9 L449.6,219.8 L470.4,226.2 L492.9,220.2 L513.7,214.6 L536.3,217.2 L557.1,221.9 L579.6,217.2" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 3"><title>herbe, plein gaz</title></path>
+<g><circle cx="80.4" cy="133.6" r="2.5" fill="none"/><circle class="f4" cx="80.4" cy="133.6" r="2.5"><title>herbe, plein gaz : 1,2° → 2,2 m/s²</title></circle></g>
+<g><circle cx="102.9" cy="147.4" r="2.5" fill="none"/><circle class="f4" cx="102.9" cy="147.4" r="2.5"><title>herbe, plein gaz : 3,8° → -1 m/s²</title></circle></g>
+<g><circle cx="146.3" cy="147.4" r="2.5" fill="none"/><circle class="f4" cx="146.3" cy="147.4" r="2.5"><title>herbe, plein gaz : 8,8° → -1 m/s²</title></circle></g>
+<g><circle cx="362.9" cy="203.0" r="2.5" fill="none"/><circle class="f4" cx="362.9" cy="203.0" r="2.5"><title>herbe, plein gaz : 33,8° → -13,9 m/s²</title></circle></g>
+<g><circle cx="383.7" cy="206.0" r="2.5" fill="none"/><circle class="f4" cx="383.7" cy="206.0" r="2.5"><title>herbe, plein gaz : 36,2° → -14,6 m/s²</title></circle></g>
+<g><circle cx="406.3" cy="195.6" r="2.5" fill="none"/><circle class="f4" cx="406.3" cy="195.6" r="2.5"><title>herbe, plein gaz : 38,8° → -12,2 m/s²</title></circle></g>
+<g><circle cx="427.1" cy="212.9" r="2.5" fill="none"/><circle class="f4" cx="427.1" cy="212.9" r="2.5"><title>herbe, plein gaz : 41,2° → -16,2 m/s²</title></circle></g>
+<g><circle cx="449.6" cy="219.8" r="2.5" fill="none"/><circle class="f4" cx="449.6" cy="219.8" r="2.5"><title>herbe, plein gaz : 43,8° → -17,8 m/s²</title></circle></g>
+<g><circle cx="470.4" cy="226.2" r="2.5" fill="none"/><circle class="f4" cx="470.4" cy="226.2" r="2.5"><title>herbe, plein gaz : 46,2° → -19,3 m/s²</title></circle></g>
+<g><circle cx="492.9" cy="220.2" r="2.5" fill="none"/><circle class="f4" cx="492.9" cy="220.2" r="2.5"><title>herbe, plein gaz : 48,8° → -17,9 m/s²</title></circle></g>
+<g><circle cx="513.7" cy="214.6" r="2.5" fill="none"/><circle class="f4" cx="513.7" cy="214.6" r="2.5"><title>herbe, plein gaz : 51,2° → -16,6 m/s²</title></circle></g>
+<g><circle cx="536.3" cy="217.2" r="2.5" fill="none"/><circle class="f4" cx="536.3" cy="217.2" r="2.5"><title>herbe, plein gaz : 53,8° → -17,2 m/s²</title></circle></g>
+<g><circle cx="557.1" cy="221.9" r="2.5" fill="none"/><circle class="f4" cx="557.1" cy="221.9" r="2.5"><title>herbe, plein gaz : 56,2° → -18,3 m/s²</title></circle></g>
+<g><circle cx="579.6" cy="217.2" r="2.5" fill="none"/><circle class="f4" cx="579.6" cy="217.2" r="2.5"><title>herbe, plein gaz : 58,8° → -17,2 m/s²</title></circle></g>
+<text class="ink2" x="78.7" y="117.2" font-size="10" text-anchor="start">adhérence (≤ 2,5°) : on accélère encore</text>
+</svg>

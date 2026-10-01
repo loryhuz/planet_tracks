@@ -1,0 +1,9 @@
+[package]
+name = "track"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+glam.workspace = true
+serde.workspace = true
+libm.workspace = true

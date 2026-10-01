@@ -1,0 +1,24 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "mars-racer"
+path = "src/main.rs"
+
+[dependencies]
+track.workspace = true
+physics.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wgpu = "30"
+winit = "0.30.13"
+egui = "0.36"
+egui-winit = { version = "0.36", default-features = false, features = ["clipboard", "links"] }
+egui-wgpu = { version = "0.36", features = ["winit"] }
+gilrs = "0.11"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+cpal = "0.18"

@@ -4,7 +4,16 @@
 //! - `MARS_AUTODRIVE=1`: hold the throttle and steer gently (a technical check, not a driver);
 //! - `MARS_PROFILE=n`: start with profile n (1-based);
 //! - `MARS_EXIT_AFTER=seconds`: quit;
-//! - `MARS_ORBIT=yaw_deg,distance,height`: look at the car from a fixed angle (model checks).
+//! - `MARS_ORBIT=yaw_deg,distance,height`: look at the car from a fixed angle (model checks);
+//! - `MARS_VIEW=s,height,back`: look along the route at `s` metres from the start, from `back`
+//!   metres before it and `height` metres above it (surface checks at a given place);
+//! - `MARS_STORM_TIME=seconds`: start the sandstorm that far into its approach (read by the
+//!   renderer);
+//! - `MARS_MAP=name`: start on that map; `MARS_HIDE_UI=1`: settings panel closed;
+//!   `MARS_TEXTURES=0|1`: surface textures off or on for the run (read by `main`);
+//! - `MARS_BENCH=from,to`: between those seconds every frame renders off screen (so a hidden
+//!   window is measured too, without the display's frame cap) and waits for the GPU; the GPU time
+//!   of those frames is printed at the end.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -21,6 +30,17 @@ pub struct Debug {
     pub profile: Option<usize>,
     exit_after: Option<f32>,
     pub orbit: Option<(f32, f32, f32)>,
+    pub view: Option<(f32, f32, f32)>,
+    bench: Option<Bench>,
+}
+
+struct Bench {
+    from: f32,
+    to: f32,
+    /// Milliseconds from submission to completion, per frame.
+    gpu_ms: Vec<f32>,
+    size: (u32, u32),
+    reported: bool,
 }
 
 impl Debug {
@@ -42,11 +62,66 @@ impl Debug {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
                 (v.len() == 3).then(|| (v[0], v[1], v[2]))
             }),
+            view: var("MARS_VIEW").and_then(|s| {
+                let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.len() == 3).then(|| (v[0], v[1], v[2]))
+            }),
+            bench: var("MARS_BENCH").and_then(|s| {
+                let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.len() == 2).then(|| Bench { from: v[0], to: v[1], gpu_ms: Vec::new(), size: (0, 0), reported: false })
+            }),
         }
+    }
+
+    /// Whether this frame is measured.
+    pub fn benching(&self) -> bool {
+        let t = self.elapsed();
+        self.bench.as_ref().is_some_and(|b| t >= b.from && t < b.to)
+    }
+
+    pub fn bench_sample(&mut self, gpu_ms: f32, size: (u32, u32)) {
+        if let Some(b) = &mut self.bench {
+            b.gpu_ms.push(gpu_ms);
+            b.size = size;
+        }
+    }
+
+    /// Prints the measured frames once their window is over.
+    pub fn bench_report(&mut self) {
+        let t = self.elapsed();
+        let Some(b) = &mut self.bench else { return };
+        if b.reported || t < b.to {
+            return;
+        }
+        b.reported = true;
+        let mut ms = b.gpu_ms.clone();
+        if ms.is_empty() {
+            println!("bench: no frame measured");
+            return;
+        }
+        ms.sort_by(|a, b| a.total_cmp(b));
+        let at = |q: f32| ms[((ms.len() - 1) as f32 * q) as usize];
+        let mean = ms.iter().sum::<f32>() / ms.len() as f32;
+        println!(
+            "bench: {} frames at {}x{}, GPU ms mean {:.2}, median {:.2}, p90 {:.2}, max {:.2}",
+            ms.len(),
+            b.size.0,
+            b.size.1,
+            mean,
+            at(0.5),
+            at(0.9),
+            at(1.0)
+        );
     }
 
     pub fn elapsed(&self) -> f32 {
         self.start.elapsed().as_secs_f32()
+    }
+
+    /// A screenshot or benchmark run: everything it needs renders off screen, so its window stays
+    /// hidden and never takes the focus from whatever the player is doing meanwhile.
+    pub fn runs_hidden(&self) -> bool {
+        self.shots_dir.is_some() || self.bench.is_some()
     }
 
     /// Path of the screenshot to take this frame, if one is due.
@@ -65,6 +140,19 @@ impl Debug {
         self.exit_after.is_some_and(|t| self.elapsed() >= t)
     }
 
+}
+
+/// The point of the route `s` metres from its start (clamped to its ends).
+pub fn route_point(route: &[Vec3], s: f32) -> Vec3 {
+    let mut left = s.max(0.0);
+    for w in route.windows(2) {
+        let d = w[0].distance(w[1]);
+        if left <= d {
+            return w[0].lerp(w[1], if d > 0.0 { left / d } else { 0.0 });
+        }
+        left -= d;
+    }
+    route.last().copied().unwrap_or(Vec3::ZERO)
 }
 
 /// Follows the track's route for technical checks (nothing falls through, triggers fire).

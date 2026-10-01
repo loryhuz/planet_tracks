@@ -1,4 +1,5 @@
-//! Synthesized sound: engine (with fake gear changes), wind, tyre squeal on road, gravel on
+//! Vehicle sound: the electric drivetrain from a recording (engine_sound.rs), plus synthesized
+//! wind and tyre squeal at the grip limit; the gravel comes from the recording, on
 //! dirt, thumps on impacts. The game writes a few values per frame; the audio thread reads
 //! them through atomics and smooths them per sample.
 
@@ -12,6 +13,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 pub struct SoundFrame {
     /// 0..1 within the current gear.
     pub rpm: f32,
+    /// Virtual gear (0 first), from the speeds where the acceleration steps down.
+    pub gear: u32,
     /// Throttle 0..1.
     pub load: f32,
     /// m/s.
@@ -28,6 +31,7 @@ pub struct SoundFrame {
 #[derive(Default)]
 struct Shared {
     rpm: AtomicU32,
+    gear: AtomicU32,
     load: AtomicU32,
     speed: AtomicU32,
     squeal: AtomicU32,
@@ -38,7 +42,6 @@ struct Shared {
     impacts: AtomicU32,
     impact_strength: AtomicU32,
     muted: AtomicBool,
-    engine_kind: AtomicU32,
 }
 
 fn store(a: &AtomicU32, v: f32) {
@@ -60,16 +63,21 @@ impl Audio {
         let host = cpal::default_host();
         let device = host.default_output_device()?;
         let supported = device.default_output_config().ok()?;
-        let config = supported.config();
+        let mut config = supported.config();
+        // A slightly larger buffer (about 20 ms) so a busy frame never starves the audio thread.
+        if let cpal::SupportedBufferSize::Range { min, max } = supported.buffer_size() {
+            config.buffer_size = cpal::BufferSize::Fixed(1024u32.clamp(*min, *max));
+        }
         let channels = config.channels as usize;
         let rate = config.sample_rate as f32;
         let shared = Arc::new(Shared::default());
+        let started = std::time::Instant::now();
         let mut synth = Synth::new(rate, shared.clone());
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 config,
                 move |out: &mut [f32], _| synth.fill(out, channels),
-                |e| eprintln!("audio: {e}"),
+                move |e| eprintln!("audio ({:.1} s after start): {e}", started.elapsed().as_secs_f32()),
                 None,
             ),
             _ => return None,
@@ -82,6 +90,7 @@ impl Audio {
     pub fn update(&self, f: &SoundFrame) {
         let s = &self.shared;
         store(&s.rpm, f.rpm);
+        s.gear.store(f.gear, Ordering::Relaxed);
         store(&s.load, f.load);
         store(&s.speed, f.speed);
         store(&s.squeal, f.squeal);
@@ -93,14 +102,6 @@ impl Audio {
     pub fn impact(&self, strength: f32) {
         store(&self.shared.impact_strength, strength.clamp(0.0, 1.0));
         self.shared.impacts.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Next engine character; returns its name.
-    pub fn next_engine(&self) -> &'static str {
-        let n = crate::engine_sound::KINDS.len() as u32;
-        let k = (self.shared.engine_kind.load(Ordering::Relaxed) + 1) % n;
-        self.shared.engine_kind.store(k, Ordering::Relaxed);
-        crate::engine_sound::KINDS[k as usize].name
     }
 
     pub fn toggle_mute(&self) -> bool {
@@ -173,12 +174,11 @@ struct Synth {
     scrub: f32,
     air: f32,
     master: f32,
-    engines: Vec<crate::engine_sound::EngineVoice>,
+    engine: crate::engine_sound::ElectricVoice,
+    seen_gear: u32,
     // oscillators and filters
     wobble: f32,
     wind_lp: LowPass,
-    gravel_lp: LowPass,
-    crunch_bp: BandPass,
     squeal_bp: BandPass,
     seen_impacts: u32,
     thump: f32,
@@ -202,11 +202,10 @@ impl Synth {
             scrub: 0.0,
             air: 0.0,
             master: 0.0,
-            engines: crate::engine_sound::KINDS.iter().map(|k| crate::engine_sound::EngineVoice::new(*k, rate)).collect(),
+            engine: crate::engine_sound::ElectricVoice::new(rate),
+            seen_gear: 0,
             wobble: 0.0,
             wind_lp: LowPass::default(),
-            gravel_lp: LowPass::default(),
-            crunch_bp: BandPass::default(),
             squeal_bp: BandPass::default(),
             seen_impacts: 0,
             thump: 0.0,
@@ -235,6 +234,11 @@ impl Synth {
             if s.airborne.load(Ordering::Relaxed) { 1.0 } else { 0.0 },
             if s.muted.load(Ordering::Relaxed) { 0.0 } else { 0.7 },
         );
+        let gear = s.gear.load(Ordering::Relaxed);
+        if gear > self.seen_gear && target.1 > 0.3 {
+            self.engine.shift();
+        }
+        self.seen_gear = gear;
         let impacts = s.impacts.load(Ordering::Relaxed);
         if impacts != self.seen_impacts {
             self.seen_impacts = impacts;
@@ -253,24 +257,15 @@ impl Synth {
             self.air += (target.6 - self.air) * k;
             self.master += (target.7 - self.master) * k * 0.2;
 
-            // Engine: cylinder firings ringing through an exhaust (see engine_sound.rs).
-            let kind = s.engine_kind.load(Ordering::Relaxed) as usize % self.engines.len();
-            let engine = self.engines[kind].next(self.rpm, self.load) * (0.22 + 0.12 * self.load);
+            // Electric drivetrain with the recording's gravel on dirt (see engine_sound.rs).
+            let ground = self.gravel * (1.0 - self.air);
+            let engine = self.engine.next(self.speed, self.rpm, self.load, ground, self.scrub) * 0.9;
 
             // Wind grows with speed squared.
             let v = (self.speed / 90.0).clamp(0.0, 1.5);
             let n = self.noise();
-            let wind = self.wind_lp.run(n, 300.0 + 900.0 * v, rate) * 0.12 * v * v;
-
-            // Gravel: low rumble plus random crunches, more when sliding.
-            let ground = self.gravel * (1.0 - self.air);
-            let n1 = self.noise();
-            let rumble = self.gravel_lp.run(n1, 180.0, rate) * 0.5;
-            let click_chance = (0.002 + 0.02 * v) * (1.0 + 4.0 * self.scrub);
-            let click = if self.noise() * 0.5 + 0.5 < click_chance { self.noise() * 3.0 } else { 0.0 };
-            let n2 = self.noise();
-            let crunch = self.crunch_bp.run(click + 0.3 * n2, 1800.0, 1.2, rate);
-            let gravel = ground * (rumble * (0.2 + 0.6 * v) + crunch * (0.05 + 0.25 * self.scrub) * v.min(1.0));
+            // Kept low and dark: a constant broadband whoosh gets tiring ("aspirateur").
+            let wind = self.wind_lp.run(n, 150.0 + 350.0 * v, rate) * 0.05 * v * v;
 
             // Tyre squeal on road, with a slow wobble.
             self.wobble = (self.wobble + 6.0 / rate).fract();
@@ -287,7 +282,7 @@ impl Synth {
                 self.thump *= (-1.0 / (0.08 * rate)).exp();
             }
 
-            let raw = (engine + wind + gravel + squeal + thump) * self.master;
+            let raw = (engine + wind + squeal + thump) * self.master;
             // ~30 Hz high-pass: nothing below what speakers can play.
             let a = (-std::f32::consts::TAU * 30.0 / rate).exp();
             let mix = a * (self.hp_y + raw - self.hp_x);

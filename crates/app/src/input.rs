@@ -18,7 +18,8 @@ pub enum Action {
     Camera,
     Fullscreen,
     Mute,
-    NextEngine,
+    NextMap,
+    Textures,
 }
 
 pub struct Controls {
@@ -57,7 +58,8 @@ impl Controls {
                     KeyCode::KeyC => Some(Action::Camera),
                     KeyCode::KeyF => Some(Action::Fullscreen),
                     KeyCode::KeyM => Some(Action::Mute),
-                    KeyCode::KeyE => Some(Action::NextEngine),
+                    KeyCode::KeyN => Some(Action::NextMap),
+                    KeyCode::KeyT => Some(Action::Textures),
                     KeyCode::PageDown => Some(Action::NextProfile),
                     KeyCode::PageUp => Some(Action::PrevProfile),
                     _ => None,

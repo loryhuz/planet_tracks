@@ -1,0 +1,29 @@
+# Olympus: climb to the plateau through a long banked curve, a hairpin up there, down into
+# a dirt section with a U-berm, a steep climb to a jump that lands in a descent, then a
+# technical finish. No straight longer than two cells except the jump run-up.
+name Olympus
+seed 31337
+start 0 0 0 0
+turn2_right
+slope3_up1
+banked3_left
+slope2_up1
+turn1_right
+turn2_left
+checkpoint
+slope3_down2
+turn2_right
+to_dirt
+berm2_left dirt
+whoops2 dirt
+uberm2_right dirt
+checkpoint dirt
+turn2_left dirt
+to_road
+slope2_up2
+jump_ramp
+landing4_down2
+turn3_right
+turn1_left
+banked2_right
+finish

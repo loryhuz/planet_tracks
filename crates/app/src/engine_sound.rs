@@ -1,192 +1,130 @@
-//! Engine voice built like a real engine: each cylinder firing is a short, slightly irregular
-//! pressure pulse, and the pulses ring through an exhaust (two pipe resonances and a muffler)
-//! instead of being summed sine harmonics.
+//! Electric drivetrain sound from a real recording kept whole (an electric UTV's motor whine and
+//! the gravel it rolled on, assets/ev_drive.wav): the seamless loop is pitched by speed and by a
+//! virtual gearbox (it sweeps up within each gear). The surface only changes how it is filtered:
+//! on asphalt the top is softened so the gravel crunch in the recording fades back, on dirt the
+//! recording plays open and a little louder. An upshift drops the pitch to the next gear and cuts
+//! the power for a moment. Louder and brighter on throttle.
 
-/// Character of an engine.
-#[derive(Clone, Copy, Debug)]
-pub struct EngineKind {
-    pub name: &'static str,
-    pub cylinders: u32,
-    pub idle_rpm: f32,
-    pub redline_rpm: f32,
-    /// Exhaust pipe lengths (metres): their resonances colour the sound.
-    pub pipes: [f32; 2],
-    /// Muffler formants (Hz).
-    pub formants: [f32; 2],
-    /// 0 smooth .. 1 rough (firing-to-firing variation).
-    pub roughness: f32,
-    /// Brightness of the pulses (Hz of the burst noise).
-    pub brightness: f32,
+const DRIVE_WAV: &[u8] = include_bytes!("../assets/ev_drive.wav");
+
+/// Minimal reader for the PCM WAV above: returns (samples, rate).
+fn decode_wav(bytes: &[u8]) -> (Vec<f32>, u32) {
+    let u16le = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+    let u32le = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+    let mut rate = 48_000;
+    let mut channels = 1usize;
+    let mut i = 12;
+    while i + 8 <= bytes.len() {
+        let id = &bytes[i..i + 4];
+        let len = u32le(i + 4) as usize;
+        let body = i + 8;
+        if id == b"fmt " {
+            channels = u16le(body + 2) as usize;
+            rate = u32le(body + 4);
+        } else if id == b"data" {
+            let end = (body + len).min(bytes.len());
+            let samples = bytes[body..end]
+                .chunks_exact(2 * channels)
+                .map(|f| i16::from_le_bytes([f[0], f[1]]) as f32 / 32768.0)
+                .collect();
+            return (samples, rate);
+        }
+        i = body + len + (len & 1);
+    }
+    (Vec::new(), rate)
 }
 
-pub const KINDS: [EngineKind; 3] = [
-    // Air-cooled flat four, the classic dune-buggy burble.
-    EngineKind {
-        name: "flat4",
-        cylinders: 4,
-        idle_rpm: 900.0,
-        redline_rpm: 6800.0,
-        pipes: [1.1, 0.45],
-        formants: [160.0, 430.0],
-        roughness: 0.35,
-        brightness: 1800.0,
-    },
-    // Big single-cylinder off-road thumper.
-    EngineKind {
-        name: "single",
-        cylinders: 1,
-        idle_rpm: 1300.0,
-        redline_rpm: 9500.0,
-        pipes: [0.9, 0.3],
-        formants: [120.0, 650.0],
-        roughness: 0.5,
-        brightness: 2400.0,
-    },
-    // High-revving inline four, raspy race engine.
-    EngineKind {
-        name: "inline4",
-        cylinders: 4,
-        idle_rpm: 1100.0,
-        redline_rpm: 9000.0,
-        pipes: [0.7, 0.35],
-        formants: [260.0, 900.0],
-        roughness: 0.2,
-        brightness: 3400.0,
-    },
-];
-
-struct Delay {
-    buf: Vec<f32>,
-    pos: usize,
+/// A looping sample read at a variable rate with linear interpolation.
+struct Looper {
+    samples: Vec<f32>,
+    pos: f64,
 }
 
-impl Delay {
-    fn new(len: usize) -> Self {
-        Self { buf: vec![0.0; len.max(2)], pos: 0 }
+impl Looper {
+    fn new(bytes: &[u8]) -> (Self, u32) {
+        let (samples, rate) = decode_wav(bytes);
+        (Self { samples, pos: 0.0 }, rate)
     }
-    fn tap(&self) -> f32 {
-        self.buf[self.pos]
-    }
-    fn push(&mut self, x: f32) {
-        self.buf[self.pos] = x;
-        self.pos = (self.pos + 1) % self.buf.len();
+
+    fn next(&mut self, step: f64) -> f32 {
+        let n = self.samples.len();
+        if n < 2 {
+            return 0.0;
+        }
+        self.pos += step;
+        while self.pos >= n as f64 {
+            self.pos -= n as f64;
+        }
+        let i = self.pos as usize;
+        let frac = (self.pos - i as f64) as f32;
+        self.samples[i] * (1.0 - frac) + self.samples[(i + 1) % n] * frac
     }
 }
 
-#[derive(Default)]
-struct OnePole {
-    y: f32,
+pub struct ElectricVoice {
+    drive: Looper,
+    /// Time since the last upshift, seconds (large when none is playing).
+    shift_t: f32,
+    /// Loop samples advanced per output sample at playback rate 1.
+    step: f64,
+    gain: f32,
+    tone: f32,
+    lp: f32,
+    surface: f32,
+    out_rate: f32,
+    smooth: f32,
 }
 
-impl OnePole {
-    fn lp(&mut self, x: f32, a: f32) -> f32 {
-        self.y += a * (x - self.y);
-        self.y
-    }
-}
-
-#[derive(Default)]
-struct Svf {
-    low: f32,
-    band: f32,
-}
-
-impl Svf {
-    fn band(&mut self, x: f32, f: f32, q: f32) -> f32 {
-        let high = x - self.low - self.band / q;
-        self.band += f * high;
-        self.low += f * self.band;
-        self.band
-    }
-}
-
-pub struct EngineVoice {
-    kind: EngineKind,
-    rate: f32,
-    seed: u32,
-    fire_phase: f32,
-    pulse: f32,
-    pulse_amp: f32,
-    pulse_bright: OnePole,
-    pipes: [Delay; 2],
-    pipe_lp: [OnePole; 2],
-    formants: [Svf; 2],
-    out_lp: OnePole,
-    pop: f32,
-}
-
-impl EngineVoice {
-    pub fn new(kind: EngineKind, rate: f32) -> Self {
-        let speed_of_sound = 340.0;
-        let delay = |len: f32| Delay::new((2.0 * len / speed_of_sound * rate) as usize);
+impl ElectricVoice {
+    pub fn new(out_rate: f32) -> Self {
+        let (drive, rate) = Looper::new(DRIVE_WAV);
         Self {
-            kind,
-            rate,
-            seed: 0x51ed_270b,
-            fire_phase: 0.0,
-            pulse: 0.0,
-            pulse_amp: 0.0,
-            pulse_bright: OnePole::default(),
-            pipes: [delay(kind.pipes[0]), delay(kind.pipes[1])],
-            pipe_lp: [OnePole::default(), OnePole::default()],
-            formants: [Svf::default(), Svf::default()],
-            out_lp: OnePole::default(),
-            pop: 0.0,
+            drive,
+            shift_t: 10.0,
+            step: rate as f64 / out_rate as f64,
+            gain: 0.0,
+            tone: 0.0,
+            lp: 0.0,
+            surface: 0.0,
+            out_rate,
+            smooth: 1.0 - (-1.0 / (0.06 * out_rate)).exp(),
         }
     }
 
-    fn rand(&mut self) -> f32 {
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 17;
-        self.seed ^= self.seed << 5;
-        self.seed as f32 / u32::MAX as f32
+    /// Plays the upshift: a short power cut (the pitch drop comes from the gear change itself).
+    pub fn shift(&mut self) {
+        self.shift_t = 0.0;
     }
 
-    /// `rpm01`: 0 idle .. 1 redline; `load`: 0 off-throttle .. 1 full throttle.
-    pub fn next(&mut self, rpm01: f32, load: f32) -> f32 {
-        let k = self.kind;
-        let rpm = k.idle_rpm + (k.redline_rpm - k.idle_rpm) * rpm01.clamp(0.0, 1.1);
-        // Four-stroke: each cylinder fires once every two crank turns.
-        let firing_hz = rpm / 60.0 * k.cylinders as f32 / 2.0;
-        self.fire_phase += firing_hz / self.rate;
-        if self.fire_phase >= 1.0 {
-            // Irregular firings: amplitude and a little timing jitter.
-            self.fire_phase -= 1.0 - (self.rand() - 0.5) * 0.06 * k.roughness;
-            let strength = 0.35 + 0.65 * load;
-            self.pulse_amp = strength * (1.0 - k.roughness * 0.5 * self.rand());
-            self.pulse = 1.0;
-            // Off-throttle at high revs: occasional exhaust pops.
-            if load < 0.1 && rpm01 > 0.5 && self.rand() < 0.04 {
-                self.pop = 1.0;
-            }
-        }
-        // The pulse: a fast attack then a decay of a few milliseconds of noisy pressure.
-        let decay = (-1.0 / (0.0022 * self.rate)).exp();
-        self.pulse *= decay;
-        let noise = self.rand() * 2.0 - 1.0;
-        let bright_a = 1.0 - (-std::f32::consts::TAU * k.brightness * (0.5 + 0.5 * load) / self.rate).exp();
-        let mut excitation = self.pulse_bright.lp(noise * 0.6 + 0.4, bright_a) * self.pulse * self.pulse_amp;
-        // Pops go through the exhaust too, so they crack like backfires instead of hissing.
-        if self.pop > 0.01 {
-            excitation += (self.rand() * 2.0 - 1.0) * self.pop * 1.5;
-            self.pop *= (-1.0 / (0.006 * self.rate)).exp();
-        }
+    /// `speed` in m/s, `rpm` 0..1 within the current gear, `load` 0 (off throttle) .. 1,
+    /// `dirt` 0..1 share of the wheels rolling on dirt or off-track ground, `slide` 0..1.
+    pub fn next(&mut self, speed: f32, rpm: f32, load: f32, dirt: f32, slide: f32) -> f32 {
+        // Pitch: a slow rise with speed times a sweep within the gear (×1.7 from shift to shift).
+        let v = (speed * 3.6 / 300.0).clamp(0.0, 1.2);
+        let rate = (0.8 + 0.9 * v) * (0.78 + 0.55 * rpm.clamp(0.0, 1.1));
+        let s = self.drive.next(self.step * rate as f64);
 
-        // Exhaust: two pipes with an inverting, damped reflection at the open end.
-        let mut exhaust = 0.0;
-        for i in 0..2 {
-            let back = self.pipes[i].tap();
-            let damped = self.pipe_lp[i].lp(back, 0.35);
-            let y = excitation - 0.62 * damped;
-            self.pipes[i].push(y);
-            exhaust += y;
-        }
+        // Throttle: louder and brighter; off throttle softer (regen). Quieter when cruising so the
+        // steady whine does not wear on the ear; it comes forward under acceleration.
+        let k = self.smooth;
+        // Surface: 0 asphalt .. 1 dirt (gravel crunch fully audible), slowly blended.
+        self.surface += ((dirt * (1.0 + 0.5 * slide)).min(1.0) - self.surface) * k * 0.5;
+        let target_gain = (0.28 + 0.72 * load) * (0.55 + 0.45 * v.min(1.0)) * (1.0 + 0.2 * self.surface);
+        self.gain += (target_gain - self.gain) * k;
+        self.tone += (load - self.tone) * k;
+        // Asphalt: the top is softened (the recording's gravel and hiss fade back). Dirt: open.
+        let cutoff = (1700.0 + 2600.0 * self.tone) * (1.0 + 1.6 * self.surface);
+        let a = 1.0 - (-std::f32::consts::TAU * cutoff / self.out_rate).exp();
+        self.lp += a * (s - self.lp);
+        let mut out = self.lp * self.gain;
 
-        // Muffler formants plus a little of the raw exhaust, then a gentle top roll-off.
-        let f0 = 2.0 * (std::f32::consts::PI * k.formants[0] / self.rate).sin();
-        let f1 = 2.0 * (std::f32::consts::PI * k.formants[1] / self.rate).sin();
-        let body = self.formants[0].band(exhaust, f0, 0.9) * 1.6 + self.formants[1].band(exhaust, f1, 1.4) * 0.8 + exhaust * 0.25;
-        let out = self.out_lp.lp(body, 0.35);
-        (out * 1.4).tanh()
+        // Upshift: a short power cut.
+        if self.shift_t < 0.25 {
+            let t = self.shift_t;
+            let dip = if t < 0.045 { 0.3 } else { 1.0 - 0.7 * (-(t - 0.045) / 0.05).exp() };
+            out *= dip;
+            self.shift_t += 1.0 / self.out_rate;
+        }
+        out
     }
 }

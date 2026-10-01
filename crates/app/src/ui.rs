@@ -49,9 +49,8 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
         hud_frame().show(ui, |ui| {
             ui.add(egui::Label::new(mono(format!("{:>4.0} FPS {:>5.1} ms", fps.fps, fps.frame_ms), 15.0)).extend());
             let p = game.session.profile();
-            ui.label(RichText::new(format!("Profil {} · {}", game.session.current + 1, p.params.name)).color(Color32::WHITE).size(14.0));
+            ui.label(RichText::new(format!("{} · Profil {} · {}", game.map_name(), game.session.current + 1, p.params.name)).color(Color32::WHITE).size(14.0));
             ui.label(RichText::new(format!("Caméra : {}", MODES[game.camera.mode])).color(Color32::from_gray(200)).size(12.0));
-            ui.label(RichText::new(format!("Moteur : {} (E pour changer)", game.engine_name)).color(Color32::from_gray(200)).size(12.0));
         });
     });
 
@@ -112,7 +111,7 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
         hud_frame().show(ui, |ui| {
             let c = Color32::from_gray(215);
             ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer").color(c).size(12.0));
-            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · E : moteur").color(c).size(12.0));
+            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante · T : textures").color(c).size(12.0));
             if let Some(name) = &game.controls.gamepad_name {
                 ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil)")).color(c).size(12.0));
             }
@@ -126,6 +125,7 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
 
 fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     let mut select = None;
+    let mut select_map = None;
     let mut toggle = None;
     let mut changed = false;
     let mut reset = false;
@@ -138,6 +138,24 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
         .resizable(true)
         .vscroll(true)
         .show(ctx, |ui| {
+            let map_key = game.map_key();
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Map :");
+                for (i, m) in game.maps.iter().enumerate() {
+                    if ui.selectable_label(i == game.map_index, &m.name).clicked() {
+                        select_map = Some(i);
+                    }
+                }
+            });
+            let mut textures = game.session.textures;
+            if ui
+                .checkbox(&mut textures, "Textures des surfaces (T)")
+                .on_hover_text("Décoché : l'ancien rendu procédural, pour comparer")
+                .changed()
+            {
+                game.session.toggle_textures();
+            }
+            ui.separator();
             egui::Grid::new("profiles").striped(true).num_columns(5).show(ui, |ui| {
                 ui.label("");
                 ui.label("Profil");
@@ -154,7 +172,7 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
                     if ui.selectable_label(i == game.session.current, name).on_hover_text(&p.params.description).clicked() {
                         select = Some(i);
                     }
-                    let best = match (&p.best, p.current_best()) {
+                    let best = match (p.best(&map_key), p.current_best(&map_key)) {
                         (Some(_), Some(b)) => RichText::new(format_time(b.ticks)).monospace(),
                         (Some(b), None) => RichText::new(format_time(b.ticks)).monospace().color(Color32::from_gray(120)),
                         _ => RichText::new("-").monospace(),
@@ -249,5 +267,8 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     }
     if let Some(i) = select {
         game.select_profile(i);
+    }
+    if let Some(i) = select_map {
+        game.select_map(i);
     }
 }

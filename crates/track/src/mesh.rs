@@ -15,10 +15,17 @@ pub(crate) struct MeshBuilder {
 
 impl MeshBuilder {
     pub fn vertex(&mut self, p: Vec3, color: [f32; 3]) -> u32 {
+        self.vertex_on(p, color, [0.0, 0.0], 0.0)
+    }
+
+    /// A vertex with track coordinates and a dirt amount (see [`TrackMesh`]).
+    pub fn vertex_on(&mut self, p: Vec3, color: [f32; 3], uv: [f32; 2], dirt: f32) -> u32 {
         let i = self.mesh.positions.len() as u32;
         self.mesh.positions.push(p);
         self.mesh.normals.push(Vec3::Y);
         self.mesh.colors.push(color);
+        self.mesh.uv.push(uv);
+        self.mesh.dirt.push(dirt);
         self.acc.push(Vec3::ZERO);
         i
     }

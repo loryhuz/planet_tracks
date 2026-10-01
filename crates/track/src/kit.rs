@@ -11,7 +11,9 @@
 //! Why these sizes, for a car about 4 m long and 2 m wide driven at 150-300 km/h:
 //! - the road is 20 m wide (62.5 % of a cell): 5 car lengths, 10 car widths, room for a racing
 //!   line and ghosts side by side, while each side of the cell keeps 6 m for the lip, the
-//!   shoulder, the gate posts and some terrain between neighbouring pieces;
+//!   shoulder, the gate posts and some terrain between neighbouring pieces. Dirt is 28 m wide and
+//!   wider still on the outside of turns, to drift through them: it overflows into the
+//!   neighbouring cells, which a map keeps free (see [`crate::dirt`]);
 //! - at 200-250 km/h a car crosses a cell in about half a second, so turns of 1, 2 and 3 cells
 //!   (centreline radius 16, 48 and 80 m) span a hairpin to flat-out sweepers: the reference car
 //!   turns at 9.5 m under 80 km/h and 24 m at 228 km/h (docs/feel-targets);
@@ -25,25 +27,42 @@
 //! terrain ← skirt ← lip ← edge line | deck | edge line → lip → skirt → terrain. Ground-level
 //! decks sit at y = 0 over a terrain at [`TERRAIN_Y`], with a gentle shoulder down to it; as a
 //! road rises the shoulder becomes a vertical platform side and the lip grows to
-//! [`LIP_HEIGHT`], so elevated roads are platforms with walls down to the ground. Dirt has no
-//! lip and its sides slope down like a mound. Slope changes are parabolic vertical curves, bank
-//! changes smootherstep ramps, so the deck is continuous in position, heading, grade and bank at
-//! every join.
+//! [`LIP_HEIGHT`], so elevated roads are platforms with walls down to the ground. Slope changes
+//! are parabolic vertical curves, bank changes smootherstep ramps, so the deck is continuous in
+//! position, heading, grade and bank at every join.
+//!
+//! A dirt deck is [`DIRT_HALF_WIDTH`] × 2 m wide and not quite regular: it rises and falls a
+//! little, its camber wanders and unbanked turns are dished (see [`Placed::frame`]). On Mars
+//! terrain ([`crate::map::Map::build`]) dirt is not swept at all but dug into the ground as a
+//! corridor ([`crate::dirt`]); only jump ramps and landings keep a swept deck, bedded in the
+//! terrain. Swept whole (the flat-terrain preview, [`Layout::build`]), dirt has no lip and its
+//! sides slope down like a mound.
 
 use core::f32::consts::{FRAC_PI_2, PI};
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use crate::jump::LandingProfile;
 use crate::mesh::{MeshBuilder, add_box};
-use crate::{Pose, Surface, Track, Trigger};
+use crate::noise::{hash2, perlin};
+use crate::{Pose, Surface, Track, TrackMesh, Trigger};
 
 /// Horizontal size of a grid cell, metres.
 pub const CELL: f32 = 32.0;
 /// Height of one level, metres.
 pub const LEVEL: f32 = 8.0;
-/// Half the width of the driving surface (road or dirt), which is 20 m wide.
+/// Half the width of the road, which is 20 m wide.
 pub const HALF_WIDTH: f32 = 10.0;
+/// Natural irregularity of dirt decks (see [`Placed::frame`]): rise and fall, metres; wandering
+/// camber and dish of unbanked turns, degrees.
+pub const DIRT_WANDER_Y: f32 = 0.6;
+pub const DIRT_CAMBER_DEG: f32 = 3.0;
+pub const DIRT_DISH_DEG: f32 = 4.0;
+/// Half the nominal width of a dirt track, which is 28 m wide: room to drift through a turn
+/// side by side. A dirt corridor dug into the terrain is wider still on the outside of its turns
+/// and irregular along its edges (see [`crate::dirt`]); a swept dirt piece (jump ramp, landing)
+/// is exactly this wide.
+pub const DIRT_HALF_WIDTH: f32 = 14.0;
 /// White edge line painted on the road, inside the driving surface.
 pub const LINE_WIDTH: f32 = 0.5;
 /// Raised lip along the edges of elevated roads, outside the driving surface.
@@ -62,9 +81,13 @@ const GATE_POST_U: f32 = HALF_WIDTH + LIP_WIDTH + 1.2;
 const GATE_POST_HALF: f32 = 0.5;
 const GATE_BEAM_BOTTOM: f32 = 7.5;
 const GATE_BEAM_HEIGHT: f32 = 1.2;
-/// Half extents of checkpoint and finish triggers: across (deck, lips and a margin), height,
-/// along the road (4 m thick: more than a tick of travel at 1400 km/h).
+/// Gate posts of a dirt piece stand this far out from its centreline, on the banks.
+const DIRT_GATE_POST_U: f32 = DIRT_HALF_WIDTH + 4.0;
+/// Half extents of checkpoint and finish triggers on the road: across (deck, lips and a margin),
+/// height, along the road (4 m thick: more than a tick of travel at 1400 km/h).
 pub const TRIGGER_HALF: Vec3 = Vec3::new(HALF_WIDTH + LIP_WIDTH + 0.5, 4.5, 2.0);
+/// The same on dirt, across the whole corridor floor at the gate.
+pub const DIRT_TRIGGER_HALF: Vec3 = Vec3::new(DIRT_HALF_WIDTH + 2.0, 4.5, 2.0);
 /// Trigger centres sit this far above the deck.
 pub const TRIGGER_LIFT: f32 = 2.0;
 /// Below the terrain: only reached by leaving the terrain square.
@@ -74,13 +97,25 @@ pub const FALL_LIMIT_Y: f32 = TERRAIN_Y - 20.0;
 pub mod color {
     pub const ROAD: [f32; 3] = [0.20, 0.20, 0.21];
     pub const LINE: [f32; 3] = [0.80, 0.80, 0.78];
-    pub const DIRT: [f32; 3] = [0.24, 0.08, 0.03];
+    /// Swept dirt only shows on the flat-terrain preview; the renderer darkens it as driven
+    /// earth, like a corridor floor.
+    pub const DIRT: [f32; 3] = GROUND;
     pub const GROUND: [f32; 3] = [0.55, 0.22, 0.10];
     pub const LIP: [f32; 3] = [0.68, 0.68, 0.66];
     pub const WALL: [f32; 3] = [0.32, 0.30, 0.29];
+    /// The face of a dirt kicker or landing over its trench.
+    pub const EARTH_FACE: [f32; 3] = [0.40, 0.16, 0.075];
     pub const START: [f32; 3] = [0.10, 0.60, 0.15];
     pub const CHECKPOINT: [f32; 3] = [0.05, 0.35, 0.90];
     pub const FINISH: [f32; 3] = [0.90, 0.10, 0.05];
+}
+
+/// Half the width of a deck of this surface.
+pub fn half_width(deck: Surface) -> f32 {
+    match deck {
+        Surface::Dirt => DIRT_HALF_WIDTH,
+        _ => HALF_WIDTH,
+    }
 }
 
 pub fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
@@ -88,7 +123,7 @@ pub fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-fn smootherstep(e0: f32, e1: f32, x: f32) -> f32 {
+pub(crate) fn smootherstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * t * (t * (6.0 * t - 15.0) + 10.0)
 }
@@ -204,8 +239,21 @@ impl Side {
 pub enum Pivot {
     /// The centreline keeps its height: the inner edge dips, the outer edge rises (platforms).
     Centre,
-    /// The inner edge keeps its height and the outer edge rises (berms at ground level).
+    /// Berms at ground level: on a road the inner edge keeps its height and the outer edge rises;
+    /// on dirt the deck pivots half way in, so the middle of the track rises half as much and the
+    /// inside dips into the ground it is dug in (see [`berm_pivot`]).
     Inner,
+}
+
+/// Longest ramp of a turn's bank, in and out, metres.
+pub const BANK_RAMP: f32 = 48.0;
+
+/// How far inside the centreline a ground-level berm ([`Pivot::Inner`]) pivots, metres.
+pub fn berm_pivot(deck: Surface) -> f32 {
+    match deck {
+        Surface::Dirt => 0.5 * HALF_WIDTH,
+        _ => HALF_WIDTH,
+    }
 }
 
 /// Shape of a piece. Lengths are counted in cells, heights in levels.
@@ -457,6 +505,34 @@ impl Placed {
         }
     }
 
+    /// Part of the deck dug into the terrain as a dirt corridor (see [`crate::dirt`]) rather
+    /// than swept as a mesh, when the map is built on Mars terrain: dirt straights, turns,
+    /// slopes and whoops, and the dirt half of a transition. Jump ramps and landings stay swept
+    /// (a lip and a landing edge need sharp, exact geometry) and sit in the terrain; roads stay
+    /// swept.
+    pub fn carved_range(&self) -> Option<(f32, f32)> {
+        let half = 0.5 * self.length;
+        match (self.piece.kind, self.piece.deck) {
+            (Kind::Transition { to: Surface::Dirt }, Surface::Road) => Some((half, self.length)),
+            (Kind::Transition { to: Surface::Road }, Surface::Dirt) => Some((0.0, half)),
+            (Kind::Straight { .. } | Kind::Turn { .. } | Kind::Slope { .. } | Kind::Whoops { .. }, Surface::Dirt) => {
+                Some((0.0, self.length))
+            }
+            _ => None,
+        }
+    }
+
+    /// Part of the deck swept as a mesh on Mars terrain (the rest is carved), if any.
+    pub fn swept_range(&self) -> Option<(f32, f32)> {
+        let (d0, d1) = self.deck_range();
+        match self.carved_range() {
+            None => Some((d0, d1)),
+            Some((c0, _)) if c0 > d0 + 1e-3 => Some((d0, c0)),
+            Some((_, c1)) if c1 < d1 - 1e-3 => Some((c1, d1)),
+            Some(_) => None,
+        }
+    }
+
     fn local(&self, s: f32) -> Local {
         let mut l = Local { x: 0.0, z: s, turn: 0.0, y: 0.0, bank: 0.0, pivot_u: 0.0, deck: self.piece.deck };
         match self.piece.kind {
@@ -486,16 +562,50 @@ impl Placed {
                 l.z = r * sn;
                 l.turn = sg * s / r;
                 if bank_deg != 0.0 {
-                    let ramp = (0.35 * self.length).min(40.0);
+                    // The bank builds up over half the turn (at most BANK_RAMP), so the edges,
+                    // and the middle of a berm, rise and fall gently.
+                    let ramp = (0.5 * self.length).min(BANK_RAMP);
                     let k = smootherstep(0.0, ramp, s) * smootherstep(0.0, ramp, self.length - s);
                     l.bank = -sg * bank_deg.to_radians() * k;
                     if pivot == Pivot::Inner {
-                        l.pivot_u = sg * HALF_WIDTH;
+                        l.pivot_u = sg * berm_pivot(self.piece.deck);
                     }
                 }
             }
         }
+        let (dy, dbank) = self.wander(s);
+        l.y += dy;
+        l.bank += dbank;
         l
+    }
+
+    /// The natural irregularity of a dirt deck `s` metres along: a slow rise and fall of up to
+    /// [`DIRT_WANDER_Y`] m, a camber wandering up to [`DIRT_CAMBER_DEG`]° on straights, a
+    /// [`DIRT_DISH_DEG`]° dish towards the inside of unbanked turns. The rise and the camber fade
+    /// out within 16 m of the ends (joins stay level, flat and straight); nothing on gates,
+    /// transitions, banked turns, slopes and whoops (their shape is the design). Returns (rise,
+    /// bank).
+    fn wander(&self, s: f32) -> (f32, f32) {
+        let wanders = match self.piece.kind {
+            Kind::Straight { .. } => true,
+            Kind::Turn { bank_deg, .. } => bank_deg == 0.0,
+            _ => false,
+        };
+        if self.piece.deck != Surface::Dirt || self.piece.gate.is_some() || !wanders {
+            return (0.0, 0.0);
+        }
+        let key = |v: f32| libm::roundf(v * 4.0) as i32;
+        let seed = hash2(0x6469_7274 ^ self.entry.heading.index() as u32, key(self.entry.pos.x), key(self.entry.pos.z) ^ key(self.entry.pos.y));
+        let w = smoothstep(0.0, 16.0, s) * smoothstep(0.0, 16.0, self.length - s);
+        let dy = DIRT_WANDER_Y * w * perlin(seed, s / 70.0, 0.5);
+        let bank = match self.piece.kind {
+            Kind::Turn { side, .. } => {
+                let t = libm::sinf(PI * s / self.length);
+                -side.sign() * DIRT_DISH_DEG.to_radians() * t * t
+            }
+            _ => DIRT_CAMBER_DEG.to_radians() * w * perlin(seed.wrapping_add(1), s / 55.0, 0.5),
+        };
+        (dy, bank)
     }
 
     /// The deck `s` metres along the centreline (horizontal distance from the entry).
@@ -570,13 +680,19 @@ impl Placed {
     /// The trigger of this piece's gate.
     pub fn trigger(&self) -> Trigger {
         let f = self.frame(self.gate_s());
-        Trigger { center: f.centre() + Vec3::Y * TRIGGER_LIFT, half_extents: TRIGGER_HALF, yaw: f.yaw }
+        let half_extents = if f.deck == Surface::Dirt { DIRT_TRIGGER_HALF } else { TRIGGER_HALF };
+        Trigger { center: f.centre() + Vec3::Y * TRIGGER_LIFT, half_extents, yaw: f.yaw }
     }
 
     /// Sample positions along the deck: every half cell, then halved until the heading, grade,
     /// bank and height change little between samples.
     pub fn samples(&self) -> Vec<f32> {
         let (s0, s1) = self.deck_range();
+        self.samples_in(s0, s1)
+    }
+
+    /// [`Placed::samples`] over part of the deck.
+    pub fn samples_in(&self, s0: f32, s1: f32) -> Vec<f32> {
         let mut cuts = vec![s0];
         let mut s = 0.5 * CELL;
         while s < s1 - 1e-3 {
@@ -591,6 +707,7 @@ impl Placed {
             _ => {}
         }
         cuts.push(s1);
+        cuts.retain(|&c| (s0..=s1).contains(&c));
         cuts.sort_by(f32::total_cmp);
         cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
         let mut out = vec![cuts[0]];
@@ -621,7 +738,8 @@ impl Placed {
         if (fa.bank - fb.bank).abs() > 0.01 || (self.grade(a) - self.grade(b)).abs() > 0.012 {
             return true;
         }
-        [-HALF_WIDTH, 0.0, HALF_WIDTH].into_iter().any(|u| {
+        let hw = half_width(fa.deck);
+        [-hw, 0.0, hw].into_iter().any(|u| {
             let mid = 0.5 * (fa.deck_point(u).y + fb.deck_point(u).y);
             (fm.deck_point(u).y - mid).abs() > 0.01
         })
@@ -666,6 +784,8 @@ struct Section {
     /// edge, three deck points (quarter, centre, quarter), right line inner edge, right deck
     /// edge, right lip inner top, right lip outer top, right skirt foot.
     pts: [Vec3; STRIPS + 1],
+    /// Track coordinate across of each point (positive left), metres.
+    u: [f32; STRIPS + 1],
     lip: [f32; 2],
 }
 
@@ -681,14 +801,16 @@ impl Section {
     fn new(f: &Frame) -> Self {
         let lat = f.lateral();
         let up = f.up();
-        let el = f.deck_point(HALF_WIDTH);
-        let er = f.deck_point(-HALF_WIDTH);
+        let hw = half_width(f.deck);
+        let el = f.deck_point(hw);
+        let er = f.deck_point(-hw);
         let (lip_l, skirt_l) = side_params(f.deck, el.y - TERRAIN_Y);
         let (lip_r, skirt_r) = side_params(f.deck, er.y - TERRAIN_Y);
         let out_l = el + lat * LIP_WIDTH + up * lip_l;
         let out_r = er - lat * LIP_WIDTH + up * lip_r;
         let foot = |p: Vec3, dir: Vec3, w: f32| Vec3::new(p.x, TERRAIN_Y, p.z) + dir * w;
-        let inner = HALF_WIDTH - LINE_WIDTH;
+        let inner = hw - LINE_WIDTH;
+        let (ol, or) = (hw + LIP_WIDTH, hw + LIP_WIDTH);
         Section {
             pts: [
                 foot(out_l, f.left, skirt_l),
@@ -705,57 +827,88 @@ impl Section {
                 out_r,
                 foot(out_r, -f.left, skirt_r),
             ],
+            u: [ol + skirt_l, ol, hw, hw, inner, 0.5 * inner, 0.0, -0.5 * inner, -inner, -hw, -hw, -or, -or - skirt_r],
             lip: [lip_l, lip_r],
         }
     }
 }
 
-fn classify(role: Role, deck: Surface, lip: f32, normal: Vec3) -> (Surface, [f32; 3]) {
+/// Surface, colour and dirt amount (see [`TrackMesh::dirt`]) of a strip.
+fn classify(role: Role, deck: Surface, lip: f32, normal: Vec3) -> (Surface, [f32; 3], u8) {
+    let worked = if deck == Surface::Dirt { 1 } else { 0 };
     match role {
         Role::Skirt => {
             if normal.y >= 0.7 {
-                (Surface::Ground, color::GROUND)
+                (Surface::Ground, color::GROUND, worked)
             } else {
-                (Surface::Wall, color::WALL)
+                (Surface::Wall, color::WALL, worked)
             }
         }
         Role::LipTop => {
             if lip > 0.05 {
-                (Surface::Wall, color::LIP)
+                (Surface::Wall, color::LIP, 0)
             } else {
-                (Surface::Ground, color::GROUND)
+                (Surface::Ground, color::GROUND, worked)
             }
         }
-        Role::LipFace => (Surface::Wall, color::LIP),
+        Role::LipFace => (Surface::Wall, color::LIP, 0),
         Role::Line => match deck {
-            Surface::Dirt => (Surface::Dirt, color::DIRT),
-            _ => (Surface::Road, color::LINE),
+            Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
+            _ => (Surface::Road, color::LINE, 0),
         },
         Role::Deck => match deck {
-            Surface::Dirt => (Surface::Dirt, color::DIRT),
-            _ => (Surface::Road, color::ROAD),
+            Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
+            _ => (Surface::Road, color::ROAD, 0),
         },
     }
 }
 
-fn run_vertex(b: &mut MeshBuilder, verts: &mut [[(u32, u32); 2]], run: u32, k: usize, w: usize, p: Vec3, color: [f32; 3]) -> u32 {
+/// A vertex of strip run `run` at section `k`, side `w` (0 left, 1 right), shared along the run.
+#[allow(clippy::too_many_arguments)]
+fn run_vertex(
+    b: &mut MeshBuilder,
+    verts: &mut [[(u32, u32); 2]],
+    run: u32,
+    k: usize,
+    w: usize,
+    p: Vec3,
+    color: [f32; 3],
+    uv: [f32; 2],
+    dirt: f32,
+) -> u32 {
     let (r, i) = verts[k][w];
     if r == run {
         return i;
     }
-    let i = b.vertex(p, color);
+    let i = b.vertex_on(p, color, uv, dirt);
     verts[k][w] = (run, i);
     i
 }
 
-fn sweep(b: &mut MeshBuilder, p: &Placed, open_start: bool, open_end: bool) {
-    let ss = p.samples();
+/// Sweeps the deck of `p` between `range.0` and `range.1` (metres along the piece) into a mesh,
+/// capping the open ends. `route_s` is the distance along the route at the piece's entry (track
+/// coordinates of the vertices). With `deck_only` the lips and skirts are left out: the terrain
+/// meets the deck edges (a swept dirt piece bedded in the terrain, see [`crate::dirt`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sweep(
+    b: &mut MeshBuilder,
+    p: &Placed,
+    range: (f32, f32),
+    route_s: f32,
+    open_start: bool,
+    open_end: bool,
+    deck_only: bool,
+) {
+    let ss = p.samples_in(range.0, range.1);
     let secs: Vec<Section> = ss.iter().map(|&s| Section::new(&p.frame(s))).collect();
     let decks: Vec<Surface> = ss.windows(2).map(|w| p.frame(0.5 * (w[0] + w[1])).deck).collect();
     let n = ss.len();
     let mut run = 0u32;
     for (j, &role) in ROLES.iter().enumerate() {
-        let mut current: Option<(Surface, [f32; 3])> = None;
+        if deck_only && !matches!(role, Role::Deck | Role::Line) {
+            continue;
+        }
+        let mut current: Option<(Surface, [f32; 3], u8)> = None;
         let mut verts = vec![[(u32::MAX, 0u32); 2]; n];
         for k in 0..n - 1 {
             let (s0, s1) = (&secs[k], &secs[k + 1]);
@@ -773,39 +926,46 @@ fn sweep(b: &mut MeshBuilder, p: &Placed, open_start: bool, open_end: bool) {
                 current = Some(class);
                 run += 1;
             }
-            let (surface, color) = class;
+            let (surface, color, worked) = class;
+            let dirt = 0.5 * worked as f32;
+            let uv = |kk: usize, jj: usize| [route_s + ss[kk], secs[kk].u[jj]];
+            let mut v = |kk: usize, w: usize, q: Vec3| run_vertex(b, &mut verts, run, kk, w, q, color, uv(kk, j + w), dirt);
             if e0 && e1 {
-                let ia = run_vertex(b, &mut verts, run, k, 0, pa, color);
-                let ib = run_vertex(b, &mut verts, run, k, 1, pb, color);
-                let ic = run_vertex(b, &mut verts, run, k + 1, 0, pc, color);
-                let id = run_vertex(b, &mut verts, run, k + 1, 1, pd, color);
+                let ia = v(k, 0, pa);
+                let ib = v(k, 1, pb);
+                let ic = v(k + 1, 0, pc);
+                let id = v(k + 1, 1, pd);
                 b.tri(ia, ib, ic, surface);
                 b.tri(ib, id, ic, surface);
             } else if e0 {
-                let ia = run_vertex(b, &mut verts, run, k, 0, pa, color);
-                let ib = run_vertex(b, &mut verts, run, k, 1, pb, color);
-                let ic = run_vertex(b, &mut verts, run, k + 1, 0, pc, color);
+                let ia = v(k, 0, pa);
+                let ib = v(k, 1, pb);
+                let ic = v(k + 1, 0, pc);
                 b.tri(ia, ib, ic, surface);
             } else {
-                let ia = run_vertex(b, &mut verts, run, k, 0, pa, color);
-                let ic = run_vertex(b, &mut verts, run, k + 1, 0, pc, color);
-                let id = run_vertex(b, &mut verts, run, k + 1, 1, pd, color);
+                let ia = v(k, 0, pa);
+                let ic = v(k + 1, 0, pc);
+                let id = v(k + 1, 1, pd);
                 b.tri(ia, id, ic, surface);
             }
         }
     }
+    let strips = if deck_only { 3..STRIPS - 3 } else { 0..STRIPS };
+    let earth = p.piece.deck == Surface::Dirt;
     if open_start {
-        cap(b, &secs[0], false);
+        cap(b, &secs[0], false, strips.clone(), earth);
     }
     if open_end {
-        cap(b, &secs[n - 1], true);
+        cap(b, &secs[n - 1], true, strips, earth);
     }
 }
 
 /// Closes an open end of a piece: the area under the section outline, down to the terrain.
-fn cap(b: &mut MeshBuilder, sec: &Section, facing_forward: bool) {
+/// The strips `strips` of the section only; `earth` gives it the colour of dug earth.
+fn cap(b: &mut MeshBuilder, sec: &Section, facing_forward: bool, strips: core::ops::Range<usize>, earth: bool) {
     let ground = |p: Vec3| Vec3::new(p.x, TERRAIN_Y, p.z);
-    for j in 0..STRIPS {
+    let color = if earth { color::EARTH_FACE } else { color::WALL };
+    for j in strips {
         let (p, q) = (sec.pts[j], sec.pts[j + 1]);
         if libm::hypotf(p.x - q.x, p.z - q.z) < EPS {
             continue;
@@ -815,27 +975,60 @@ fn cap(b: &mut MeshBuilder, sec: &Section, facing_forward: bool) {
                 continue;
             }
             let t = if facing_forward { t } else { [t[0], t[2], t[1]] };
-            b.flat_tri(t, Surface::Wall, color::WALL);
+            b.flat_tri(t, Surface::Wall, color);
         }
     }
 }
 
-fn gate(b: &mut MeshBuilder, f: &Frame, kind: Gate) {
+/// Ground the swept part `range` of a piece stands on, as discs along its centreline: `(centre,
+/// radius)` in the horizontal plane, at most 4 m apart. A disc reaches the farthest skirt foot or
+/// gate post of its section, so everything the piece puts on the terrain lies inside the union of
+/// the capsules joining consecutive discs (a jump gap included: the route flies over it and the
+/// caps of the ramp and landing come down to the terrain there).
+pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32)> {
+    let (s0, s1) = range;
+    let n = libm::ceilf((s1 - s0) / 4.0).max(1.0) as usize;
+    let gate = if p.piece.gate.is_some() { gate_post_u(p.piece.deck) + GATE_POST_HALF } else { 0.0 };
+    (0..=n)
+        .map(|k| {
+            let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
+            let sec = Section::new(&f);
+            let c = Vec2::new(f.horiz.x, f.horiz.z);
+            let reach = |q: Vec3| Vec2::new(q.x, q.z).distance(c);
+            let r = reach(sec.pts[0]).max(reach(sec.pts[STRIPS])).max(gate).max(GATE_POST_U + GATE_POST_HALF);
+            (c, r)
+        })
+        .collect()
+}
+
+/// How far from the centreline the posts of a gate stand.
+pub(crate) fn gate_post_u(deck: Surface) -> f32 {
+    match deck {
+        Surface::Dirt => DIRT_GATE_POST_U,
+        _ => GATE_POST_U,
+    }
+}
+
+/// A gate across the deck at frame `f`. `ground(p)` is the height the post at horizontal
+/// position `p` stands on.
+pub(crate) fn gate(b: &mut MeshBuilder, f: &Frame, kind: Gate, ground: impl Fn(Vec3) -> f32) {
     let color = match kind {
         Gate::Start => color::START,
         Gate::Checkpoint => color::CHECKPOINT,
         Gate::Finish => color::FINISH,
     };
+    let post_u = gate_post_u(f.deck);
     let deck_y = f.centre().y;
     let top = deck_y + GATE_BEAM_BOTTOM + GATE_BEAM_HEIGHT;
     for side in [1.0, -1.0] {
-        let base = f.horiz + f.left * (side * GATE_POST_U);
-        let h = 0.5 * (top - TERRAIN_Y);
-        let centre = Vec3::new(base.x, TERRAIN_Y + h, base.z);
+        let base = f.horiz + f.left * (side * post_u);
+        let foot = ground(base);
+        let h = 0.5 * (top - foot);
+        let centre = Vec3::new(base.x, foot + h, base.z);
         add_box(b, centre, Vec3::new(GATE_POST_HALF, h, GATE_POST_HALF), f.forward, Surface::Wall, color, false);
     }
     let beam = f.horiz + Vec3::Y * (deck_y + GATE_BEAM_BOTTOM + 0.5 * GATE_BEAM_HEIGHT);
-    let half = Vec3::new(GATE_POST_U + GATE_POST_HALF, 0.5 * GATE_BEAM_HEIGHT, 0.6);
+    let half = Vec3::new(post_u + GATE_POST_HALF, 0.5 * GATE_BEAM_HEIGHT, 0.6);
     add_box(b, beam, half, f.forward, Surface::Wall, color, true);
 }
 
@@ -871,6 +1064,19 @@ pub struct Layout {
     pub name: String,
     pub start: Connector,
     pub pieces: Vec<Placed>,
+}
+
+/// The middle of the cells the pieces occupy, on a grid line.
+pub(crate) fn centre_of(pieces: &[Placed]) -> Vec3 {
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for p in pieces {
+        for (i, k) in p.cells() {
+            lo = lo.min(Vec3::new(i as f32 * CELL, 0.0, k as f32 * CELL));
+            hi = hi.max(Vec3::new((i + 1) as f32 * CELL, 0.0, (k + 1) as f32 * CELL));
+        }
+    }
+    let c = 0.5 * (lo + hi) / CELL;
+    Vec3::new(libm::roundf(c.x) * CELL, 0.0, libm::roundf(c.z) * CELL)
 }
 
 /// A point of the driving line.
@@ -926,15 +1132,7 @@ impl Layout {
 
     /// Centre of the terrain square: the middle of the map, on the grid.
     pub fn centre(&self) -> Vec3 {
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for p in &self.pieces {
-            for (i, k) in p.cells() {
-                lo = lo.min(Vec3::new(i as f32 * CELL, 0.0, k as f32 * CELL));
-                hi = hi.max(Vec3::new((i + 1) as f32 * CELL, 0.0, (k + 1) as f32 * CELL));
-            }
-        }
-        let c = 0.5 * (lo + hi) / CELL;
-        Vec3::new(libm::roundf(c.x) * CELL, 0.0, libm::roundf(c.z) * CELL)
+        centre_of(&self.pieces)
     }
 
     /// The driving line from the entry of piece `first` to the end of piece `last`, at most
@@ -968,19 +1166,38 @@ impl Layout {
         out
     }
 
-    /// Builds the playable track: terrain, swept pieces, end caps, gates and triggers.
+    /// Builds the playable track on the flat terrain square of the first maps: swept pieces, end
+    /// caps, gates and triggers (the game builds maps with [`crate::map::Map::build`], on Mars
+    /// terrain).
     pub fn build(&self) -> Track {
         let mut b = MeshBuilder::default();
         terrain(&mut b, self.centre());
+        let mut mesh = b.finish();
+        mesh.append(&self.pieces_mesh());
+        self.track(mesh, FALL_LIMIT_Y)
+    }
+
+    /// The pieces swept whole (dirt included), end caps and gates, without terrain: the
+    /// flat-terrain preview.
+    pub fn pieces_mesh(&self) -> TrackMesh {
+        let mut b = MeshBuilder::default();
         let n = self.pieces.len();
+        let mut route_s = 0.0;
         for (i, p) in self.pieces.iter().enumerate() {
             let open_start = i == 0 || p.deck_range().0 > 0.0;
             let open_end = i + 1 == n || self.pieces[i + 1].deck_range().0 > 0.0;
-            sweep(&mut b, p, open_start, open_end);
+            sweep(&mut b, p, p.deck_range(), route_s, open_start, open_end, false);
             if let Some(g) = p.piece.gate {
-                gate(&mut b, &p.frame(p.gate_s()), g);
+                gate(&mut b, &p.frame(p.gate_s()), g, |_| TERRAIN_Y);
             }
+            route_s += p.length;
         }
+        b.finish()
+    }
+
+    /// The track around a finished mesh: start, triggers and driving line from the chain.
+    pub(crate) fn track(&self, mesh: TrackMesh, fall_limit_y: f32) -> Track {
+        let n = self.pieces.len();
         let start_piece = self.piece_with(Gate::Start).unwrap_or(0);
         let finish_piece = self.piece_with(Gate::Finish).unwrap_or(n - 1);
         let route = self
@@ -990,11 +1207,11 @@ impl Layout {
             .collect();
         Track {
             name: self.name.clone(),
-            mesh: b.finish(),
+            mesh,
             start: self.start_pose(),
             checkpoints: self.checkpoint_pieces().into_iter().map(|i| self.pieces[i].trigger()).collect(),
             finish: self.pieces[finish_piece].trigger(),
-            fall_limit_y: FALL_LIMIT_Y,
+            fall_limit_y,
             route,
         }
     }

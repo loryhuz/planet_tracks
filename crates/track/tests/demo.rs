@@ -108,8 +108,11 @@ fn driving_surfaces_face_up() {
 
 #[test]
 fn triangle_budget() {
+    // Blocks, Mars terrain and rocks together.
     let n = demo_track().mesh.triangle_count();
-    assert!(n < 50_000, "{n} triangles");
+    assert!(n < 200_000, "{n} triangles");
+    let blocks = layout().pieces_mesh().triangle_count();
+    assert!(blocks < 50_000, "{blocks} block triangles");
 }
 
 #[test]
@@ -145,6 +148,30 @@ fn slopes_are_rounded() {
             assert!(curv > -1.0 / 80.0, "piece {i} at {s}: crest radius {}", -1.0 / curv);
             assert!(curv < 1.0 / 40.0, "piece {i} at {s}: sag radius {}", 1.0 / curv);
             s += h;
+        }
+    }
+}
+
+#[test]
+fn berms_have_no_hump() {
+    // Along the centreline of every catalogue berm (quarter and U-turn, 2 and 3 cells, road and
+    // dirt) the bank ramps in and out gently: no crest tighter than these radii, so a car on the
+    // racing line is not thrown at speed.
+    use track::kit::{Connector, Heading, Piece, Placed, Side};
+    for size in [2, 3] {
+        for quarters in [1, 2] {
+            for (deck, min_radius) in [(Surface::Dirt, 120.0), (Surface::Road, 70.0)] {
+                let kind = Kind::berm(size, Side::Left, quarters, 18.0);
+                let p = Placed::new(Piece { kind, deck, gate: None }, Connector::entering((0, 0), 0, Heading::North));
+                let h = 0.5;
+                let y = |s: f32| p.frame(s).centre().y;
+                let mut s = h;
+                while s <= p.length - h {
+                    let curv = (y(s + h) - 2.0 * y(s) + y(s - h)) / (h * h);
+                    assert!(curv > -1.0 / min_radius, "{deck:?} berm {size}x{quarters} at {s}: crest radius {}", -1.0 / curv);
+                    s += h;
+                }
+            }
         }
     }
 }

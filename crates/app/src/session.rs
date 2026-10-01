@@ -1,6 +1,8 @@
-//! The tuning session: every gameplay profile with its tuned parameters, best run and
-//! whether the player eliminated it. Saved to tuning/session.json so it survives restarts.
+//! The tuning session: every gameplay profile with its tuned parameters, its best run on each
+//! map and whether the player eliminated it. Saved to tuning/session.json so it survives
+//! restarts.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -9,10 +11,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::race::Frame;
 
+/// Maps are keyed by name and version: records do not carry over when a map's blocks change.
+pub fn map_key(map: &track::Map) -> String {
+    format!("{}@{}", map.name, map.version)
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Best {
     pub ticks: u32,
     pub splits: Vec<u32>,
     /// The parameters the record was driven with (JSON), to tell whether the ghost still applies.
+    #[serde(rename = "params")]
     pub params_json: String,
     pub frames: Vec<Frame>,
 }
@@ -20,7 +29,8 @@ pub struct Best {
 pub struct Profile {
     pub params: CarParams,
     pub defaults: CarParams,
-    pub best: Option<Best>,
+    /// Best run per map key.
+    pub bests: BTreeMap<String, Best>,
     pub runs: u32,
     pub finishes: u32,
     pub eliminated: bool,
@@ -31,22 +41,37 @@ impl Profile {
         serde_json::to_string(&self.params).unwrap_or_default()
     }
 
-    /// The best run, if it was driven with the current parameters.
-    pub fn current_best(&self) -> Option<&Best> {
+    pub fn best(&self, map: &str) -> Option<&Best> {
+        self.bests.get(map)
+    }
+
+    /// The best run on `map`, if it was driven with the current parameters.
+    pub fn current_best(&self, map: &str) -> Option<&Best> {
         let json = self.params_json();
-        self.best.as_ref().filter(|b| b.params_json == json)
+        self.bests.get(map).filter(|b| b.params_json == json)
     }
 }
 
 pub struct Session {
     pub profiles: Vec<Profile>,
     pub current: usize,
+    /// Key of the map last played.
+    pub map: String,
+    /// Surfaces drawn with their textures (off: the earlier procedural look, to compare).
+    pub textures: bool,
     dirty_since: Option<Instant>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
 struct Saved {
     current: usize,
+    /// The current profile by name (indices move when profiles are added).
+    #[serde(default)]
+    current_name: String,
+    #[serde(default)]
+    map: String,
+    #[serde(default)]
+    textures_off: bool,
     profiles: Vec<SavedProfile>,
 }
 
@@ -61,12 +86,16 @@ struct SavedProfile {
     runs: u32,
     finishes: u32,
     eliminated: bool,
+    #[serde(default)]
+    bests: BTreeMap<String, Best>,
+    // Before maps existed, the one best run was on Jezero version 1.
+    #[serde(default, skip_serializing)]
     best_ticks: Option<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     best_splits: Vec<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     best_params: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     best_frames: Vec<Frame>,
 }
 
@@ -89,25 +118,35 @@ impl Session {
                     .filter(|s| s.defaults == preset_json)
                     .and_then(|s| serde_json::from_value::<CarParams>(s.params.clone()).ok())
                     .unwrap_or_else(|| preset.clone());
-                Profile {
-                    params,
-                    defaults: preset,
-                    best: s.and_then(|s| {
-                        s.best_ticks.map(|ticks| Best {
+                let mut bests = s.map(|s| s.bests.clone()).unwrap_or_default();
+                if let Some(s) = s {
+                    if let Some(ticks) = s.best_ticks {
+                        bests.entry("Jezero@1".into()).or_insert(Best {
                             ticks,
                             splits: s.best_splits.clone(),
                             params_json: s.best_params.clone(),
                             frames: s.best_frames.clone(),
-                        })
-                    }),
+                        });
+                    }
+                }
+                Profile {
+                    params,
+                    defaults: preset,
+                    bests,
                     runs: s.map_or(0, |s| s.runs),
                     finishes: s.map_or(0, |s| s.finishes),
                     eliminated: s.is_some_and(|s| s.eliminated),
                 }
             })
             .collect::<Vec<_>>();
-        let current = saved.current.min(profiles.len().saturating_sub(1));
-        Self { profiles, current, dirty_since: None }
+        // By name; a session saved before names were stored starts on the first profile.
+        let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
+        Self { profiles, current, map: saved.map, textures: !saved.textures_off, dirty_since: None }
+    }
+
+    pub fn toggle_textures(&mut self) {
+        self.textures = !self.textures;
+        self.mark_dirty();
     }
 
     pub fn profile(&self) -> &Profile {
@@ -133,6 +172,9 @@ impl Session {
         self.dirty_since = None;
         let saved = Saved {
             current: self.current,
+            current_name: self.profiles[self.current].defaults.name.clone(),
+            map: self.map.clone(),
+            textures_off: !self.textures,
             profiles: self
                 .profiles
                 .iter()
@@ -143,10 +185,11 @@ impl Session {
                     runs: p.runs,
                     finishes: p.finishes,
                     eliminated: p.eliminated,
-                    best_ticks: p.best.as_ref().map(|b| b.ticks),
-                    best_splits: p.best.as_ref().map(|b| b.splits.clone()).unwrap_or_default(),
-                    best_params: p.best.as_ref().map(|b| b.params_json.clone()).unwrap_or_default(),
-                    best_frames: p.best.as_ref().map(|b| b.frames.clone()).unwrap_or_default(),
+                    bests: p.bests.clone(),
+                    best_ticks: None,
+                    best_splits: Vec::new(),
+                    best_params: String::new(),
+                    best_frames: Vec::new(),
                 })
                 .collect(),
         };

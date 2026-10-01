@@ -6,6 +6,8 @@ use physics::{Car, CarParams, CarState, Input, World};
 use serde::{Deserialize, Serialize};
 use track::{Track, Trigger};
 
+use crate::car_model::Look;
+
 /// Ticks before the start (1.5 s at 100 Hz).
 pub const COUNTDOWN_TICKS: u32 = 150;
 
@@ -40,15 +42,21 @@ pub struct Run {
     pub finished: Option<u32>,
     pub frames: Vec<Frame>,
     pub respawns: u32,
+    /// Render-side suspension, after the last tick and before it.
+    pub look: Look,
+    pub look_prev: Look,
 }
 
 impl Run {
     pub fn new(params: CarParams, world: &World, track: &Track) -> Self {
         let car = Car::new(params, world, track.start);
         let prev = car.state.clone();
+        let look = Look::new(&car.state);
         Self {
             car,
             prev,
+            look,
+            look_prev: look,
             countdown: COUNTDOWN_TICKS,
             tick: 0,
             crossed: vec![false; track.checkpoints.len()],
@@ -65,6 +73,18 @@ impl Run {
     }
 
     pub fn step(&mut self, world: &World, track: &Track, frame: Frame) -> Vec<RaceEvent> {
+        let respawns = self.respawns;
+        let events = self.advance(world, track, frame);
+        self.look_prev = self.look;
+        if self.respawns != respawns || events.contains(&RaceEvent::RespawnAtStart) {
+            self.look = Look::new(&self.car.state);
+            self.look_prev = self.look;
+        }
+        self.look.step(&self.car.state, &self.car.params, physics::DT);
+        events
+    }
+
+    fn advance(&mut self, world: &World, track: &Track, frame: Frame) -> Vec<RaceEvent> {
         let mut events = Vec::new();
         self.prev = self.car.state.clone();
         if self.countdown > 0 {

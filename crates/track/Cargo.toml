@@ -6,4 +6,5 @@ edition.workspace = true
 [dependencies]
 glam.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 libm.workspace = true

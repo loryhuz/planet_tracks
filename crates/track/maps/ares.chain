@@ -1,0 +1,31 @@
+# Ares Vallis: all dirt, dug into the plain. A wide right sweeper and an S onto the whoops,
+# a U-berm, an S climbing to a jump that lands in a descent, a long left sweeper down the west
+# side, a berm and two S-bends at the bottom, then up the middle over more whoops to the finish.
+# A test bench for the dirt corridors: wide floors to drift on, no road, no crossing.
+name Ares Vallis
+seed 2026
+start 0 0 0 0 dirt
+straight2 dirt
+turn3_right dirt
+straight dirt
+turn2_left dirt
+whoops3 dirt
+checkpoint dirt
+uberm2_left dirt
+straight dirt
+turn2_right dirt
+slope3_up1 dirt
+jump_ramp dirt
+landing5_down1 dirt
+turn3_left dirt
+straight dirt
+checkpoint dirt
+berm2_left dirt
+turn2_right dirt
+turn2_left dirt
+straight dirt
+turn2_left dirt
+whoops2 dirt
+checkpoint dirt
+straight2 dirt
+finish dirt

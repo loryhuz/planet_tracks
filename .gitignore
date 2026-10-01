@@ -4,3 +4,6 @@
 /tuning/
 # Rejected engine sound experiments
 /docs/audio/
+# Python bytecode and Blender backups
+__pycache__/
+*.blend1

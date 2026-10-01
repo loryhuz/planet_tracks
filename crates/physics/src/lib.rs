@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use track::{Pose, Surface};
 
 pub use params::{
-    CarParams, SurfaceGrip, Tunable, basse_gravite, buggy_lourd, drift, equilibre, fidele, grip_arcade, presets,
+    CarParams, SurfaceGrip, Tunable, basse_gravite, buggy_lourd, combo, drift, equilibre, fidele, grip_arcade, presets,
 };
 pub use world::{Hit, World};
 

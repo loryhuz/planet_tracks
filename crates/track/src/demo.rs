@@ -1,4 +1,5 @@
-//! The demo map, « Jezero »: about 2.1 km, three checkpoints, built only from kit pieces.
+//! The demo map, « Jezero »: about 2.1 km, three checkpoints, built only from kit pieces and
+//! stored in `maps/jezero.json` (blocks, terrain settings, scenery).
 //!
 //! Route (compass as seen from above with north = +Z, east = −X):
 //! 1. start block, then a 2-cell right and a 3-cell left sweeper at ground level;
@@ -36,47 +37,20 @@
 //! range is a short hop under heavy gravity: the air time for a given touchdown angle only grows
 //! when the landing follows one gravity's parabola, which would throw the others off.
 
-use crate::Surface;
-use crate::kit::{Connector, Gate, Heading, Kind, Layout, Piece, Side};
+use crate::kit::Layout;
+use crate::map::Map;
 
 pub const NAME: &str = "Jezero";
 
-/// The demo layout. The start block sits in cell (13, −10) so the map is centred on the origin.
+/// The map file, embedded so the game needs no data path.
+pub const JSON: &str = include_str!("../maps/jezero.json");
+
+/// The demo map. The start block sits in cell (13, −10) so the map is centred on the origin.
+pub fn map() -> Map {
+    Map::load(JSON).unwrap_or_else(|e| panic!("maps/jezero.json: {e}"))
+}
+
+/// The demo map's route as a chain of pieces.
 pub fn layout() -> Layout {
-    use Side::{Left, Right};
-    let road = Piece::road;
-    let dirt = Piece::dirt;
-    let mut l = Layout::new(NAME, Connector::entering((13, -10), 0, Heading::North));
-    l.push(road(Kind::Straight { cells: 1 }).gate(Gate::Start))
-        .push(road(Kind::turn(2, Right)))
-        .push(road(Kind::turn(3, Left)))
-        .push(road(Kind::Slope { cells: 4, levels: 2 }))
-        // Elevated S-bends, 16 m up.
-        .push(road(Kind::banked(2, Right, 18.0)))
-        .push(road(Kind::turn(1, Left)))
-        .push(road(Kind::turn(3, Right)))
-        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
-        // The jump.
-        .push(road(Kind::JumpRamp { lip_deg: 4.0 }))
-        .push(road(Kind::Landing { cells: 7, levels: -2, gap: 8.0, epsilon: 0.07, outrun: 48.0 }))
-        // Dirt.
-        .push(road(Kind::Transition { to: Surface::Dirt }))
-        .push(dirt(Kind::turn(2, Left)))
-        .push(dirt(Kind::Whoops { cells: 3, bumps: 3, height: 0.6 }))
-        .push(dirt(Kind::berm(2, Right, 2, 18.0)))
-        .push(dirt(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
-        .push(dirt(Kind::turn(2, Left)))
-        .push(dirt(Kind::Transition { to: Surface::Road }))
-        // Back on the road: second, lower platform.
-        .push(road(Kind::turn(3, Right)))
-        .push(road(Kind::Slope { cells: 3, levels: 1 }))
-        .push(road(Kind::turn(2, Right)))
-        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
-        .push(road(Kind::turn(2, Left)))
-        .push(road(Kind::Slope { cells: 3, levels: -1 }))
-        .push(road(Kind::turn(1, Right)))
-        .push(road(Kind::turn(2, Left)))
-        .push(road(Kind::turn(2, Right)))
-        .push(road(Kind::Straight { cells: 1 }).gate(Gate::Finish));
-    l
+    map().layout().unwrap_or_else(|e| panic!("maps/jezero.json: {e}"))
 }

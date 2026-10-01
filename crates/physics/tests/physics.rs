@@ -296,8 +296,9 @@ fn bvh_raycast_matches_brute_force() {
 
 #[test]
 fn presets_are_distinct_named_serializable_and_in_range() {
+    // The game offers Combo only for now.
     let all = presets();
-    assert!(all.len() >= 5);
+    assert_eq!(all.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Combo"]);
     for (i, p) in all.iter().enumerate() {
         assert!(!p.name.is_empty() && !p.description.is_empty());
         for q in &all[i + 1..] {

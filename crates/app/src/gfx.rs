@@ -1,14 +1,17 @@
 //! GPU setup and the scene renderer (wgpu, Metal on Apple platforms).
 
+use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::marks::{CAPACITY as MARKS_CAPACITY, MarkVertex};
 use crate::particles::{CAPACITY as DUST_CAPACITY, ParticleVertex};
+use crate::surfaces::SurfaceTextures;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const MSAA: u32 = 4;
@@ -16,7 +19,18 @@ const SHADOW_SIZE: u32 = 2048;
 /// Half-width of the square the shadow map covers around the car, metres.
 const SHADOW_EXTENT: f32 = 70.0;
 const OBJECT_STRIDE: u64 = 256;
-const MAX_OBJECTS: u64 = 64;
+const MAX_OBJECTS: u64 = 128;
+/// The sandstorm's front starts this far beyond the circuit and closes in to `STORM_STOP`, metres.
+const STORM_START: f32 = 6000.0;
+const STORM_STOP: f32 = 2600.0;
+/// Time constant of the approach, seconds (it covers 63 % of the way in that time).
+const STORM_APPROACH: f32 = 200.0;
+/// The storm stands ahead of the start, turned this far away from the sun (degrees), so the sun
+/// hangs beside it rather than in front of it.
+const STORM_SUN_OFFSET: f32 = 30.0;
+/// storm.wgsl draws COLUMNS × ROWS quads per curtain, two curtains.
+const STORM_VERTICES: u32 = 128 * 10 * 6;
+const STORM_CURTAINS: u32 = 2;
 
 pub struct Gpu {
     pub surface: wgpu::Surface<'static>,
@@ -79,10 +93,22 @@ pub struct Vertex {
     pub normal: [f32; 3],
     pub color: [f32; 3],
     pub kind: u32,
+    /// Track coordinates (metres along the route, across it) on the track's ground.
+    pub uv: [f32; 2],
+    /// Worked earth on the track's ground: 0 natural, ½ dug banks, 1 driven dirt.
+    pub dirt: f32,
 }
 
-const VERTEX_ATTRS: [wgpu::VertexAttribute; 4] =
-    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Uint32];
+impl Vertex {
+    /// A vertex of anything but the track's ground.
+    pub fn plain(pos: [f32; 3], normal: [f32; 3], color: [f32; 3], kind: u32) -> Self {
+        Self { pos, normal, color, kind, uv: [0.0, 0.0], dirt: 0.0 }
+    }
+}
+
+const VERTEX_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
+    0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Uint32, 4 => Float32x2, 5 => Float32
+];
 const SHADOW_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const DUST_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32];
 const MARK_ATTRS: [wgpu::VertexAttribute; 5] =
@@ -93,18 +119,49 @@ pub mod kind {
     pub const PAINT: u32 = 10;
     pub const RUBBER: u32 = 11;
     pub const METAL: u32 = 12;
+    /// Tinted glass, drawn opaque with strong reflections.
+    pub const GLASS: u32 = 13;
+    /// Lights: their colour, unlit.
+    pub const GLOW: u32 = 14;
+    /// Woven wire tyre: a lattice drawn from the vertex uv (metres).
+    pub const WIRE: u32 = 15;
+    /// Painted body whose colour comes from the livery texture at the vertex uv.
+    pub const LIVERY: u32 = 16;
+    /// Concrete of the barriers and platform sides; the vertex colour (over the kit's light
+    /// barrier colour) darkens it. Barrier tops along the route are painted as kerbs.
+    pub const CONCRETE: u32 = 20;
+    /// Dug earth: the faces of dirt kickers and landings.
+    pub const EARTH: u32 = 21;
+    /// Rock: the scenery's boulders, slabs and spires.
+    pub const ROCK: u32 = 22;
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct MeshData {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    /// Ranges of `indices` and the shader that draws each; empty: the whole mesh is
+    /// `Shading::Other`.
+    pub parts: Vec<(Range<u32>, Shading)>,
+}
+
+/// Which of the scene's fragment shaders draws a part of a mesh (see `scene.wgsl`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Shading {
+    /// Walls, rocks, cars: any kind.
+    #[default]
+    Other,
+    /// The track's ground (kind 2) only.
+    Ground,
+    /// The track's roads (kind 0) only.
+    Road,
 }
 
 struct GpuMesh {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     count: u32,
+    parts: Vec<(Range<u32>, Shading)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +197,8 @@ struct FrameUniform {
     ground_bounce: [f32; 4],
     fog: [f32; 4],
     misc: [f32; 4],
+    storm_a: [f32; 4],
+    storm_b: [f32; 4],
 }
 
 #[repr(C)]
@@ -157,18 +216,41 @@ pub fn srgb(r: u8, g: u8, b: u8) -> [f32; 3] {
     [f(r), f(g), f(b)]
 }
 
+/// Where the sandstorm stands around the current track.
+struct StormSite {
+    /// Centre of the route's bounding box, at the start's height.
+    centre: Vec3,
+    /// Horizontal unit direction (x, z) from the centre to the storm.
+    dir: Vec2,
+    /// Distance from the centre to the farthest point of the route, metres.
+    reach: f32,
+    since: Instant,
+}
+
 pub struct SceneRenderer {
     pipeline: wgpu::RenderPipeline,
+    ghost_pipeline: wgpu::RenderPipeline,
+    ground_pipeline: wgpu::RenderPipeline,
+    road_pipeline: wgpu::RenderPipeline,
     marks_pipeline: wgpu::RenderPipeline,
     marks_buffer: wgpu::Buffer,
     dust_pipeline: wgpu::RenderPipeline,
     dust_buffer: wgpu::Buffer,
     dust_count: u32,
     sky_pipeline: wgpu::RenderPipeline,
+    storm_pipeline: wgpu::RenderPipeline,
+    storm: Option<StormSite>,
+    /// `MARS_STORM_TIME`: seconds of approach skipped, to see the storm at its closest.
+    storm_skip: f32,
     shadow_pipeline: wgpu::RenderPipeline,
     frame_buffer: wgpu::Buffer,
+    frame_layout: wgpu::BindGroupLayout,
     frame_group: wgpu::BindGroup,
     shadow_frame_group: wgpu::BindGroup,
+    shadow_sampler: wgpu::Sampler,
+    livery_sampler: wgpu::Sampler,
+    livery_view: wgpu::TextureView,
+    surfaces: SurfaceTextures,
     object_buffer: wgpu::Buffer,
     object_group: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
@@ -178,6 +260,8 @@ pub struct SceneRenderer {
     format: wgpu::TextureFormat,
     meshes: Vec<GpuMesh>,
     sun_dir: Vec3,
+    /// Surfaces drawn with their textures (off: the earlier procedural look).
+    pub textures: bool,
 }
 
 impl SceneRenderer {
@@ -248,6 +332,50 @@ impl SceneRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                // The car's livery texture and its sampler.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // The surface textures (colour, relief) and their sampler.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let shadow_frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -277,15 +405,28 @@ impl SceneRenderer {
             }],
         });
 
-        let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("frame group"),
-            layout: &frame_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: frame_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&shadow_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&shadow_sampler) },
-            ],
+        let livery_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("livery sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 8,
+            ..Default::default()
         });
+        let livery_view = create_livery(gpu, 1, 1, &[255, 255, 255, 255]);
+        let surfaces = crate::surfaces::load(gpu);
+        let frame_group = create_frame_group(
+            device,
+            &frame_layout,
+            &frame_buffer,
+            &shadow_view,
+            &shadow_sampler,
+            &livery_view,
+            &livery_sampler,
+            &surfaces,
+        );
         let shadow_frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow frame group"),
             layout: &shadow_frame_layout,
@@ -340,39 +481,47 @@ impl SceneRenderer {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("scene"),
-            layout: Some(&scene_layout),
-            vertex: wgpu::VertexState {
-                module: &scene_module,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(vertex_layout)],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                // Reverse-Z: nearer is greater.
-                depth_compare: Some(wgpu::CompareFunction::Greater),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: MSAA, mask: !0, alpha_to_coverage_enabled: false },
-            fragment: Some(wgpu::FragmentState {
-                module: &scene_module,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &color_target,
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Opaque objects, and ghosts in a pipeline of their own (its shader discards, which would
+        // turn off the hidden surface removal of tile-based GPUs for everything else).
+        let scene_pipeline = |label: &str, fragment: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&scene_layout),
+                vertex: wgpu::VertexState {
+                    module: &scene_module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(vertex_layout.clone())],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    // Reverse-Z: nearer is greater.
+                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: MSAA, mask: !0, alpha_to_coverage_enabled: false },
+                fragment: Some(wgpu::FragmentState {
+                    module: &scene_module,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets: &color_target,
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = scene_pipeline("scene", "fs_main");
+        let ghost_pipeline = scene_pipeline("scene ghosts", "fs_ghost");
+        let ground_pipeline = scene_pipeline("scene ground", "fs_ground");
+        let road_pipeline = scene_pipeline("scene roads", "fs_road");
         let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sky"),
             layout: Some(&scene_layout),
@@ -526,19 +675,67 @@ impl SceneRenderer {
             mapped_at_creation: false,
         });
 
+        let storm_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("storm.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/storm.wgsl").into()),
+        });
+        // Over the opaque scene, under the tyre marks and dust (which are nearer).
+        let storm_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("storm"),
+            layout: Some(&scene_layout),
+            vertex: wgpu::VertexState {
+                module: &storm_module,
+                entry_point: Some("vs_storm"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: MSAA, mask: !0, alpha_to_coverage_enabled: false },
+            fragment: Some(wgpu::FragmentState {
+                module: &storm_module,
+                entry_point: Some("fs_storm"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState { color: premultiplied, alpha: premultiplied }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let (msaa_view, depth_view) = create_targets(device, format, gpu.config.width, gpu.config.height);
         Self {
             pipeline,
+            ghost_pipeline,
+            ground_pipeline,
+            road_pipeline,
             marks_pipeline,
             marks_buffer,
             dust_pipeline,
             dust_buffer,
             dust_count: 0,
             sky_pipeline,
+            storm_pipeline,
+            storm: None,
+            storm_skip: std::env::var("MARS_STORM_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.0),
             shadow_pipeline,
             frame_buffer,
+            frame_layout,
             frame_group,
             shadow_frame_group,
+            shadow_sampler,
+            livery_sampler,
+            livery_view,
+            surfaces,
             object_buffer,
             object_group,
             shadow_view,
@@ -548,7 +745,28 @@ impl SceneRenderer {
             format,
             meshes: Vec::new(),
             sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+            textures: true,
         }
+    }
+
+    /// Places the sandstorm for a new track and starts its approach over: kilometres beyond the
+    /// route, ahead of the start.
+    pub fn set_track(&mut self, track: &track::Track) {
+        let (lo, hi) = track.route.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(lo, hi), p| {
+            (lo.min(Vec2::new(p.x, p.z)), hi.max(Vec2::new(p.x, p.z)))
+        });
+        let mid = if lo.x <= hi.x { 0.5 * (lo + hi) } else { Vec2::new(track.start.position.x, track.start.position.z) };
+        let reach = track.route.iter().map(|p| Vec2::new(p.x, p.z).distance(mid)).fold(0.0, f32::max);
+        let sun = Vec2::new(self.sun_dir.x, self.sun_dir.z);
+        let forward = Vec2::new(track.start.forward().x, track.start.forward().z);
+        let away = if forward.perp_dot(sun) > 0.0 { -STORM_SUN_OFFSET } else { STORM_SUN_OFFSET };
+        let dir = Vec2::from_angle(away.to_radians()).rotate(forward);
+        self.storm = Some(StormSite {
+            centre: Vec3::new(mid.x, track.start.position.y, mid.y),
+            dir,
+            reach,
+            since: Instant::now(),
+        });
     }
 
     pub fn write_dust(&mut self, queue: &wgpu::Queue, vertices: &[ParticleVertex]) {
@@ -568,6 +786,21 @@ impl SceneRenderer {
         for (offset, vertices) in updates {
             queue.write_buffer(&self.marks_buffer, offset, bytemuck::cast_slice(&vertices));
         }
+    }
+
+    /// The car's livery: an sRGB RGBA8 image sampled by kind::LIVERY vertices at their uv.
+    pub fn set_livery(&mut self, gpu: &Gpu, width: u32, height: u32, rgba: &[u8]) {
+        self.livery_view = create_livery(gpu, width, height, rgba);
+        self.frame_group = create_frame_group(
+            &gpu.device,
+            &self.frame_layout,
+            &self.frame_buffer,
+            &self.shadow_view,
+            &self.shadow_sampler,
+            &self.livery_view,
+            &self.livery_sampler,
+            &self.surfaces,
+        );
     }
 
     pub fn upload(&mut self, device: &wgpu::Device, mesh: &MeshData) -> MeshId {
@@ -618,7 +851,7 @@ impl SceneRenderer {
         let sky_top = srgb(176, 118, 92);
         let sky_horizon = srgb(226, 178, 140);
         let four = |c: [f32; 3], s: f32| [c[0] * s, c[1] * s, c[2] * s, 1.0];
-        let frame = FrameUniform {
+        let mut frame = FrameUniform {
             view_proj: view_proj.to_cols_array_2d(),
             inv_view_proj: view_proj.inverse().to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
@@ -629,8 +862,17 @@ impl SceneRenderer {
             sky_horizon: four(sky_horizon, 1.0),
             ground_bounce: four(srgb(170, 100, 70), 0.5),
             fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, 0.0, 0.0, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, if self.textures { 1.0 } else { 0.0 }, 0.0, 0.0],
+            storm_a: [0.0; 4],
+            storm_b: [0.0; 4],
         };
+        if let Some(s) = &self.storm {
+            let t = s.since.elapsed().as_secs_f32() + self.storm_skip;
+            let left = (-t / STORM_APPROACH).exp();
+            let front = s.reach + STORM_STOP + (STORM_START - STORM_STOP) * left;
+            frame.storm_a = [s.centre.x, s.centre.z, s.dir.x, s.dir.y];
+            frame.storm_b = [front, t, s.centre.y, 1.0 - left];
+        }
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
 
         let mut objects = vec![0u8; (OBJECT_STRIDE as usize) * items.len().max(1)];
@@ -658,7 +900,7 @@ impl SceneRenderer {
             pass.set_bind_group(0, &self.shadow_frame_group, &[]);
             for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
                 if item.cast_shadow {
-                    self.draw(&mut pass, i, item.mesh);
+                    self.draw(&mut pass, i, item.mesh, None);
                 }
             }
         }
@@ -684,9 +926,30 @@ impl SceneRenderer {
             pass.set_pipeline(&self.sky_pipeline);
             pass.set_bind_group(1, &self.object_group, &[0]);
             pass.draw(0..3, 0..1);
-            pass.set_pipeline(&self.pipeline);
-            for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
-                self.draw(&mut pass, i, item.mesh);
+            // Opaque objects, one pipeline at a time: roads, then walls, rocks and cars, then the
+            // ground (mostly behind the others, whose depth then hides much of it).
+            for (pipeline, shading) in
+                [(&self.road_pipeline, Shading::Road), (&self.pipeline, Shading::Other), (&self.ground_pipeline, Shading::Ground)]
+            {
+                pass.set_pipeline(pipeline);
+                for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
+                    if item.tint.w >= 0.99 {
+                        self.draw(&mut pass, i, item.mesh, Some(shading));
+                    }
+                }
+            }
+            if items.iter().any(|item| item.tint.w < 0.99) {
+                pass.set_pipeline(&self.ghost_pipeline);
+                for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
+                    if item.tint.w < 0.99 {
+                        self.draw(&mut pass, i, item.mesh, None);
+                    }
+                }
+            }
+            if self.storm.is_some() {
+                pass.set_pipeline(&self.storm_pipeline);
+                pass.set_bind_group(1, &self.object_group, &[0]);
+                pass.draw(0..STORM_VERTICES, 0..STORM_CURTAINS);
             }
             // Tyre marks over the opaque scene (unused slots are zero-area quads).
             pass.set_pipeline(&self.marks_pipeline);
@@ -701,15 +964,23 @@ impl SceneRenderer {
         }
     }
 
-    fn draw(&self, pass: &mut wgpu::RenderPass<'_>, slot: usize, mesh: MeshId) {
+    /// Draws the parts of `mesh` shaded `only` that way, or all of it.
+    fn draw(&self, pass: &mut wgpu::RenderPass<'_>, slot: usize, mesh: MeshId, only: Option<Shading>) {
         let m = &self.meshes[mesh.0];
-        if m.count == 0 {
+        if m.count == 0 || only.is_some_and(|s| !m.parts.iter().any(|(r, p)| *p == s && !r.is_empty())) {
             return;
         }
         pass.set_bind_group(1, &self.object_group, &[(slot as u64 * OBJECT_STRIDE) as u32]);
         pass.set_vertex_buffer(0, m.vertices.slice(..));
         pass.set_index_buffer(m.indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..m.count, 0, 0..1);
+        match only {
+            None => pass.draw_indexed(0..m.count, 0, 0..1),
+            Some(s) => {
+                for (range, _) in m.parts.iter().filter(|(r, p)| *p == s && !r.is_empty()) {
+                    pass.draw_indexed(range.clone(), 0, 0..1);
+                }
+            }
+        }
     }
 }
 
@@ -729,6 +1000,7 @@ fn create_mesh(device: &wgpu::Device, mesh: &MeshData) -> GpuMesh {
             usage: wgpu::BufferUsages::INDEX,
         }),
         count: mesh.indices.len() as u32,
+        parts: if mesh.parts.is_empty() { vec![(0..mesh.indices.len() as u32, Shading::Other)] } else { mesh.parts.clone() },
     }
 }
 
@@ -760,4 +1032,90 @@ fn create_targets(
         view_formats: &[],
     });
     (msaa.create_view(&Default::default()), depth.create_view(&Default::default()))
+}
+
+
+#[allow(clippy::too_many_arguments)]
+fn create_frame_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    frame_buffer: &wgpu::Buffer,
+    shadow_view: &wgpu::TextureView,
+    shadow_sampler: &wgpu::Sampler,
+    livery_view: &wgpu::TextureView,
+    livery_sampler: &wgpu::Sampler,
+    surfaces: &SurfaceTextures,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("frame group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: frame_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(shadow_view) },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(shadow_sampler) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(livery_view) },
+            wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(livery_sampler) },
+            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&surfaces.colour) },
+            wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&surfaces.relief) },
+            wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&surfaces.sampler) },
+        ],
+    })
+}
+
+/// An sRGB texture with its whole mip chain (each level averaged from the one above, in linear).
+fn create_livery(gpu: &Gpu, width: u32, height: u32, rgba: &[u8]) -> wgpu::TextureView {
+    let levels = 32 - width.max(height).leading_zeros();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("livery"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: levels,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let to_linear = |c: u8| {
+        let c = c as f32 / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let to_srgb = |c: f32| {
+        let c = if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+        (c.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+    };
+    let mut level: Vec<[f32; 4]> = rgba
+        .chunks_exact(4)
+        .map(|p| [to_linear(p[0]), to_linear(p[1]), to_linear(p[2]), p[3] as f32 / 255.0])
+        .collect();
+    let (mut w, mut h) = (width, height);
+    for mip in 0..levels {
+        let bytes: Vec<u8> =
+            level.iter().flat_map(|p| [to_srgb(p[0]), to_srgb(p[1]), to_srgb(p[2]), (p[3] * 255.0 + 0.5) as u8]).collect();
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: mip, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &bytes,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * w), rows_per_image: Some(h) },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let mut next = vec![[0.0f32; 4]; (nw * nh) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                let mut acc = [0.0f32; 4];
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let sx = (2 * x + dx).min(w - 1);
+                    let sy = (2 * y + dy).min(h - 1);
+                    let p = level[(sy * w + sx) as usize];
+                    for c in 0..4 {
+                        acc[c] += p[c] * 0.25;
+                    }
+                }
+                next[(y * nw + x) as usize] = acc;
+            }
+        }
+        level = next;
+        w = nw;
+        h = nh;
+    }
+    texture.create_view(&Default::default())
 }

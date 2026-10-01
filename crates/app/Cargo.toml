@@ -22,3 +22,4 @@ gilrs = "0.11"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 cpal = "0.18"
+png = "0.18"

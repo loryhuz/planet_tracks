@@ -13,6 +13,7 @@ mod marks;
 mod particles;
 mod race;
 mod session;
+mod surfaces;
 mod ui;
 
 use std::sync::Arc;
@@ -25,8 +26,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Fullscreen, Window, WindowId};
 
-use crate::game::{CarMeshes, Game};
-use crate::gfx::{Gpu, MeshData, SceneRenderer, Vertex, View};
+use crate::game::{CarMeshes, CornerMeshes, Game};
+use crate::gfx::{Gpu, MeshData, SceneRenderer, Shading, Vertex, View};
 
 struct Graphics {
     window: Arc<Window>,
@@ -36,8 +37,6 @@ struct Graphics {
     egui_renderer: egui_wgpu::Renderer,
     track_mesh: gfx::MeshId,
     car: CarMeshes,
-    /// Car geometry the meshes were built for; rebuilt when the tuning changes it.
-    car_key: [f32; 5],
 }
 
 struct App {
@@ -49,10 +48,15 @@ struct App {
     fps: ui::Fps,
     debug: debug::Debug,
     audio: Option<audio::Audio>,
+    /// Sound starts once the game is running smoothly, not while the window, GPU and shaders
+    /// are being set up (that busy start-up used to starve the audio thread once).
+    audio_wanted: bool,
+    frames_shown: u32,
 }
 
-/// Track mesh to GPU vertices; the vertex kind is the triangle's surface (vertices are never
-/// shared across surfaces).
+/// Track mesh to GPU vertices. The vertex kind is the triangle's surface; the terrain shares its
+/// vertices between dirt and ground triangles, so both draw as ground and the shader blends to
+/// dirt with the vertex's dirt amount.
 fn track_mesh_data(mesh: &track::TrackMesh) -> MeshData {
     let mut vertices: Vec<Vertex> = (0..mesh.positions.len())
         .map(|i| Vertex {
@@ -60,18 +64,100 @@ fn track_mesh_data(mesh: &track::TrackMesh) -> MeshData {
             normal: mesh.normals.get(i).copied().unwrap_or(glam::Vec3::Y).to_array(),
             color: mesh.colors.get(i).copied().unwrap_or([0.5, 0.5, 0.5]),
             kind: 0,
+            uv: mesh.uv.get(i).copied().unwrap_or([0.0, 0.0]),
+            dirt: mesh.dirt.get(i).copied().unwrap_or(0.0),
         })
         .collect();
     for (t, surface) in mesh.tri_surface.iter().enumerate() {
+        let kind = match surface {
+            track::Surface::Dirt => track::Surface::Ground as u32,
+            track::Surface::Wall => wall_kind(vertices[mesh.indices[3 * t] as usize].color),
+            s => *s as u32,
+        };
         for k in 0..3 {
-            vertices[mesh.indices[3 * t + k] as usize].kind = *surface as u32;
+            vertices[mesh.indices[3 * t + k] as usize].kind = kind;
         }
     }
-    MeshData { vertices, indices: mesh.indices.clone() }
+    road_spill(&mut vertices);
+    // Triangles grouped by the shader that draws them: roads, the rest, then the ground.
+    let mut indices = Vec::with_capacity(mesh.indices.len());
+    let mut parts = Vec::new();
+    for shading in [Shading::Road, Shading::Other, Shading::Ground] {
+        let first = indices.len() as u32;
+        for t in mesh.indices.chunks_exact(3) {
+            let s = match vertices[t[0] as usize].kind {
+                k if k == track::Surface::Road as u32 => Shading::Road,
+                k if k == track::Surface::Ground as u32 => Shading::Ground,
+                _ => Shading::Other,
+            };
+            if s == shading {
+                indices.extend_from_slice(t);
+            }
+        }
+        parts.push((first..indices.len() as u32, shading));
+    }
+    MeshData { vertices, indices, parts }
 }
 
-fn car_key(p: &physics::CarParams) -> [f32; 5] {
-    [p.wheel_radius, p.wheelbase, p.track_width, p.rest_suspension(), p.wheel_anchors()[0].z]
+/// Distance along the route over which a road takes on the earth of the dirt track it leads to,
+/// metres.
+const SPILL: f32 = 14.0;
+
+/// Earth carried onto the roads next to dirt tracks: a road vertex's `dirt` grows from 0, `SPILL`
+/// metres along the route from the nearest dirt floor, to 1 where it meets it, and the shader lays
+/// that much dirt over the asphalt (where the road meets the dirt, both show the same surface).
+fn road_spill(vertices: &mut [Vertex]) {
+    let ground = track::Surface::Ground as u32;
+    let road = track::Surface::Road as u32;
+    let mut floor: Vec<f32> = vertices.iter().filter(|v| v.kind == ground && v.dirt >= 0.9).map(|v| v.uv[0]).collect();
+    if floor.is_empty() {
+        return;
+    }
+    floor.sort_by(f32::total_cmp);
+    for v in vertices.iter_mut().filter(|v| v.kind == road && v.uv != [0.0, 0.0]) {
+        let s = v.uv[0];
+        let i = floor.partition_point(|&f| f < s);
+        let d = [i.checked_sub(1), Some(i)].into_iter().flatten().filter_map(|j| floor.get(j)).map(|&f| (f - s).abs()).fold(f32::MAX, f32::min);
+        let t = (1.0 - d / SPILL).clamp(0.0, 1.0);
+        v.dirt = t * t * (3.0 - 2.0 * t);
+    }
+}
+
+/// What a wall is made of, told by the kit's colour it was given: concrete barriers and platform
+/// sides, the dug earth of dirt jumps, painted gates (kept plain), and rocks (any other colour:
+/// the scenery shades each rock its own way).
+fn wall_kind(color: [f32; 3]) -> u32 {
+    use track::kit::color as c;
+    match color {
+        x if x == c::LIP || x == c::WALL => gfx::kind::CONCRETE,
+        x if x == c::EARTH_FACE => gfx::kind::EARTH,
+        x if x == c::START || x == c::CHECKPOINT || x == c::FINISH => track::Surface::Wall as u32,
+        _ => gfx::kind::ROCK,
+    }
+}
+
+/// Uploads the buggy's body and every corner's parts.
+fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu) -> CarMeshes {
+    let buggy = car_model::load();
+    scene.set_livery(gpu, buggy.livery.width, buggy.livery.height, &buggy.livery.rgba);
+    let device = &gpu.device;
+    let mut up = |mesh: &MeshData| scene.upload(device, mesh);
+    let body = up(&buggy.body);
+    let corners = buggy
+        .parts
+        .iter()
+        .map(|p| CornerMeshes {
+            arm_lo: up(&p.arm_lo),
+            arm_up: up(&p.arm_up),
+            upright: up(&p.upright),
+            wheel: up(&p.wheel),
+            damper: up(&p.damper),
+            rod: up(&p.rod),
+            spring: up(&p.spring),
+            tierod: p.tierod.as_ref().map(&mut up),
+        })
+        .collect();
+    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius }
 }
 
 impl App {
@@ -107,6 +193,7 @@ impl App {
         // Acquire the frame before running the UI, so egui's texture updates are never dropped.
         // A due screenshot renders off screen, so it works even when the window is hidden.
         let shot_path = self.debug.shot_due();
+        let benching = self.debug.benching();
         let surface_texture = match g.gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
@@ -116,12 +203,17 @@ impl App {
             }
             _ => None,
         };
-        if surface_texture.is_none() && shot_path.is_none() {
-            // Hidden or minimised: keep simulating, but do not spin the CPU.
+        if surface_texture.is_none() && shot_path.is_none() && !benching {
+            // Hidden or minimised: keep simulating and keep the camera following (so a later
+            // screenshot shows the usual view), but do not spin the CPU.
+            let (pos, rot) = game.car_pose(alpha);
+            let t = game.telemetry();
+            let aspect = g.gpu.config.width as f32 / g.gpu.config.height.max(1) as f32;
+            let _ = game.camera.update(dt, pos, rot, t.speed_kmh, t.airborne, aspect);
             std::thread::sleep(std::time::Duration::from_millis(8));
             return;
         }
-        let offscreen = shot_path.as_ref().map(|_| {
+        let offscreen = (shot_path.is_some() || benching).then(|| {
             g.gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("screenshot target"),
                 size: wgpu::Extent3d { width: g.gpu.config.width, height: g.gpu.config.height, depth_or_array_layers: 1 },
@@ -147,12 +239,9 @@ impl App {
         let prims = self.egui_ctx.tessellate(full.shapes, full.pixels_per_point);
         game.session.autosave();
 
-        let key = car_key(&game.run.car.params);
-        if key != g.car_key {
-            let p = &game.run.car.params;
-            g.scene.replace(&g.gpu.device, g.car.body, &car_model::body(p));
-            g.scene.replace(&g.gpu.device, g.car.wheel, &car_model::wheel(p.wheel_radius));
-            g.car_key = key;
+        if std::mem::take(&mut game.track_changed) {
+            g.scene.replace(&g.gpu.device, g.track_mesh, &track_mesh_data(&game.track.mesh));
+            g.scene.set_track(&game.track);
         }
 
         let target = target_texture.create_view(&Default::default());
@@ -166,6 +255,11 @@ impl App {
             let dir = car_rot * glam::Quat::from_rotation_y(yaw.to_radians()) * glam::Vec3::Z;
             eye = car_pos + dir * dist + glam::Vec3::Y * height;
             view = glam::camera::rh::view::look_at_mat4(eye, car_pos + glam::Vec3::Y * 0.3, glam::Vec3::Y);
+        }
+        if let Some((s, height, back)) = self.debug.view {
+            let at = debug::route_point(&game.track.route, s);
+            eye = debug::route_point(&game.track.route, s - back) + glam::Vec3::Y * height;
+            view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
         }
         let mut items = vec![gfx::DrawItem {
             mesh: g.track_mesh,
@@ -182,9 +276,6 @@ impl App {
             if std::mem::take(&mut game.mute_requested) {
                 audio.toggle_mute();
             }
-            if std::mem::take(&mut game.engine_requested) {
-                game.engine_name = audio.next_engine();
-            }
         } else {
             game.impacts.clear();
         }
@@ -193,6 +284,7 @@ impl App {
         g.scene.write_dust(&g.gpu.queue, &game.dust.vertices(right, up));
         let clear = std::mem::take(&mut game.marks.cleared);
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
+        g.scene.textures = game.session.textures;
         g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items);
 
         let screen = egui_wgpu::ScreenDescriptor {
@@ -226,7 +318,13 @@ impl App {
         }
         full.textures_delta.clear();
         let shot = shot_path.map(|path| (path, debug::copy_frame(&g.gpu.device, &mut encoder, target_texture)));
+        let submitted = Instant::now();
         g.gpu.queue.submit(extra.into_iter().chain(std::iter::once(encoder.finish())));
+        if benching {
+            let _ = g.gpu.device.poll(wgpu::PollType::wait_indefinitely());
+            let size = (g.gpu.config.width, g.gpu.config.height);
+            self.debug.bench_sample(submitted.elapsed().as_secs_f32() * 1000.0, size);
+        }
         if let Some((path, (buffer, w, h, row))) = shot {
             let bgra = matches!(g.gpu.config.format, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb);
             debug::save_bmp(&g.gpu.device, &buffer, w, h, row, bgra, &path);
@@ -235,6 +333,10 @@ impl App {
         if let (None, Some(st)) = (offscreen, surface_texture) {
             g.gpu.queue.present(st);
             self.fps.frame();
+            self.frames_shown += 1;
+            if self.audio.is_none() && self.audio_wanted && self.frames_shown >= 30 {
+                self.audio = audio::Audio::new();
+            }
         }
     }
 }
@@ -246,18 +348,14 @@ impl ApplicationHandler for App {
         }
         let attrs = Window::default_attributes()
             .with_title("Mars Racer · démo")
-            .with_inner_size(LogicalSize::new(1600.0, 900.0));
+            .with_inner_size(LogicalSize::new(1600.0, 900.0))
+            .with_visible(!self.debug.runs_hidden());
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_mesh_data(&self.game.track.mesh));
-        let p = &self.game.run.car.params;
-        let car = CarMeshes {
-            body: scene.upload(&gpu.device, &car_model::body(p)),
-            wheel: scene.upload(&gpu.device, &car_model::wheel(p.wheel_radius)),
-            arm: scene.upload(&gpu.device, &car_model::arm()),
-        };
-        let car_key = car_key(p);
+        scene.set_track(&self.game.track);
+        let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             self.egui_ctx.clone(),
@@ -269,7 +367,7 @@ impl ApplicationHandler for App {
         );
         let egui_renderer = egui_wgpu::Renderer::new(&gpu.device, gpu.config.format, Default::default());
         self.last_frame = Instant::now();
-        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car, car_key });
+        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -295,12 +393,19 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.debug.bench_report();
         if self.debug.should_exit() {
             self.game.session.save();
             event_loop.exit();
             return;
         }
-        if let Some(g) = &self.gfx {
+        if self.debug.runs_hidden() {
+            // A hidden window gets no redraw requests: the loop runs the frames itself.
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+            if self.gfx.is_some() {
+                self.frame();
+            }
+        } else if let Some(g) = &self.gfx {
             g.window.request_redraw();
         }
     }
@@ -310,6 +415,11 @@ impl ApplicationHandler for App {
 /// race events (technical check: the track is completed, nothing falls through).
 fn headless() {
     let mut game = Game::new();
+    if let Ok(name) = std::env::var("MARS_MAP") {
+        if let Some(i) = game.maps.iter().position(|m| m.name.eq_ignore_ascii_case(&name)) {
+            game.select_map(i);
+        }
+    }
     game.autodrive = Some(debug::Autopilot::default());
     for i in 0..game.session.profiles.len() {
         game.select_profile(i);
@@ -392,33 +502,52 @@ fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
     std::fs::write(path, bytes).expect("write wav");
 }
 
-/// `MARS_ENGINE_DEMO=dir`: one WAV per engine character (idle, three full-throttle gears,
-/// lift-off with pops, cruise), to choose an engine by ear.
-fn engine_demo(dir: &str) {
+/// `MARS_ENGINE_DEMO=path.wav`: the electric drivetrain alone, as heard over a lap: pulling
+/// away through the gears to 300 km/h, a lift, cruising, braking, then full throttle again.
+fn engine_demo(path: &str) {
     let rate = 44_100u32;
-    let _ = std::fs::create_dir_all(dir);
-    for kind in engine_sound::KINDS {
-        let mut voice = engine_sound::EngineVoice::new(kind, rate as f32);
-        let mut out = Vec::new();
-        let mut push = |seconds: f32, f: &dyn Fn(f32) -> (f32, f32), voice: &mut engine_sound::EngineVoice| {
-            let n = (seconds * rate as f32) as usize;
-            for i in 0..n {
-                let (rpm, load) = f(i as f32 / n as f32);
-                out.push(voice.next(rpm, load));
+    let params = physics::presets().remove(0);
+    let mut voice = engine_sound::ElectricVoice::new(rate as f32);
+    let mut out = Vec::new();
+    // (seconds, speed km/h at the end, throttle)
+    let script = [(1.0, 0.0, 0.0), (9.0, 300.0, 1.0), (1.5, 280.0, 0.0), (2.5, 180.0, 0.3), (1.5, 90.0, 0.0), (5.0, 260.0, 1.0)];
+    let gear_of = |kmh: f32| {
+        let mut lo = 0.0;
+        let mut hi = params.top_speed_kmh;
+        let mut gear = 0u32;
+        for &s in &params.accel_speeds {
+            if kmh < s {
+                hi = s;
+                break;
             }
-        };
-        push(1.5, &|_| (0.0, 0.08), &mut voice);
-        push(2.0, &|t| (0.15 + 0.8 * t, 1.0), &mut voice);
-        push(2.2, &|t| (0.5 + 0.45 * t, 1.0), &mut voice);
-        push(2.6, &|t| (0.55 + 0.42 * t, 1.0), &mut voice);
-        push(1.8, &|t| (0.97 - 0.5 * t, 0.0), &mut voice);
-        push(2.0, &|_| (0.5, 0.45), &mut voice);
-        let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs())).max(1e-6);
-        for s in &mut out {
-            *s *= 0.8 / peak;
+            lo = s;
+            gear += 1;
         }
-        write_wav(&std::path::Path::new(dir).join(format!("moteur-{}.wav", kind.name)), &out, rate);
+        (gear, ((kmh - lo) / (hi - lo).max(1.0)).clamp(0.0, 1.0))
+    };
+    let (mut kmh, mut last_gear, mut rpm_s) = (0.0f32, 0u32, 0.0f32);
+    for (seconds, end, load) in script {
+        let n = (seconds * rate as f32) as usize;
+        let start = kmh;
+        for i in 0..n {
+            // Accelerations ease off with speed, as in the car.
+            let t = i as f32 / n as f32;
+            let shape = if end > start { 1.0 - (1.0 - t).powf(1.6) } else { t };
+            kmh = start + (end - start) * shape;
+            let (gear, rpm) = gear_of(kmh);
+            if gear > last_gear && load > 0.3 {
+                voice.shift();
+            }
+            last_gear = gear;
+            rpm_s += (rpm - rpm_s) * 0.002;
+            out.push(voice.next(kmh / 3.6, rpm_s, load, 0.0, 0.0));
+        }
     }
+    let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs())).max(1e-6);
+    for s in &mut out {
+        *s *= 0.8 / peak;
+    }
+    write_wav(std::path::Path::new(path), &out, rate);
 }
 
 fn main() {
@@ -434,11 +563,31 @@ fn main() {
         headless();
         return;
     }
-    let event_loop = EventLoop::new().expect("event loop");
     let debug = debug::Debug::from_env();
+    let mut builder = EventLoop::builder();
+    // A screenshot or benchmark run leaves the screen and the keyboard to whatever the player is
+    // doing meanwhile (its window stays hidden too).
+    #[cfg(target_os = "macos")]
+    if debug.runs_hidden() {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        builder.with_activate_ignoring_other_apps(false);
+    }
+    let event_loop = builder.build().expect("event loop");
     let mut game = Game::new();
+    if let Ok(name) = std::env::var("MARS_MAP") {
+        if let Some(i) = game.maps.iter().position(|m| m.name.eq_ignore_ascii_case(&name)) {
+            game.select_map(i);
+        }
+    }
     if let Some(p) = debug.profile {
         game.select_profile(p);
+    }
+    if std::env::var("MARS_HIDE_UI").is_ok() {
+        game.panel_open = false;
+    }
+    // Surface textures on (1) or off (0) for this run, whatever the session says.
+    if let Ok(v) = std::env::var("MARS_TEXTURES") {
+        game.session.textures = v != "0";
     }
     if debug.autodrive {
         game.autodrive = Some(debug::Autopilot::default());
@@ -450,7 +599,9 @@ fn main() {
         last_frame: Instant::now(),
         accumulator: 0.0,
         fps: ui::Fps::new(),
-        audio: if std::env::var("MARS_NO_AUDIO").is_ok() { None } else { audio::Audio::new() },
+        audio: None,
+        audio_wanted: std::env::var("MARS_NO_AUDIO").is_err(),
+        frames_shown: 0,
         debug,
     };
     event_loop.run_app(&mut app).expect("run");

@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 
 use glam::Vec3;
 use track::jump::{self, LandingProfile};
-use track::kit::{self, CELL, Gate, HALF_WIDTH, Kind, Layout};
+use track::kit::{self, CELL, Gate, HALF_WIDTH, Kind, Layout, half_width};
 use track::{Surface, demo};
 
 // Reference palette (light surface).
@@ -39,27 +39,37 @@ fn road_color(h: f32) -> &'static str {
 }
 
 fn main() {
-    let layout = demo::layout();
+    // `plan` draws the demo map into docs/track-plan.svg; `plan <map.json> [out.svg]` any map.
+    let args: Vec<String> = std::env::args().collect();
+    let (layout, out_path) = match args.get(1) {
+        Some(map_path) => {
+            let json = std::fs::read_to_string(map_path).expect("read map");
+            let map = track::Map::load(&json).unwrap_or_else(|e| panic!("{map_path}: {e}"));
+            let out = args.get(2).cloned().unwrap_or_else(|| map_path.trim_end_matches(".json").to_string() + "-plan.svg");
+            (map.layout().expect("layout"), out)
+        }
+        None => (demo::layout(), concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/track-plan.svg").to_string()),
+    };
     let track = layout.build();
-    let landing_piece = layout.pieces.iter().position(|p| p.landing().is_some()).expect("a jump");
-    let landing = layout.pieces[landing_piece].landing().unwrap();
-    let lip = layout.pieces[landing_piece].entry.pos;
 
     let mut svg = String::new();
     let mut y = MARGIN;
     let top_h = top_view(&mut svg, &layout, y);
     y += top_h + 50.0;
     y += profile(&mut svg, &layout, y) + 50.0;
-    y += jump_view(&mut svg, &layout, landing_piece, &landing, y) + 40.0;
-    y += envelope_table(&mut svg, &landing, lip.y, y) + MARGIN;
+    if let Some(landing_piece) = layout.pieces.iter().position(|p| p.landing().is_some()) {
+        let landing = layout.pieces[landing_piece].landing().unwrap();
+        let lip = layout.pieces[landing_piece].entry.pos;
+        y += jump_view(&mut svg, &layout, landing_piece, &landing, y) + 40.0;
+        y += envelope_table(&mut svg, &landing, lip.y, y) + MARGIN;
+    }
 
     let doc = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{WIDTH}\" height=\"{y:.0}\" viewBox=\"0 0 {WIDTH} {y:.0}\" \
          font-family=\"system-ui, -apple-system, Helvetica, sans-serif\" font-size=\"12\">\n\
          <rect width=\"100%\" height=\"100%\" fill=\"{SURFACE}\"/>\n{svg}</svg>\n"
     );
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/track-plan.svg");
-    std::fs::create_dir_all(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs")).unwrap();
+    let path = &out_path;
     std::fs::write(path, doc).unwrap();
 
     // Summary.
@@ -81,12 +91,14 @@ fn main() {
             p.exit.pos.y
         );
     }
-    let (k_min, k_max) = landing.k_range();
-    println!("landing: C {:.3e}, knee {:.0} m, k in [{k_min:.3e}, {k_max:.3e}]", landing.c, landing.knee);
-    for g in [3.71, 9.81, 15.0, 20.0, 30.0, 40.0] {
-        match jump::envelope_kmh(&landing, g, 5.0) {
-            Some((lo, hi)) => println!("  g {g:5.2}: clean (<= 5 deg) from {lo:.0} to {hi:.0} km/h at the lip"),
-            None => println!("  g {g:5.2}: never clean"),
+    for landing in layout.pieces.iter().filter_map(|p| p.landing()) {
+        let (k_min, k_max) = landing.k_range();
+        println!("landing: C {:.3e}, knee {:.0} m, k in [{k_min:.3e}, {k_max:.3e}]", landing.c, landing.knee);
+        for g in [3.71, 9.81, 15.0, 20.0, 30.0, 40.0, 45.5] {
+            match jump::envelope_kmh(&landing, g, 5.0) {
+                Some((lo, hi)) => println!("  g {g:5.2}: clean (<= 5 deg) from {lo:.0} to {hi:.0} km/h at the lip"),
+                None => println!("  g {g:5.2}: never clean"),
+            }
         }
     }
     println!("wrote {path}");
@@ -154,7 +166,8 @@ fn top_view(svg: &mut String, layout: &Layout, y0: f32) -> f32 {
                 Surface::Dirt => DIRT,
                 _ => road_color(h),
             };
-            let pts = [fa.deck_point(HALF_WIDTH), fb.deck_point(HALF_WIDTH), fb.deck_point(-HALF_WIDTH), fa.deck_point(-HALF_WIDTH)]
+            let hw = half_width(fm.deck);
+            let pts = [fa.deck_point(hw), fb.deck_point(hw), fb.deck_point(-hw), fa.deck_point(-hw)]
                 .map(|q| {
                     let (sx, sy) = to(q);
                     format!("{sx:.1},{sy:.1}")
@@ -162,7 +175,11 @@ fn top_view(svg: &mut String, layout: &Layout, y0: f32) -> f32 {
                 .join(" ");
             let _ = writeln!(svg, "<polygon points=\"{pts}\" fill=\"{color}\" stroke=\"{color}\" stroke-width=\"0.6\"/>");
         }
-        // Platform edges: a dark outline where the deck is more than a metre up.
+        // Platform edges: a dark outline where a road is more than a metre up (dirt is dug into
+        // the ground, even up high).
+        if p.piece.deck == Surface::Dirt {
+            continue;
+        }
         for u in [HALF_WIDTH, -HALF_WIDTH] {
             let mut run: Vec<String> = Vec::new();
             let flush = |svg: &mut String, run: &mut Vec<String>| {
@@ -196,10 +213,11 @@ fn top_view(svg: &mut String, layout: &Layout, y0: f32) -> f32 {
             }
             Gate::Finish => (FINISH, "FINISH".to_string()),
         };
-        let (ax, ay) = to(f.deck_point(HALF_WIDTH + 2.0));
-        let (bx, by) = to(f.deck_point(-HALF_WIDTH - 2.0));
+        let hw = half_width(f.deck);
+        let (ax, ay) = to(f.deck_point(hw + 2.0));
+        let (bx, by) = to(f.deck_point(-hw - 2.0));
         let _ = writeln!(svg, "<line x1=\"{ax:.1}\" y1=\"{ay:.1}\" x2=\"{bx:.1}\" y2=\"{by:.1}\" stroke=\"{color}\" stroke-width=\"3\" stroke-linecap=\"round\"/>");
-        let (lx, ly) = to(f.deck_point(-HALF_WIDTH - 4.0));
+        let (lx, ly) = to(f.deck_point(-hw - 4.0));
         let anchor = if f.left.x > 0.5 { "start" } else if f.left.x < -0.5 { "end" } else { "middle" };
         let dy = if f.left.z > 0.5 { 14.0 } else if f.left.z < -0.5 { -6.0 } else { 4.0 };
         let _ = writeln!(svg, "<text x=\"{lx:.1}\" y=\"{:.1}\" text-anchor=\"{anchor}\" font-weight=\"600\" fill=\"{TEXT}\">{label}</text>", ly + dy);
@@ -256,7 +274,7 @@ fn top_view(svg: &mut String, layout: &Layout, y0: f32) -> f32 {
         ("road at 8 m".into(), road_color(8.0)),
         ("road at 16 m".into(), road_color(16.0)),
         ("dirt".into(), DIRT),
-        ("dirt berm (raised)".into(), DIRT_HIGH),
+        ("dirt over 1 m up".into(), DIRT_HIGH),
     ];
     for (label, color) in legend {
         let _ = writeln!(

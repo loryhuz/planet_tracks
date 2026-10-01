@@ -9,9 +9,16 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 pub mod demo;
+pub mod dirt;
 pub mod jump;
 pub mod kit;
+pub mod map;
 mod mesh;
+mod noise;
+pub mod scenery;
+pub mod terrain;
+
+pub use map::{Map, MapError};
 
 /// What a triangle is made of. The physics picks grip and drag from it, the renderer its look.
 #[repr(u8)]
@@ -37,6 +44,13 @@ pub struct TrackMesh {
     pub normals: Vec<Vec3>,
     /// Linear RGB, one per vertex.
     pub colors: Vec<[f32; 3]>,
+    /// Track coordinates, one per vertex: metres along the route and across it (positive to the
+    /// left), on decks and dirt corridors; zero elsewhere. The renderer lays tyre ruts and road
+    /// markings along them.
+    pub uv: Vec<[f32; 2]>,
+    /// How much a vertex is worked earth, one per vertex: 0 natural ground, about ½ earth moved
+    /// by the diggers (banks of a dirt corridor), 1 driven dirt.
+    pub dirt: Vec<f32>,
     pub indices: Vec<u32>,
     /// One per triangle (`indices.len() / 3`).
     pub tri_surface: Vec<Surface>,
@@ -62,6 +76,8 @@ impl TrackMesh {
         self.positions.extend_from_slice(&other.positions);
         self.normals.extend_from_slice(&other.normals);
         self.colors.extend_from_slice(&other.colors);
+        self.uv.extend_from_slice(&other.uv);
+        self.dirt.extend_from_slice(&other.dirt);
         self.indices.extend(other.indices.iter().map(|i| i + base));
         self.tri_surface.extend_from_slice(&other.tri_surface);
     }
@@ -117,7 +133,22 @@ pub struct Track {
     pub route: Vec<Vec3>,
 }
 
-/// The first playable map: « Jezero », built from the block kit (see [`demo`]).
+/// The first playable map: « Jezero », loaded from `maps/jezero.json` (see [`demo`]).
+/// Maps shipped with the game, embedded so it needs no data path: (name, JSON).
+pub const BUILTIN_MAPS: [(&str, &str); 3] = [
+    (demo::NAME, demo::JSON),
+    ("Olympus", include_str!("../maps/olympus.json")),
+    ("Ares Vallis", include_str!("../maps/ares.json")),
+];
+
+/// Every shipped map, parsed. Panics on a broken file (they are checked by the tests).
+pub fn builtin_maps() -> Vec<Map> {
+    BUILTIN_MAPS
+        .iter()
+        .map(|(name, json)| Map::load(json).unwrap_or_else(|e| panic!("map {name}: {e}")))
+        .collect()
+}
+
 pub fn demo_track() -> Track {
-    demo::layout().build()
+    demo::map().build()
 }

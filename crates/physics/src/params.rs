@@ -445,9 +445,28 @@ impl CarParams {
     }
 }
 
-/// The gameplay profiles compared in the tuning session.
+/// The gameplay profiles offered in the game: only the player's pick, "Combo", for now. The other
+/// profiles of the comparison (Fidèle, Grip arcade, Drift, Buggy lourd, Basse gravité, Équilibre)
+/// stay below, out of the game; Combo is built from two of them.
 pub fn presets() -> Vec<CarParams> {
-    vec![fidele(), grip_arcade(), drift(), buggy_lourd(), basse_gravite(), equilibre()]
+    vec![combo()]
+}
+
+/// The player's pick after the profile comparison: "Fidèle" on the road (its steering, grip and
+/// engine), "Grip arcade" on dirt and off-track (grippier, smaller and later drifts), with Grip
+/// arcade's drift settings, which only matter where drifts happen, i.e. on dirt.
+pub fn combo() -> CarParams {
+    let road = fidele();
+    let dirt = grip_arcade();
+    let mut p = road.clone();
+    p.name = "Combo".into();
+    p.description = "La route de Fidèle et la terre de Grip arcade : le meilleur des deux.".into();
+    p.dirt = dirt.dirt.clone();
+    p.ground = dirt.ground.clone();
+    p.drift_excess_full = dirt.drift_excess_full;
+    p.drift_turn = dirt.drift_turn;
+    p.mark_start = dirt.mark_start;
+    p
 }
 
 /// Profile 1, the reference. Road: the measured TrackMania snow car on road (feel targets). Dirt:

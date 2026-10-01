@@ -82,9 +82,14 @@ UP_H = 0.55
 # toward its end).
 SPREAD_LO = (0.55, 0.28)
 SPREAD_UP = (0.40, 0.22)
-# Coilovers: lower mount on the lower arm's long leg (x along it), top mount on the body.
-DAMPER_X = {"front": 0.56, "rear": 0.40}
-TOP = {"front": (0.47, 0.90, -0.13), "rear": (0.36, 1.0, 0.40)}  # x, h, z from the axle toward the middle
+# Coilovers: lower mount on a leg of the lower arm (at half-width x: the front one on the leg
+# toward the nose, ahead of the axle as on the side and front views; the rear one on the long leg
+# toward the middle), top mount on the body.
+DAMPER_X = {"front": 0.56, "rear": 0.48}
+DAMPER_LEG_TO_MIDDLE = {"front": False, "rear": True}
+# Top mounts: x, h, z from the axle toward the middle. Seen from the front and the back the
+# coilovers lean in at the top, as on the plans.
+TOP = {"front": (0.41, 0.90, -0.10), "rear": (0.31, 1.0, 0.36)}
 TIE_DZ = 0.17  # tie rod ahead of the front axle
 
 CORNERS = {"FL": (1.0, WHEELBASE / 2), "FR": (-1.0, WHEELBASE / 2), "RL": (1.0, -WHEELBASE / 2), "RR": (-1.0, -WHEELBASE / 2)}
@@ -112,7 +117,7 @@ def corner_points(sx, zc):
     p_lo = Vector((sx * PIVOT_X, H(LO_H + arm_height(PIVOT_X)), zc))
     p_up = Vector((sx * PIVOT_X, H(UP_H + arm_height(PIVOT_X)), zc))
     key = "front" if front else "rear"
-    b0 = leg_point(zc, front, DAMPER_X[key]) + Vector((0, 0.04, 0))
+    b0 = leg_point(zc, front, DAMPER_X[key], DAMPER_LEG_TO_MIDDLE[key]) + Vector((0, 0.04, 0))
     b0.x *= sx
     tx, th, tdz = TOP[key]
     top = Vector((sx * tx, H(th), zc + (-1.0 if front else 1.0) * tdz))
@@ -148,7 +153,7 @@ def arm_mesh(lower, front):
     bracket."""
     m = Mesh()
     j = Vector((ARM_L * math.cos(ARM_REST), ARM_L * math.sin(ARM_REST), 0))
-    r = 0.022 if lower else 0.019
+    r = 0.026 if lower else 0.022
     inward = -1.0 if front else 1.0
     spread = SPREAD_LO if lower else SPREAD_UP
     legs = [Vector((0, 0, inward * spread[0])), Vector((0, 0, -inward * spread[1]))]
@@ -163,9 +168,10 @@ def arm_mesh(lower, front):
     m.tube(a, b, r * 0.8, "metal_frame", seg=8, caps=False)
     m.sphere(j, r * 1.45, "metal_chrome", seg=12, rings=6)
     if lower:
-        x = DAMPER_X["front" if front else "rear"]
-        tt = (x - PIVOT_X) / (JOINT_X - PIVOT_X)
-        q = legs[0] + (j - legs[0]) * tt
+        key = "front" if front else "rear"
+        tt = (DAMPER_X[key] - PIVOT_X) / (JOINT_X - PIVOT_X)
+        leg = legs[0] if DAMPER_LEG_TO_MIDDLE[key] else legs[1]
+        q = leg + (j - leg) * tt
         m.box(q + Vector((0, 0.022, 0)), (0.012, 0.024, 0.03), "metal_graphite")
     return m
 
@@ -193,27 +199,122 @@ HW = TYRE_W / 2
 RIM_R = 0.262
 
 
+# Tyre: a balloon (after the validated 3/4 view): the sidewalls bulge out to the full width at a
+# third of their height, a broad rounded shoulder runs into a slightly crowned tread with four
+# deep circumferential grooves, fine angled sipes across the ribs; dirt packed in the grooves,
+# dust in patches on the shoulders.
+CROWN_X = 0.10  # half-width of the tread's crown
+CROWN = 0.006  # its drop from the middle to its edges
+SHOULDER = (0.14, 0.10)  # the shoulder's quarter-ellipse radii, across and down
+GROOVES = (-0.125, -0.052, 0.052, 0.125)  # groove centres across the tyre
+GROOVE_W, GROOVE_D = 0.015, 0.013
+SIPES = 48  # sipes round each rib
+
+
+def tyre_outline(x):
+    """Outer radius of the tyre at axial position x (without the grooves), and the outward
+    normal direction (dx, dr) of the contour there."""
+    ax = abs(x)
+    if ax <= CROWN_X:
+        return WHEEL_R - CROWN * (ax / CROWN_X) ** 2, (0.0, 1.0)
+    sa, sr = SHOULDER
+    cx, cr = CROWN_X, WHEEL_R - CROWN - sr
+    u = min(1.0, (ax - cx) / sa)
+    r = cr + sr * math.sqrt(max(0.0, 1 - u * u))
+    # Normal of the ellipse ((x-cx)/sa)² + ((r-cr)/sr)² = 1: ((x-cx)/sa², (r-cr)/sr²).
+    nx, nr = (ax - cx) / sa ** 2, (r - cr) / sr ** 2
+    k = math.hypot(nx, nr) or 1.0
+    return r, (math.copysign(nx / k, x), nr / k)
+
+
 def tyre_profile():
-    """(x, r) from the inner bead over the bulging sidewall, the rounded shoulder, the tread's five
-    ribs and four grooves, and down the other side to the outer bead."""
-    side = [(-HW + 0.035, RIM_R), (-HW + 0.012, 0.285), (-HW + 0.002, 0.315), (-HW, 0.345), (-HW + 0.003, 0.37)]
-    # Shoulder: a quarter round of radius 0.075 from the sidewall to the tread.
-    rs = 0.075
-    cx, cr = -HW + rs, WHEEL_R - rs
-    for k in range(1, 7):
-        a = math.pi - (math.pi / 2) * k / 7
-        side.append((cx + rs * math.cos(a), cr + rs * math.sin(a)))
-    prof = side + [(cx, WHEEL_R)]
-    for g0, g1 in ((-0.135, -0.121), (-0.062, -0.048), (0.048, 0.062), (0.121, 0.135)):
-        prof += [(g0, WHEEL_R), (g0 + 0.002, WHEEL_R - 0.012), (g1 - 0.002, WHEEL_R - 0.012), (g1, WHEEL_R)]
-    prof += [(-cx, WHEEL_R)]
-    prof += [(-x, r) for x, r in reversed(side)]
-    return prof
+    """(x, r) of the tyre from the inner bead up the bulging sidewall, over the shoulder and
+    the grooved tread, down to the outer bead; and the set of profile spans that are groove
+    floors and walls."""
+    sa, sr = SHOULDER
+    full = CROWN_X + sa  # the widest point
+    lower = [(-HW + 0.035, RIM_R), (-full + 0.02, 0.29), (-full + 0.004, 0.32)]
+    xs = []
+    n = 26
+    for k in range(n + 1):
+        # Dense over the shoulder and crown, from the widest point to the middle.
+        t = k / n
+        xs.append(-full + full * (1 - math.cos(t * math.pi / 2)))
+    pts, grooves = [], set()
+    half = []
+    for x in xs:
+        half.append(x)
+    # Insert the grooves on the left half.
+    for g in (g for g in GROOVES if g < 0):
+        half += [g - GROOVE_W / 2, g - GROOVE_W / 2 + 0.002, g + GROOVE_W / 2 - 0.002, g + GROOVE_W / 2]
+    half = sorted(set(round(x, 5) for x in half if x <= 0))
+    for x in half:
+        r, (nx, nr) = tyre_outline(x)
+        in_groove = any(g - GROOVE_W / 2 + 0.001 < x < g + GROOVE_W / 2 - 0.001 for g in GROOVES)
+        if in_groove:
+            r_ = r - GROOVE_D * nr
+            x_ = x - GROOVE_D * nx
+            pts.append((x_, r_))
+        else:
+            pts.append((x, r))
+    left = lower + pts
+    prof = left + [(-x, r) for x, r in reversed(left[:-1])] if abs(left[-1][0]) < 1e-6 else left + [(-x, r) for x, r in reversed(left)]
+    for i in range(len(prof) - 1):
+        xm = (prof[i][0] + prof[i + 1][0]) / 2
+        if any(abs(xm - g) < GROOVE_W / 2 for g in GROOVES):
+            grooves.add(i)
+    return prof, grooves
+
+
+def dusty(i, j, salt):
+    """Deterministic pseudo-random 0..1 for a face (no randomness module, reproducible)."""
+    return ((i * 73856093) ^ (j * 19349663) ^ (salt * 83492791)) % 1000 / 1000.0
+
+
+def tyre_mats(prof, grooves, i, j, seg=64):
+    """The tread's top worn to a dusty brown, dirt packed dark in the grooves and the sipes, the
+    dust running down onto the shoulders in soft, uneven tongues (a smooth function of the
+    angle), the sidewalls black."""
+    if i in grooves:
+        return "rubber_mud"
+    x = abs((prof[i][0] + prof[i + 1][0]) / 2)
+    if x <= CROWN_X + 0.02:
+        return "rubber_dust"
+    # How far down the shoulder the dust reaches at this angle: 2 to 7 cm across.
+    a = 2 * math.pi * (j + 0.5) / seg
+    reach = 0.045 + 0.022 * math.sin(3 * a + 0.7) + 0.012 * math.sin(7 * a + 2.1) + 0.006 * math.sin(13 * a)
+    if x <= CROWN_X + 0.02 + reach:
+        return "rubber_dust"
+    return "rubber_tyre"
+
+
+def tread(m):
+    """Sipes: fine angled cuts across each rib, staggered rib to rib (dark strips 1 mm proud)."""
+    edges = [-(CROWN_X + 0.075)] + [e for g in GROOVES for e in (g - GROOVE_W / 2, g + GROOVE_W / 2)] + [CROWN_X + 0.075]
+    ribs = [(edges[k], edges[k + 1]) for k in range(0, len(edges), 2)]
+    pitch = 2 * math.pi / SIPES
+    for k, (x0, x1) in enumerate(ribs):
+        xm = (x0 + x1) / 2
+        lean = 0.35 * (1 if xm > 0.01 else -1 if xm < -0.01 else 0)  # chevrons pointing forward
+        for i in range(SIPES):
+            a0 = pitch * (i + 0.5 * (k % 2))
+            quad = []
+            for x, da in ((x0 + 0.006, 0.0), (x1 - 0.006, 0.0)):
+                aa = a0 + lean * (x - xm) / WHEEL_R
+                r, (nx, nr) = tyre_outline(x)
+                for w in (-0.0016, 0.0016):
+                    ang = aa + w / r
+                    quad.append(Vector((x + nx * 0.001, (r + nr * 0.001) * math.cos(ang), (r + nr * 0.001) * math.sin(ang))))
+            v = [m.vert(p) for p in (quad[0], quad[2], quad[3], quad[1])]
+            # Outward: (x across) x (angle forward) points along the radius.
+            m.face(v, "rubber_mud")
 
 
 def wheel_mesh():
     m = Mesh()
-    m.lathe(tyre_profile(), "rubber_tyre", seg=56)
+    prof, grooves = tyre_profile()
+    m.lathe(prof, "rubber_tyre", seg=64, mats=lambda i, j: tyre_mats(prof, grooves, i, j))
+    tread(m)
     # Rim: barrel, the outer face's dish and ten spokes, hub and lug nuts.
     face_x = HW - 0.05
     m.lathe([(face_x, RIM_R - 0.004), (-HW + 0.04, RIM_R - 0.004)], "metal_frame", seg=40)
@@ -250,16 +351,16 @@ def damper_parts(pt):
     body_len, rod_len = damper_lengths(pt)
     body = Mesh()
     body.tube((0, 0, 0), -u * body_len, 0.034, "metal_graphite", seg=16)
-    body.tube((0, 0, 0), -u * 0.05, 0.04, "metal_copper", seg=16)
-    body.tube(-u * 0.055, -u * 0.07, 0.066, "metal_copper", seg=20)  # upper spring seat
+    body.tube((0, 0, 0), -u * 0.05, 0.04, "metal_frame", seg=16)
+    body.tube(-u * 0.055, -u * 0.07, 0.058, "metal_copper", seg=20)  # upper spring seat
     body.tube(-u * (body_len - 0.02), -u * body_len, 0.04, "metal_copper", seg=16)
     body.tube((0, 0, -0.025), (0, 0, 0.025), 0.022, "metal_steel", seg=12)
     rod = Mesh()
     rod.tube((0, 0, 0), u * rod_len, 0.014, "metal_chrome", seg=10)
     rod.tube((0, 0, -0.025), (0, 0, 0.025), 0.022, "metal_steel", seg=12)
-    rod.tube(u * 0.085, u * 0.10, 0.066, "metal_copper", seg=20)  # lower spring seat
+    rod.tube(u * 0.085, u * 0.10, 0.058, "metal_copper", seg=20)  # lower spring seat
     spring = Mesh()
-    spring.helix((0, 0, 0), u, (u0 - s0).length, 0.056, 0.011, 7, "metal_copper", steps_per_turn=16, ring=7)
+    spring.helix((0, 0, 0), u, (u0 - s0).length, 0.05, 0.010, 7, "metal_copper", steps_per_turn=16, ring=7)
     return body, rod, spring
 
 
@@ -410,7 +511,8 @@ def build(livery=True):
 
     body = []
     for name, mesh in buggy_body.body_parts().items():
-        body.append(to_object(name, mesh, (0, 0, 0), coll, mats, root, uv_fn=buggy_livery.assign_uvs))
+        chamfer = 0.006 if name in buggy_body.PANELS else None
+        body.append(to_object(name, mesh, (0, 0, 0), coll, mats, root, uv_fn=buggy_livery.assign_uvs, chamfer=chamfer))
 
     rig = {}
     for name, (sx, zc) in CORNERS.items():

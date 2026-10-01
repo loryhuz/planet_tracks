@@ -15,10 +15,10 @@ use serde_json::Value;
 
 use crate::gfx::{MeshData, Vertex, kind};
 
-pub const TYRE_WIDTH: f32 = 0.44;
+pub const TYRE_WIDTH: f32 = 0.48;
 
 const GLB: &[u8] = include_bytes!("../assets/buggy.glb");
-/// The tub's paint, baked from the reference views (tools/blender/build_buggy.py).
+/// The body's livery atlas, painted by tools/blender/buggy_livery.py.
 const LIVERY: &[u8] = include_bytes!("../assets/buggy_livery.png");
 const CORNERS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 

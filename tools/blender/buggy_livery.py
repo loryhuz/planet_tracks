@@ -66,12 +66,13 @@ def texel(region, p):
 
 
 def assign_uvs(bm, uv_layer, to_car, mat_names):
-    """UVs of the livery faces: each from the projection that sees it best."""
-    if "livery" not in mat_names:
+    """UVs of the faces painted by the atlas (materials livery, livery_glass, livery_mesh): each
+    from the projection that sees it best."""
+    painted = {i for i, name in enumerate(mat_names) if name.startswith("livery")}
+    if not painted:
         return
-    k = mat_names.index("livery")
     for f in bm.faces:
-        if f.material_index != k:
+        if f.material_index not in painted:
             continue
         pts = [to_car(lp.vert.co) for lp in f.loops]
         n = Vector()
@@ -124,8 +125,18 @@ class Canvas:
         row = sum(x * y for x, y in zip(r["down"], d)) * S
         return col, row
 
-    def rings_px(self, rings, colour):
-        """Rings (lists of pixel points) filled together with the even-odd rule."""
+    def coords(self, cols, rows):
+        """Pixel (column, row) arrays to drawing coordinates (a, b): px is affine."""
+        p0 = np.array(self.px(0.0, 0.0))
+        pa = np.array(self.px(1.0, 0.0)) - p0
+        pb = np.array(self.px(0.0, 1.0)) - p0
+        m = np.linalg.inv(np.array([[pa[0], pb[0]], [pa[1], pb[1]]]))
+        dc, dr = cols - p0[0], rows - p0[1]
+        return m[0, 0] * dc + m[0, 1] * dr, m[1, 0] * dc + m[1, 1] * dr
+
+    def rings_px(self, rings, colour, alpha=1.0):
+        """Rings (lists of pixel points) filled together with the even-odd rule. `colour` is an
+        RGB triple or a function of the drawing coordinates (A, B arrays) returning RGB arrays."""
         rings = [np.asarray(r, float) for r in rings if len(r) >= 3]
         if not rings:
             return
@@ -151,14 +162,19 @@ class Canvas:
                 inside[rows] ^= sx[None, :] < xi[:, None]
             cov += inside.reshape(len(ys), x1 - x0, SS).mean(axis=2) / SS
         sub = self.img[y0:y1, x0:x1]
-        sub += (np.asarray(colour, np.float32) - sub) * cov[..., None]
+        if callable(colour):
+            cc, rr = np.meshgrid(np.arange(x0, x1) + 0.5, np.arange(y0, y1) + 0.5)
+            col = np.asarray(colour(*self.coords(cc, rr)), np.float32)
+        else:
+            col = np.asarray(colour, np.float32)
+        sub += (col - sub) * (cov * alpha)[..., None]
 
-    def rings(self, rings, colour):
+    def rings(self, rings, colour, alpha=1.0):
         """Rings in drawing coordinates, even-odd."""
-        self.rings_px([[self.px(a, b) for a, b in r] for r in rings], colour)
+        self.rings_px([[self.px(a, b) for a, b in r] for r in rings], colour, alpha)
 
-    def poly(self, pts, colour):
-        self.rings([pts], colour)
+    def poly(self, pts, colour, alpha=1.0):
+        self.rings([pts], colour, alpha)
 
     def shape(self, rings, a, b, height, colour, mirror=False, angle=0.0):
         """Normalised rings (unit height, base centre at the origin, x to the image's right, y
@@ -257,21 +273,256 @@ def within(ring, box):
 NUMBER_BOX = (-0.21, 0.17, 0.54, 0.82)
 SWAN_BOX = (0.05, 0.20, 1.11, 1.28)
 DOOR_MARK_BOX = (0.14, 0.27, 0.88, 1.01)
+A_TRIANGLE_BOX = (0.05, 0.33, 0.82, 1.06)
+DOOR_REAR_STRIPE_BOX = (-0.45, -0.08, 0.44, 0.86)
 ENDPLATE_MARK_BOX = (-1.62, -1.43, 1.37, 1.55)
 
 
+def rounded(pts, corners):
+    """A polygon with some corners rounded: `corners` maps a point's index to its radius."""
+    out = []
+    n = len(pts)
+    for i, p in enumerate(pts):
+        r = corners.get(i)
+        if not r:
+            out.append(p)
+            continue
+        a, b = pts[i - 1], pts[(i + 1) % n]
+        da = (a[0] - p[0], a[1] - p[1])
+        db = (b[0] - p[0], b[1] - p[1])
+        la, lb = math.hypot(*da), math.hypot(*db)
+        ua, ub = (da[0] / la, da[1] / la), (db[0] / lb, db[1] / lb)
+        p0 = (p[0] + ua[0] * r, p[1] + ua[1] * r)
+        p1 = (p[0] + ub[0] * r, p[1] + ub[1] * r)
+        for k in range(7):  # quadratic Bézier through the corner
+            t = k / 6
+            out.append(((1 - t) ** 2 * p0[0] + 2 * t * (1 - t) * p[0] + t * t * p1[0], (1 - t) ** 2 * p0[1] + 2 * t * (1 - t) * p[1] + t * t * p1[1]))
+    return out
+
+
+def chaikin(ring, iterations=2):
+    """Corner-cutting smoothing of a closed ring (the swan's curves)."""
+    for _ in range(iterations):
+        out = []
+        for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+            out += [(0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by), (0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by)]
+        ring = out
+    return ring
+
+
+def digits_23():
+    """The 23 of the doors, redrawn as clean polygons after the left plan's (z, height): heavy
+    squared digits with rounded outer corners, the steps of their bars and the 3's waist."""
+    two = rounded([
+        (0.160, 0.555), (0.003, 0.555), (0.003, 0.625), (0.050, 0.625), (0.050, 0.612), (0.106, 0.612),
+        (0.003, 0.672), (0.003, 0.785), (0.028, 0.810), (0.128, 0.810), (0.152, 0.786), (0.152, 0.725),
+        (0.100, 0.725), (0.100, 0.750), (0.050, 0.750), (0.050, 0.700), (0.155, 0.640),
+    ], {7: 0.03, 8: 0.0, 10: 0.03, 16: 0.03, 0: 0.0, 1: 0.0})
+    three = rounded([
+        (-0.020, 0.555), (-0.178, 0.555), (-0.178, 0.668), (-0.164, 0.690), (-0.178, 0.712),
+        (-0.178, 0.810), (-0.020, 0.810), (-0.020, 0.732), (-0.085, 0.732), (-0.085, 0.765),
+        (-0.130, 0.765), (-0.130, 0.700), (-0.070, 0.700), (-0.070, 0.665), (-0.130, 0.665),
+        (-0.130, 0.615), (-0.075, 0.615), (-0.075, 0.635), (-0.020, 0.635),
+    ], {1: 0.04, 2: 0.012, 4: 0.012, 5: 0.04, 6: 0.006, 0: 0.006})
+    return [two, three]
+
+
 def number():
-    """The door's 23 as normalised rings (unit height, base centre at the origin, x to the
-    left plan's image right, i.e. toward the rear, y up)."""
-    side = load_trace("left")
-    rings = [r for r in side["black"] if within(r, NUMBER_BOX)]
+    """The 23 as normalised rings (unit height, base centre at the origin, x in the reading
+    direction, y up), and its width over its height."""
+    rings = digits_23()
     a0 = min(bbox(r)[0] for r in rings)
     a1 = max(bbox(r)[1] for r in rings)
     b0 = min(bbox(r)[2] for r in rings)
     b1 = max(bbox(r)[3] for r in rings)
     h = b1 - b0
-    # On the left side the image's right is -z.
+    # On the left side the reading direction is -z.
     return [[(-(a - (a0 + a1) / 2) / h, (b - b0) / h) for a, b in r] for r in rings], (a1 - a0) / h
+
+
+# --- Glass: smoked panes painted with what they show. The game draws the cabin's glass opaque, so
+# each pane carries its look: a tint darkening toward its foot (the sky reflects in its top), a
+# hint of the cabin behind it (seats, harness, roll cage, steering wheel), two soft reflection
+# streaks; the specular highlight comes from the shading.
+GLASS_TOP = (0.21, 0.24, 0.29)
+GLASS_FOOT = (0.025, 0.03, 0.038)
+
+
+def gradient(a0, b0, a1, b1, c0, c1, power=1.4):
+    """Colour function: c0 at (a0, b0) to c1 at (a1, b1), along that direction."""
+    d = np.array([a1 - a0, b1 - b0])
+    n2 = d @ d
+    c0, c1 = np.asarray(c0, np.float32), np.asarray(c1, np.float32)
+
+    def f(A, B):
+        t = np.clip(((A - a0) * d[0] + (B - b0) * d[1]) / n2, 0, 1) ** power
+        return c0 + (c1 - c0) * t[..., None]
+
+    return f
+
+
+def streaks(c, pane, a_dir, width, gap, bright=(0.75, 0.8, 0.85), alpha=0.16):
+    """Two parallel diagonal reflection bands across a pane (a polygon in drawing coordinates),
+    `a_dir` their slope."""
+    xs = [p[0] for p in pane]
+    ys = [p[1] for p in pane]
+    ca, cb = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    span = max(max(xs) - min(xs), max(ys) - min(ys))
+    d = np.array(a_dir, float)
+    d /= np.linalg.norm(d)
+    nrm = np.array([-d[1], d[0]])
+    for off, w in ((-gap / 2, width), (gap / 2, width * 0.5)):
+        o = np.array([ca, cb]) + nrm * off
+        band = [tuple(o + d * span - nrm * w / 2), tuple(o + d * span + nrm * w / 2), tuple(o - d * span + nrm * w / 2), tuple(o - d * span - nrm * w / 2)]
+        clip_to(c, pane, band, bright, alpha)
+
+
+def cross2(u, v):
+    return u[0] * v[1] - u[1] * v[0]
+
+
+def clip_to(c, pane, shape, colour, alpha):
+    """Paints `shape` only inside `pane` (convex polygons in drawing coordinates;
+    Sutherland-Hodgman clipping)."""
+    poly = [np.array(p, float) for p in shape]
+    n = len(pane)
+    for i in range(n):
+        a, b = np.array(pane[i], float), np.array(pane[(i + 1) % n], float)
+        ref = np.sign(cross2(b - a, np.array(pane[(i + 2) % n], float) - a))
+        out = []
+        for j in range(len(poly)):
+            p, q = poly[j], poly[(j + 1) % len(poly)]
+            dp, dq = cross2(b - a, p - a) * ref, cross2(b - a, q - a) * ref
+            if dp >= 0:
+                out.append(p)
+            if (dp >= 0) != (dq >= 0):
+                out.append(p + (q - p) * (dp / (dp - dq)))
+        poly = out
+        if len(poly) < 3:
+            return
+    c.poly([tuple(p) for p in poly], colour, alpha)
+
+
+def tube_band(p0, p1, w):
+    """A straight band of width w from p0 to p1 (drawing coordinates)."""
+    p0, p1 = np.array(p0, float), np.array(p1, float)
+    d = p1 - p0
+    n = np.array([-d[1], d[0]]) / np.linalg.norm(d) * w / 2
+    return [tuple(p0 - n), tuple(p1 - n), tuple(p1 + n), tuple(p0 + n)]
+
+
+def side_window(c, front, rear):
+    """The side window seen from the side (z, h): front and rear are its (z, h) corners in order
+    front-top, front-bottom, rear-bottom, rear-top."""
+    pane = [front[0], front[1], rear[0], rear[1]]
+    top_h = max(p[1] for p in pane)
+    foot_h = min(p[1] for p in pane)
+    c.poly(pane, gradient(0, top_h, 0, foot_h, GLASS_TOP, GLASS_FOOT))
+    # The cabin behind: the seat's back and headrest, the harness, a roll-cage tube.
+    seat = [(-0.08, foot_h), (-0.30, foot_h), (-0.30, 1.30), (-0.25, 1.345), (-0.13, 1.345), (-0.08, 1.30)]
+    clip_to(c, pane, seat, (0.01, 0.01, 0.012), 0.55)
+    for z0 in (-0.15, -0.23):
+        clip_to(c, pane, tube_band((z0, foot_h), (z0 + 0.02, 1.33), 0.022), (0.85, 0.35, 0.05), 0.35)
+    clip_to(c, pane, tube_band((0.05, 1.20), (-0.45, 1.36), 0.035), (0.0, 0.0, 0.0), 0.45)
+    streaks(c, pane, (1.0, 0.55), 0.07, 0.11)
+
+
+def windshield_top(c):
+    """The windshield seen from above (z, x): its pane between z 0.24 and 0.625."""
+    pane = [(0.24, -0.30), (0.24, 0.30), (0.625, 0.30), (0.625, -0.30)]
+    c.poly(pane, gradient(0.24, 0, 0.625, 0, GLASS_TOP, GLASS_FOOT, power=1.0))
+    # Dashboard along the foot, the steering wheel and the seats' tops behind.
+    clip_to(c, pane, [(0.56, -0.30), (0.56, 0.30), (0.625, 0.30), (0.625, -0.30)], (0.0, 0.0, 0.0), 0.5)
+    for x, r in ((0.17, 0.065),):
+        ring = [(0.53 + r * np.cos(t), x + r * 1.4 * np.sin(t)) for t in np.linspace(0, 2 * np.pi, 24, endpoint=False)]
+        hole = [(0.53 + (r - 0.012) * np.cos(t), x + (r - 0.012) * 1.4 * np.sin(t)) for t in np.linspace(0, 2 * np.pi, 24, endpoint=False)]
+        c.rings([ring, hole], (0.0, 0.0, 0.0), 0.6)
+    for x in (-0.17, 0.17):
+        clip_to(c, pane, [(0.24, x - 0.10), (0.24, x + 0.10), (0.36, x + 0.08), (0.36, x - 0.08)], (0.01, 0.01, 0.012), 0.5)
+        for dx in (-0.045, 0.045):
+            clip_to(c, pane, tube_band((0.24, x + dx), (0.38, x + dx * 0.6), 0.016), (0.85, 0.35, 0.05), 0.35)
+    streaks(c, pane, (0.35, 1.0), 0.06, 0.12)
+
+
+def quarter_window(c, pane):
+    c.poly(pane, gradient(0, max(p[1] for p in pane), 0, min(p[1] for p in pane), GLASS_TOP, GLASS_FOOT))
+    streaks(c, pane, (1.0, 0.8), 0.03, 0.05)
+
+
+def honeycomb(c, rect, **kw):
+    """A hexagonal mesh in a rectangle (a0, a1, b0, b1) of drawing coordinates."""
+    a0, a1, b0, b1 = rect
+    honeycomb_poly(c, [(a0, b0), (a1, b0), (a1, b1), (a0, b1)], **kw)
+
+
+def honeycomb_poly(c, pts, cell=0.011, frame=(0.20, 0.20, 0.21), hole=(0.025, 0.025, 0.028)):
+    """A hexagonal mesh in a polygon of drawing coordinates."""
+    s3 = np.sqrt(3.0)
+
+    def f(A, B):
+        # Axial coordinates of a pointy-top hex lattice of circumradius `cell`.
+        q = (s3 / 3 * A - B / 3) / cell
+        r = (2 / 3 * B) / cell
+        x, z = q, r
+        y = -x - z
+        rx, ry, rz = np.round(x), np.round(y), np.round(z)
+        dx, dy, dz = np.abs(rx - x), np.abs(ry - y), np.abs(rz - z)
+        fix_x = (dx > dy) & (dx > dz)
+        fix_y = ~fix_x & (dy > dz)
+        rx = np.where(fix_x, -ry - rz, rx)
+        ry = np.where(fix_y, -rx - rz, ry)
+        rz = np.where(~fix_x & ~fix_y, -rx - ry, rz)
+        d = np.maximum(np.maximum(np.abs(rx - x), np.abs(ry - y)), np.abs(rz - z))  # 0 centre, 0.5 edge
+        inner = d < 0.36
+        return np.where(inner[..., None], np.asarray(hole, np.float32), np.asarray(frame, np.float32))
+
+    c.poly(pts, f)
+
+
+# --- Panel finish: seams between the panels, and the bolts that hold them, as on the plans.
+SEAM = (0.30, 0.30, 0.31)
+BOLT = (0.62, 0.62, 0.64)
+BOLT_RIM = (0.18, 0.18, 0.19)
+
+
+def disc(c, a, b, r, colour):
+    c.poly([(a + r * math.cos(t), b + r * math.sin(t)) for t in np.linspace(0, 2 * math.pi, 14, endpoint=False)], colour)
+
+
+def bolt(c, a, b, r=0.0065):
+    disc(c, a, b, r, BOLT_RIM)
+    disc(c, a, b, r * 0.62, BOLT)
+
+
+def seam(c, p0, p1, width=0.0035, bolts=0.0, inset=0.012):
+    """A thin seam from p0 to p1, with bolts every `bolts` metres along it, `inset` beside it."""
+    c.poly(tube_band(p0, p1, width), SEAM)
+    if bolts:
+        p0, p1 = np.array(p0, float), np.array(p1, float)
+        d = p1 - p0
+        length = np.linalg.norm(d)
+        n = np.array([-d[1], d[0]]) / length
+        k = max(1, int(length / bolts))
+        for i in range(k + 1):
+            q = p0 + d * (0.04 / length + (1 - 0.08 / length) * i / k) + n * inset
+            bolt(c, *q)
+
+
+def side_finish(c):
+    """Seams and bolts on the sides (z, h)."""
+    # Door: its front and rear edges, the crease along its top.
+    seam(c, (0.60, 0.47), (0.60, 0.835), bolts=0.12, inset=-0.012)
+    seam(c, (-0.33, 0.47), (-0.36, 0.835), bolts=0.12)
+    seam(c, (-0.36, 0.836), (0.60, 0.836), bolts=0.16, inset=-0.014)
+    # Swan panel: bolts at its corners, its seams.
+    for a, b in ((0.03, 1.14), (0.27, 1.14), (0.03, 1.31), (0.22, 1.31)):
+        bolt(c, a, b, 0.0075)
+    seam(c, (0.005, 1.12), (0.005, 1.33))
+    # Rear fender and front blade: a row of bolts along their lower edge.
+    for z in np.linspace(-0.82, -1.22, 5):
+        bolt(c, z, 1.005)
+    for z in np.linspace(0.80, 1.40, 6):
+        bolt(c, z, 0.99 - 0.07 * max(0.0, (z - 1.0) / 0.5))
 
 
 def side(c, region):
@@ -279,24 +530,29 @@ def side(c, region):
     each."""
     trace = load_trace("left")
     emblems = load_trace("emblems")
+    swan = [chaikin([tuple(p) for p in r]) for r in emblems["swan"]]
     right = region == "right"
-    nz = (NUMBER_BOX[0] + NUMBER_BOX[1]) / 2
-
     def keep(r):
-        return not (within(r, SWAN_BOX) or within(r, DOOR_MARK_BOX) or within(r, ENDPLATE_MARK_BOX))
+        return not any(within(r, box) for box in (SWAN_BOX, DOOR_MARK_BOX, ENDPLATE_MARK_BOX, NUMBER_BOX))
 
-    def fix(r):
-        # On the right side the drawing is mirrored: turn the number back.
-        if right and within(r, NUMBER_BOX):
-            return [(2 * nz - a, b) for a, b in r]
-        return r
-
-    c.rings([fix(r) for r in trace["black"] if keep(r)], BLACK)
-    c.rings([r for r in trace["orange"] if bbox(r)[3] > 0.70], ORANGE)  # not the wheels' rings
-    # Emblems, drawn the same way round on both sides; the swan faces forward on each.
-    c.shape(emblems["swan"], 0.124, 1.123, 0.147, BLACK, mirror=right)
-    c.shape(emblems["aurora"], 0.203, 0.893, 0.107, BLACK, mirror=False)
+    c.rings([r for r in trace["black"] if keep(r)], BLACK)
+    # The 23, readable on each side (the right side's drawing is the left's, mirrored).
+    rings, aspect = number()
+    c.shape(rings, -0.009, 0.555, 0.255, BLACK)
+    # Orange, but the wheels' rings and the two shapes redrawn by hand below (frayed in the plan).
+    redrawn = (A_TRIANGLE_BOX, DOOR_REAR_STRIPE_BOX)
+    c.rings([r for r in trace["orange"] if bbox(r)[3] > 0.70 and not any(within(r, b) for b in redrawn)], ORANGE)
+    # The orange triangle under the door's Aurora mark, the stripe along the door's rear edge.
+    c.poly([(0.07, 0.836), (0.31, 0.836), (0.198, 1.04)], ORANGE)
+    c.poly([(-0.148, 0.455), (-0.198, 0.455), (-0.42, 0.845), (-0.35, 0.845)], ORANGE)
+    # Emblems, drawn the same way round on both sides (as on the right plan).
+    c.shape(swan, 0.124, 1.123, 0.147, BLACK)  # a decal: the same way round on both sides
+    c.shape(emblems["aurora"], 0.195, 0.872, 0.128, BLACK, mirror=False)
     c.shape(emblems["aurora"], -1.524, 1.392, 0.138, WHITE, mirror=False)
+    # Glass: the side window and the quarter glass ahead of the swan panel.
+    side_window(c, [(0.0, 1.325), (0.0, 1.135)], [(-0.455, 1.135), (-0.385, 1.325)])
+    quarter_window(c, [(0.60, 1.11), (0.40, 1.11), (0.40, 1.30), (0.42, 1.30)])
+    side_finish(c)
     # Lettering from the 3/4 view.
     c.text("AURORA", 0.575, 0.99, 0.032, BLACK)
     c.text("CIRCUIT", 0.575, 0.953, 0.018, BLACK, spacing=1.25)
@@ -308,7 +564,8 @@ def top(c):
     """From above (z, x): the top plan's paint. Its nose is redrawn after the 3/4 view and the
     front plan: the 23 on white on the hood's front slope, readable from the front."""
     trace = load_trace("top")
-    c.rings(trace["black"], BLACK)
+    number_box = (1.15, 1.52, -0.22, 0.22)  # the plan's (dirty) 23, redrawn below
+    c.rings([r for r in trace["black"] if not within(r, number_box)], BLACK)
     c.rings(trace["orange"], ORANGE)
     # Behind the cabin the top plan is shorter than the side: its rear fenders are painted here
     # after the side plan instead.
@@ -317,10 +574,24 @@ def top(c):
         c.poly([(-1.28, s * 0.29), (-0.84, s * 0.29), (-0.76, s * 0.45), (-0.84, s * 0.60), (-1.28, s * 0.60)], WHITE)
         c.poly([(-1.24, s * 0.50), (-0.88, s * 0.50), (-0.84, s * 0.555), (-1.24, s * 0.555)], ORANGE)
         c.poly([(-0.86, s * 0.29), (-0.80, s * 0.29), (-0.76, s * 0.45), (-0.80, s * 0.60), (-0.86, s * 0.60)], BLACK)
-    # The hood's front slope: white, the door's 23 on it, digits' tops toward the windshield.
-    c.poly([(1.27, -0.16), (1.73, -0.16), (1.73, 0.16), (1.27, 0.16)], WHITE)
+    # The cabin's roof: white over its rounded side edges (as on the 3/4 view; from above the
+    # plan shows the side glass there, black).
+    c.poly([(-0.40, -0.385), (0.245, -0.385), (0.245, 0.385), (-0.40, 0.385)], WHITE)
+    windshield_top(c)
+    # The hood's honeycomb grilles (on livery_mesh faces: hood scoop and fender vents).
+    import buggy_body as bb
+
+    for (x0, za), (x1, zb) in bb.HOOD_GRILLES:
+        for s in (1, -1):
+            honeycomb_poly(c, [(za + 0.02, s * x0 * 0.90), (za + 0.02, s * x1 * 0.90), (zb - 0.02, s * x1 * 0.90), (zb - 0.02, s * x0 * 0.90)])
+    for vent in bb.FENDER_VENTS:
+        for s in (1, -1):
+            honeycomb_poly(c, [(z, s * x) for x, z in vent])
+    # The hood's number panel ahead of the scoop: white, its front edge rounded, the door's 23 on
+    # it, the digits' tops toward the windshield (it reads from the front).
+    c.poly([(1.17, -0.19), (1.47, -0.19), (1.50, -0.12), (1.512, 0.0), (1.50, 0.12), (1.47, 0.19), (1.17, 0.19)], WHITE)
     rings, aspect = number()
-    c.shape(rings, 1.708, 0.0, 0.19, BLACK, angle=90.0)
+    c.shape(rings, 1.47, 0.0, 0.25, BLACK, angle=90.0)
 
 
 def front(c):
@@ -335,10 +606,13 @@ def front(c):
     for s in (1, -1):
         c.poly([(s * 0.15, 0.68), (s * 0.27, 0.68), (s * 0.27, 0.88), (s * 0.15, 0.88)], WHITE)
         c.poly([(s * 0.165, 0.70), (s * 0.20, 0.70), (s * 0.245, 0.86), (s * 0.21, 0.86)], ORANGE)
-    c.poly([(-0.16, 0.69), (0.16, 0.69), (0.16, 0.856), (-0.16, 0.856)], BLACK)
+    c.poly([(-0.16, 0.69), (0.16, 0.69), (0.16, 0.878), (-0.16, 0.878)], BLACK)
     c.shape(emblems["aurora"], 0.0, 0.79, 0.055, WHITE)
     c.text("AURORA", 0.0, 0.768, 0.02, WHITE, spacing=1.05)
     c.text("CIRCUIT", 0.0, 0.740, 0.012, WHITE, spacing=1.35)
+    # The skid box's two honeycomb grilles.
+    honeycomb(c, (-0.11, 0.11, 0.335, 0.48))
+    honeycomb(c, (-0.11, 0.11, 0.50, 0.635))
 
 
 def back(c):
@@ -381,9 +655,11 @@ def bake(body_objects, mats, out_png):
     img.filepath_raw = out_png
     img.file_format = "PNG"
     img.save()
-    mat = mats["livery"]
-    nt = mat.node_tree
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = img
-    nt.links.new(tex.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+    for name, mat in mats.items():
+        if not name.startswith("livery"):
+            continue
+        nt = mat.node_tree
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        nt.links.new(tex.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
     return img

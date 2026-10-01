@@ -30,15 +30,21 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 - `crates/track` — block kit, maps, triangle meshes with a surface per triangle.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
-- `tools/blender/build_buggy.py` — builds the buggy (`art/buggy/buggy.blend`, rigged suspension,
-  reference views in `art/buggy/refs`) and exports `crates/app/assets/buggy.glb` and the tub's
-  livery `buggy_livery.png`, which the app embeds: rerun `blender -b -P tools/blender/build_buggy.py`
-  after changing the model. Part and empty names (`arm_lo.FL`, `mount_bot.FL`, …) are what
-  `crates/app/src/car_model.rs` reads.
-- Buggy references: `art/buggy/refs/concept/` holds the generated concept views;
-  `tools/blender/warp_refs.py` fits them to the physics' wheelbase and track (blueprint scales in
-  `tools/blender/blueprint.py`), and `tools/blender/compare.py` renders the model with the same
-  orthographic cameras and scores the silhouettes against them (`-- OUT_DIR [view ...]`).
+- `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged
+  suspension, the registered plans as image empties) and exports `crates/app/assets/buggy.glb` and
+  its livery atlas `buggy_livery.png`, which the app embeds: rerun
+  `blender -b -P tools/blender/build_buggy.py` after changing the model (`-- --out DIR` writes
+  elsewhere, for checks). Part and empty names (`arm_lo.FL`, `mount_bot.FL`, …) are what
+  `crates/app/src/car_model.rs` reads. The body panels are in `tools/blender/buggy_body.py`, the
+  livery (vector shapes, glass, grilles, seams) in `tools/blender/buggy_livery.py`, mesh helpers and
+  materials in `tools/blender/meshkit.py`.
+- Buggy plans: `art/buggy/v2/views/` holds the generated plans (`art/buggy/v2/3q_B_compact.jpg` is
+  the validated look); `tools/blender/warp_refs.py` registers them at the physics' wheelbase and
+  track into `art/buggy/v2/registered/` (scales in `tools/blender/blueprint.py`);
+  `tools/blender/trace_livery.py` (plain Python with numpy, scipy, scikit-image, Pillow) traces
+  their paint into clean polygons (`art/buggy/v2/livery/`); `tools/blender/compare.py` renders the
+  model with cameras matching the plans and the 3/4 view and scores the silhouettes
+  (`-- OUT_DIR [view ...]`).
 - `tools/textures/bake.py` — bakes the surface textures the app embeds
   (`crates/app/assets/textures/`, loaded by `crates/app/src/surfaces.rs` as two texture arrays)
   from the generated photos in `art/textures/src/`: one tile, seamless, delit, recoloured toward

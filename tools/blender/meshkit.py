@@ -55,22 +55,29 @@ def srgb(r, g, b):
 MATERIALS = {
     "paint_white": dict(color=srgb(238, 236, 230), roughness=0.3),
     "paint_orange": dict(color=srgb(255, 112, 10), roughness=0.3),
-    "paint_black": dict(color=srgb(16, 16, 18), roughness=0.35),
+    "paint_black": dict(color=srgb(16, 16, 18), roughness=0.42),
     "metal_graphite": dict(color=srgb(36, 37, 40), metallic=0.8, roughness=0.38),
     "metal_frame": dict(color=srgb(22, 22, 24), metallic=0.6, roughness=0.42),
     "metal_carbon": dict(color=srgb(20, 20, 22), metallic=0.3, roughness=0.3),
     "metal_steel": dict(color=srgb(140, 142, 146), metallic=1.0, roughness=0.3),
     "metal_chrome": dict(color=srgb(214, 216, 220), metallic=1.0, roughness=0.12),
     "metal_copper": dict(color=srgb(232, 110, 24), metallic=1.0, roughness=0.25),
-    "metal_grille": dict(color=srgb(12, 12, 14), metallic=0.5, roughness=0.55),
+    "metal_grille": dict(color=srgb(12, 12, 14), metallic=0.3, roughness=0.7),
     "rubber_tyre": dict(color=srgb(30, 28, 27), roughness=0.85),
+    # Martian dirt packed in the tread's grooves, and dust in patches on the shoulders.
+    "rubber_mud": dict(color=srgb(34, 24, 19), roughness=0.95),
+    "rubber_dust": dict(color=srgb(78, 56, 44), roughness=0.95),
     "rubber_black": dict(color=srgb(20, 20, 21), roughness=0.7),
     "glass": dict(color=srgb(22, 26, 32), roughness=0.03, transmission=1.0),
     "glow_white": dict(color=srgb(235, 245, 255), emission=5.0),
     "glow_red": dict(color=srgb(255, 30, 22), emission=4.0),
     "glow_amber": dict(color=srgb(255, 140, 20), emission=3.0),
     # White, multiplied in the game by the livery texture (crates/app/assets/buggy_livery.png).
-    "livery": dict(color=(1.0, 1.0, 1.0), roughness=0.3),
+    "livery": dict(color=(1.0, 1.0, 1.0), roughness=0.42),
+    # Also painted by the livery texture: the cabin's glass (each pane carries its look) and the
+    # front grilles' honeycomb.
+    "livery_glass": dict(color=(1.0, 1.0, 1.0), roughness=0.04),
+    "livery_mesh": dict(color=(1.0, 1.0, 1.0), metallic=0.4, roughness=0.6),
 }
 
 
@@ -254,14 +261,15 @@ class Mesh:
     def lathe(self, profile, mat, seg=48, smooth=True, mats=None):
         """Surface of revolution around the X axis. `profile` is a list of (x, r); faces point to
         dx·radial − dr·X, i.e. outward for a profile that climbs on the -X side, runs along the
-        top and comes down on the +X side. `mats(i)` may pick a material per profile span."""
+        top and comes down on the +X side. `mats(i, j)` may pick a material per face (profile
+        span i, sector j)."""
         grid = []
         for x, r in profile:
             grid.append([self.vert((x, r * math.cos(2 * math.pi * j / seg), r * math.sin(2 * math.pi * j / seg))) for j in range(seg)])
         for i in range(len(profile) - 1):
             for j in range(seg):
                 k = (j + 1) % seg
-                self.face((grid[i][j], grid[i][k], grid[i + 1][k], grid[i + 1][j]), mats(i) if mats else mat, smooth)
+                self.face((grid[i][j], grid[i][k], grid[i + 1][k], grid[i + 1][j]), mats(i, j) if mats else mat, smooth)
         return self
 
     def helix(self, a, axis, length, radius, wire, turns, mat, steps_per_turn=20, ring=8):
@@ -329,9 +337,10 @@ def axes_matrix(x=None, y=None, z=None):
     return Matrix((xx, yy, zz)).transposed()
 
 
-def to_object(name, mesh, origin, coll, mats, parent=None, rot=None, relative=False, bevel=None, uv_fn=None):
+def to_object(name, mesh, origin, coll, mats, parent=None, rot=None, relative=False, bevel=None, uv_fn=None, chamfer=None):
     """`mesh` is in the car frame, or relative to `origin` (still in car axes) if `relative`.
-    `uv_fn(bm, uv_layer, to_car)` may fill UVs (e.g. the livery's projections)."""
+    `uv_fn(bm, uv_layer, to_car)` may fill UVs (e.g. the livery's projections). `chamfer` (m)
+    bevels the sharp creases into a narrow facet that catches the light, before the UVs are made."""
     rot = rot or Matrix.Identity(3)
     o = G(origin)
     inv = rot.transposed()
@@ -356,6 +365,9 @@ def to_object(name, mesh, origin, coll, mats, parent=None, rot=None, relative=Fa
             for loop, (u, v) in zip(face.loops, uv):
                 loop[uv_layer].uv = (u, v)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    if chamfer:
+        creases = [e for e in bm.edges if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > SHARP]
+        bmesh.ops.bevel(bm, geom=creases, offset=chamfer, offset_type="OFFSET", segments=1, profile=0.5, affect="EDGES", clamp_overlap=True)
     for e in bm.edges:
         if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > SHARP:
             e.smooth = False

@@ -152,11 +152,17 @@ def main():
     world = scene.world
     bg = world.node_tree.nodes.get("Background")
     if bg:
-        bg.inputs["Color"].default_value = (0.85, 0.85, 0.85, 1.0)
-        bg.inputs["Strength"].default_value = 0.9
+        # A soft studio: grey surroundings (black paint stays black at grazing angles), the
+        # stage's sun and fill lights.
+        bg.inputs["Color"].default_value = (0.7, 0.7, 0.72, 1.0)
+        bg.inputs["Strength"].default_value = 0.75
     report = {}
     for view in views:
         if view == "3q":
+            # Light as in the 3/4 image: high, a little from the camera's side.
+            sun = bpy.data.objects.get("sun")
+            if sun:
+                sun.rotation_euler = G((0.5, 1.0, 0.25)).normalized().to_track_quat("Z", "Y").to_euler()
             ref = load(THREE_Q)[..., :3]
             h, w = ref.shape[:2]
             rgba = render(camera_3q(), (w, h), os.path.join(out_dir, "3q_model.png"))

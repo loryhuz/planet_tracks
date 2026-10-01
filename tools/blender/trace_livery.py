@@ -26,11 +26,14 @@ import blueprint as bp  # noqa: E402
 OUT = os.path.join(bp.REPO, "art", "buggy", "v2", "livery")
 BLACK, WHITE, ORANGE, NONE = 0, 1, 2, 3
 SPOT = 0.0025  # m²: dirt smaller than this goes
-TOLERANCE = 0.004  # m: polygon simplification
+TOLERANCE = 0.008  # m: polygon simplification
+CLOSE = {"black": 0.010, "orange": 0.010}  # m: closing radius bridging the scratches
+OPEN = {"black": 0.008, "orange": 0.006}  # m: opening radius shaving the frayed edges
+SHAPE_LOSS = 0.07  # a stripe's outline is reduced to the fewest corners losing at most this area
 # Emblems traced finer from the clearest instance on the left plan, in a box (a0, a1, b0, b1),
 # with the colour of the emblem; normalised to a unit height, base centre at the origin.
 EMBLEMS = {
-    "aurora": dict(box=(-1.66, -1.44, 1.385, 1.535), colour="white", blur=2.0),
+    "aurora": dict(box=(-1.66, -1.44, 1.385, 1.535), colour="white", blur=2.0, tolerance=1.6),
     "swan": dict(box=(0.045, 0.255, 1.115, 1.31), colour="black"),
 }
 
@@ -81,15 +84,34 @@ def to_metres(view, rows, cols):
     return sign * (cols - v["centre_px"]) / s, (v["ground_px"] - rows) / s
 
 
-def convexish(pts):
-    """The convex hull of a ring when the ring is nearly convex (brushed stripe ends), else the
-    ring."""
+def area(p):
+    return 0.5 * abs(np.dot(p[:, 0], np.roll(p[:, 1], -1)) - np.dot(np.roll(p[:, 0], -1), p[:, 1]))
+
+
+def clean_shape(pts):
+    """A stripe's clean outline: when the ring is nearly convex (the paint's stripes, chevrons and
+    wedges, frayed by dirt), its convex hull reduced to its main corners: corners are dropped,
+    the least significant first, while the area lost stays under SHAPE_LOSS. Other rings (the
+    body's outline, the panels' holes) are kept as traced."""
     from scipy.spatial import ConvexHull
 
     p = np.asarray(pts)
-    hull = ConvexHull(p)
-    ring_area = 0.5 * abs(np.dot(p[:, 0], np.roll(p[:, 1], -1)) - np.dot(np.roll(p[:, 0], -1), p[:, 1]))
-    return p[hull.vertices] if hull.volume < 1.3 * ring_area else p
+    hull = p[ConvexHull(p).vertices]
+    a0 = area(p)
+    if area(hull) > 1.25 * a0 or len(hull) < 4:
+        return p
+    q = hull
+    while len(q) > 3:
+        best = None
+        for i in range(len(q)):
+            r = np.delete(q, i, axis=0)
+            loss = (area(hull) - area(r)) / area(hull)
+            if best is None or loss < best[0]:
+                best = (loss, r)
+        if best[0] > SHAPE_LOSS:
+            break
+        q = best[1]
+    return q
 
 
 def emblem(name, spec):
@@ -112,7 +134,7 @@ def emblem(name, spec):
     fg |= np.isin(lab, 1 + np.nonzero(sizes < 30)[0])
     rings = []
     for ring in measure.find_contours(np.pad(fg.astype(np.float32), 1), 0.5):
-        ring = measure.approximate_polygon(ring, 0.7)
+        ring = measure.approximate_polygon(ring, spec.get("tolerance", 0.7))
         if len(ring) >= 4:
             rings.append(np.c_[ring[:, 1] - 1 + c0, ring[:, 0] - 1 + r0][:-1])
     allp = np.concatenate(rings)
@@ -128,8 +150,14 @@ def trace(view):
     s = bp.VIEWS[view]["scale"]
     cls = clean(classify(im[..., :3], im[..., 3] > 0.5), int(SPOT * s * s))
     out = {}
+    disk = lambda r: np.hypot(*np.mgrid[-r : r + 1, -r : r + 1]) <= r  # noqa: E731
     for name, c in (("black", BLACK), ("orange", ORANGE)):
-        mask = np.pad((cls == c).astype(np.float32), 1)
+        mask = cls == c
+        # Bridge the scratches across the shapes (closing), then shave the spurs and the frayed
+        # edges (opening).
+        mask = ndimage.binary_closing(mask, disk(int(round(CLOSE[name] * s))))
+        mask = ndimage.binary_opening(mask, disk(int(round(OPEN[name] * s))))
+        mask = np.pad(mask.astype(np.float32), 1)
         rings = []
         for ring in measure.find_contours(ndimage.gaussian_filter(mask, 0.7), 0.5):
             ring = measure.approximate_polygon(ring, TOLERANCE * s)
@@ -140,9 +168,7 @@ def trace(view):
             area = 0.5 * abs(np.dot(pts[:-1, 0], pts[1:, 1]) - np.dot(pts[1:, 0], pts[:-1, 1]))
             if area < SPOT:
                 continue
-            pts = pts[:-1]
-            if name == "orange":
-                pts = convexish(pts)
+            pts = clean_shape(pts[:-1])
             rings.append([[round(float(x), 4), round(float(y), 4)] for x, y in pts])
         out[name] = rings
     os.makedirs(OUT, exist_ok=True)

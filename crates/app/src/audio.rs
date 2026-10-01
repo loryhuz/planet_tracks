@@ -1,8 +1,8 @@
-//! Vehicle sound: the electric drivetrain from a recording (engine_sound.rs), plus synthesized
-//! wind and tyre squeal at the grip limit; the gravel comes from the recording, on
-//! dirt, thumps on impacts. The game writes a few values per frame; the audio thread reads
-//! them through atomics and smooths them per sample. The menu's cues and ambience
-//! (ui_sound.rs) play on the same stream, while the car is silent.
+//! Vehicle sound: the combustion engine from two recordings (engine_sound.rs) and the Martian
+//! ambience from a third, plus synthesized wind, tyre squeal at the grip limit, gravel on dirt and
+//! thumps on impacts. The game writes a few values per frame; the audio thread reads them through
+//! atomics and smooths them per sample. The menu's cues and ambiences (ui_sound.rs) play on the
+//! same stream, while the car and the race ambience are silent.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -189,12 +189,13 @@ impl BandPass {
     }
 }
 
+const AMBIENCE_WAV: &[u8] = include_bytes!("../assets/audio/ambience_mars.wav");
+
 struct Synth {
     rate: f32,
     shared: Arc<Shared>,
     seed: u32,
     // smoothed controls
-    rpm: f32,
     load: f32,
     speed: f32,
     squeal: f32,
@@ -202,12 +203,17 @@ struct Synth {
     scrub: f32,
     air: f32,
     master: f32,
-    engine: crate::engine_sound::ElectricVoice,
+    engine: crate::engine_sound::EngineVoice,
     seen_gear: u32,
+    ambience: crate::sample::Looper,
     // oscillators and filters
     wobble: f32,
     wind_lp: LowPass,
     squeal_bp: BandPass,
+    grain_lo: BandPass,
+    grain_hi: BandPass,
+    rumble_lp: LowPass,
+    scrub_bp: BandPass,
     seen_impacts: u32,
     thump: f32,
     thump_phase: f32,
@@ -227,7 +233,6 @@ impl Synth {
             rate,
             shared,
             seed: 0x1234_5678,
-            rpm: 0.0,
             load: 0.0,
             speed: 0.0,
             squeal: 0.0,
@@ -235,11 +240,16 @@ impl Synth {
             scrub: 0.0,
             air: 0.0,
             master: 0.0,
-            engine: crate::engine_sound::ElectricVoice::new(rate),
+            engine: crate::engine_sound::EngineVoice::new(rate),
             seen_gear: 0,
+            ambience: crate::sample::Looper::new(AMBIENCE_WAV, rate),
             wobble: 0.0,
             wind_lp: LowPass::default(),
             squeal_bp: BandPass::default(),
+            grain_lo: BandPass::default(),
+            grain_hi: BandPass::default(),
+            rumble_lp: LowPass::default(),
+            scrub_bp: BandPass::default(),
             seen_impacts: 0,
             thump: 0.0,
             thump_phase: 0.0,
@@ -272,6 +282,7 @@ impl Synth {
         let race_target = if s.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
         let ambience = Ambience::from_u32(s.ambience.load(Ordering::Relaxed));
         let gear = s.gear.load(Ordering::Relaxed);
+        let revs = crate::engine_sound::revs(target.0, gear, target.1);
         if gear > self.seen_gear && target.1 > 0.3 {
             self.engine.shift();
         }
@@ -285,7 +296,6 @@ impl Synth {
         let rate = self.rate;
         let k = 1.0 - (-1.0 / (0.03 * rate)).exp();
         for frame in out.chunks_mut(channels) {
-            self.rpm += (target.0 - self.rpm) * k;
             self.load += (target.1 - self.load) * k;
             self.speed += (target.2 - self.speed) * k;
             self.squeal += (target.3 - self.squeal) * k;
@@ -295,9 +305,28 @@ impl Synth {
             self.master += (target.7 - self.master) * k * 0.2;
             self.race += (race_target - self.race) * k * 0.2;
 
-            // Electric drivetrain with the recording's gravel on dirt (see engine_sound.rs).
-            let ground = self.gravel * (1.0 - self.air);
-            let engine = self.engine.next(self.speed, self.rpm, self.load, ground, self.scrub) * 0.9;
+            let engine = self.engine.next(revs, self.speed, self.load) * 0.45;
+
+            // Gravel under the tyres on dirt (a stand-in for a recording): random grains of grit
+            // ringing at two pitches over a low rumble, denser with speed; sliding adds a hiss.
+            let ground = self.gravel * (1.0 - self.air) * (self.speed / 25.0).clamp(0.0, 1.0);
+            let mut gravel = 0.0;
+            if ground > 0.001 {
+                let density = 300.0 + 2700.0 * (self.speed / 60.0).min(1.0) * (1.0 + self.scrub);
+                let grain = if self.noise() * 0.5 + 0.5 < density / rate {
+                    let a = self.noise();
+                    a * a.abs()
+                } else {
+                    0.0
+                };
+                let lo = self.grain_lo.run(grain, 1800.0, 2.0, rate);
+                let hi = self.grain_hi.run(grain, 4200.0, 2.5, rate);
+                let n = self.noise();
+                let rumble = self.rumble_lp.run(n, 250.0, rate);
+                let n = self.noise();
+                let hiss = self.scrub_bp.run(n, 3000.0, 0.8, rate) * self.scrub;
+                gravel = (lo + 0.35 * hi + 0.5 * rumble + 0.12 * hiss) * ground * 0.4;
+            }
 
             // Wind grows with speed squared.
             let v = (self.speed / 90.0).clamp(0.0, 1.5);
@@ -321,15 +350,27 @@ impl Synth {
             }
 
             let ui = self.ui.next(ambience);
-            let raw = ((engine + wind + squeal + thump) * self.race + ui * 1.2) * self.master;
+            let raw = ((engine + gravel + wind + squeal + thump) * self.race + ui * 1.2) * self.master;
             // ~30 Hz high-pass: nothing below what speakers can play.
             let a = (-std::f32::consts::TAU * 30.0 / rate).exp();
             let mix = a * (self.hp_y + raw - self.hp_x);
             self.hp_x = raw;
             self.hp_y = mix;
-            let sample = mix.tanh();
-            for c in frame.iter_mut() {
-                *c = sample;
+            // The ambience is the only stereo sound.
+            let (al, ar) = self.ambience.next(1.0);
+            // The menu has ambiences of its own.
+            let amb = 0.35 * self.master * self.race;
+            let (l, r) = ((mix + al * amb).tanh(), (mix + ar * amb).tanh());
+            match frame {
+                [mono] => *mono = 0.5 * (l + r),
+                [left, right, rest @ ..] => {
+                    *left = l;
+                    *right = r;
+                    for c in rest {
+                        *c = 0.5 * (l + r);
+                    }
+                }
+                [] => {}
             }
         }
     }

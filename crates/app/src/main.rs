@@ -12,6 +12,7 @@ mod input;
 mod marks;
 mod particles;
 mod race;
+mod sample;
 mod session;
 mod surfaces;
 mod ui;
@@ -502,15 +503,11 @@ fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
     std::fs::write(path, bytes).expect("write wav");
 }
 
-/// `MARS_ENGINE_DEMO=path.wav`: the electric drivetrain alone, as heard over a lap: pulling
-/// away through the gears to 300 km/h, a lift, cruising, braking, then full throttle again.
+/// `MARS_ENGINE_DEMO=path.wav`: the car's sound over a scripted lap, at the game's level: idling
+/// on the line, pulling away through the gears to 300 km/h, a lift, cruising on dirt, braking,
+/// then full throttle again.
 fn engine_demo(path: &str) {
-    let rate = 44_100u32;
     let params = physics::presets().remove(0);
-    let mut voice = engine_sound::ElectricVoice::new(rate as f32);
-    let mut out = Vec::new();
-    // (seconds, speed km/h at the end, throttle)
-    let script = [(1.0, 0.0, 0.0), (9.0, 300.0, 1.0), (1.5, 280.0, 0.0), (2.5, 180.0, 0.3), (1.5, 90.0, 0.0), (5.0, 260.0, 1.0)];
     let gear_of = |kmh: f32| {
         let mut lo = 0.0;
         let mut hi = params.top_speed_kmh;
@@ -525,9 +522,12 @@ fn engine_demo(path: &str) {
         }
         (gear, ((kmh - lo) / (hi - lo).max(1.0)).clamp(0.0, 1.0))
     };
-    let (mut kmh, mut last_gear, mut rpm_s) = (0.0f32, 0u32, 0.0f32);
-    for (seconds, end, load) in script {
-        let n = (seconds * rate as f32) as usize;
+    // (seconds, speed km/h at the end, throttle, share of the wheels on dirt)
+    let script = [(2.0, 0.0, 0.0, 0.0), (9.0, 300.0, 1.0, 0.0), (1.5, 280.0, 0.0, 0.0), (3.0, 150.0, 0.3, 1.0), (1.5, 90.0, 0.0, 1.0), (5.0, 260.0, 1.0, 0.0)];
+    let mut frames = Vec::new();
+    let mut kmh = 0.0f32;
+    for (seconds, end, load, dirt) in script {
+        let n = (seconds * 100.0) as usize;
         let start = kmh;
         for i in 0..n {
             // Accelerations ease off with speed, as in the car.
@@ -535,19 +535,11 @@ fn engine_demo(path: &str) {
             let shape = if end > start { 1.0 - (1.0 - t).powf(1.6) } else { t };
             kmh = start + (end - start) * shape;
             let (gear, rpm) = gear_of(kmh);
-            if gear > last_gear && load > 0.3 {
-                voice.shift();
-            }
-            last_gear = gear;
-            rpm_s += (rpm - rpm_s) * 0.002;
-            out.push(voice.next(kmh / 3.6, rpm_s, load, 0.0, 0.0));
+            frames.push(audio::SoundFrame { rpm, gear, load, speed: kmh / 3.6, gravel: dirt, ..Default::default() });
         }
     }
-    let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs())).max(1e-6);
-    for s in &mut out {
-        *s *= 0.8 / peak;
-    }
-    write_wav(std::path::Path::new(path), &out, rate);
+    let rate = 44_100u32;
+    write_wav(std::path::Path::new(path), &audio::render_offline(&frames, &[], rate), rate);
 }
 
 fn main() {

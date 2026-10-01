@@ -51,6 +51,10 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   the palette, with a normal and height map, per material. Rerun
   `blender -b -P tools/textures/bake.py -- art/textures/src crates/app/assets/textures art/textures/preview`
   after changing a source or a setting; the layer order is `scene.wgsl`'s `L_*`.
+- `tools/audio/prepare.py` — turns the ElevenLabs sounds in `art/audio/src/` (prompts and settings
+  in its `SOURCES`) into the seamless, levelled loops the app embeds (`crates/app/assets/audio/`):
+  `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`.
+  `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer` renders the car's sound over a scripted lap.
 
 Conventions: metres, y up, right-handed; yaw 0 faces +Z and a positive yaw turns left; a car
 facing +Z has +X on its left. Wheel order: front-left, front-right, rear-left, rear-right.

@@ -110,10 +110,10 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
     egui::Area::new(egui::Id::new("help")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -10.0)).interactable(false).show(&ctx, |ui| {
         hud_frame().show(ui, |ui| {
             let c = Color32::from_gray(215);
-            ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer").color(c).size(12.0));
+            ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer · Échap : menu").color(c).size(12.0));
             ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante · T : textures").color(c).size(12.0));
             if let Some(name) = &game.controls.gamepad_name {
-                ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil)")).color(c).size(12.0));
+                ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil, Start menu)")).color(c).size(12.0));
             }
         });
     });

@@ -1,12 +1,16 @@
 //! Vehicle sound: the electric drivetrain from a recording (engine_sound.rs), plus synthesized
 //! wind and tyre squeal at the grip limit; the gravel comes from the recording, on
 //! dirt, thumps on impacts. The game writes a few values per frame; the audio thread reads
-//! them through atomics and smooths them per sample.
+//! them through atomics and smooths them per sample. The menu's cues and ambience
+//! (ui_sound.rs) play on the same stream, while the car is silent.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{Sender, channel};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+use crate::ui_sound::{Ambience, Cue, UiSynth};
 
 /// What the game tells the synth each frame.
 #[derive(Clone, Copy, Debug, Default)]
@@ -42,6 +46,10 @@ struct Shared {
     impacts: AtomicU32,
     impact_strength: AtomicU32,
     muted: AtomicBool,
+    /// The car is heard (a race is on); off in the menu.
+    race: AtomicBool,
+    /// The menu screen's background loop, an [`Ambience`].
+    ambience: AtomicU32,
 }
 
 fn store(a: &AtomicU32, v: f32) {
@@ -54,6 +62,7 @@ fn load(a: &AtomicU32) -> f32 {
 
 pub struct Audio {
     shared: Arc<Shared>,
+    cues: Option<Sender<Cue>>,
     _stream: Option<cpal::Stream>,
 }
 
@@ -72,7 +81,8 @@ impl Audio {
         let rate = config.sample_rate as f32;
         let shared = Arc::new(Shared::default());
         let started = std::time::Instant::now();
-        let mut synth = Synth::new(rate, shared.clone());
+        let (cues, rx) = channel();
+        let mut synth = Synth::new(rate, shared.clone(), UiSynth::new(rate, Some(rx)));
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 config,
@@ -84,7 +94,7 @@ impl Audio {
         }
         .ok()?;
         stream.play().ok()?;
-        Some(Self { shared, _stream: Some(stream) })
+        Some(Self { shared, cues: Some(cues), _stream: Some(stream) })
     }
 
     pub fn update(&self, f: &SoundFrame) {
@@ -109,16 +119,34 @@ impl Audio {
         self.shared.muted.store(m, Ordering::Relaxed);
         m
     }
+
+    pub fn muted(&self) -> bool {
+        self.shared.muted.load(Ordering::Relaxed)
+    }
+
+    /// Plays a menu sound.
+    pub fn cue(&self, cue: Cue) {
+        if let Some(tx) = &self.cues {
+            let _ = tx.send(cue);
+        }
+    }
+
+    /// Whether the car is heard (a race is on), and the menu's background loop.
+    pub fn set_scene(&self, race: bool, ambience: Ambience) {
+        self.shared.race.store(race, Ordering::Relaxed);
+        self.shared.ambience.store(ambience as u32, Ordering::Relaxed);
+    }
 }
 
 /// Renders the synth offline: one SoundFrame per 10 ms tick, impacts as (tick, strength).
 pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], rate: u32) -> Vec<f32> {
     let shared = Arc::new(Shared::default());
-    let mut synth = Synth::new(rate as f32, shared.clone());
+    shared.race.store(true, Ordering::Relaxed);
+    let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None));
     let per_tick = (rate / 100) as usize;
     let mut out = vec![0.0f32; frames.len() * per_tick];
     for (i, f) in frames.iter().enumerate() {
-        let a = Audio { shared: shared.clone(), _stream: None };
+        let a = Audio { shared: shared.clone(), cues: None, _stream: None };
         a.update(f);
         for &(t, strength) in impacts {
             if t == i {
@@ -186,10 +214,15 @@ struct Synth {
     // high-pass state (removes infrasound and DC)
     hp_x: f32,
     hp_y: f32,
+    /// Menu cues and ambience.
+    ui: UiSynth,
+    /// How much of the car is heard, smoothed (0 in the menu).
+    race: f32,
 }
 
 impl Synth {
-    fn new(rate: f32, shared: Arc<Shared>) -> Self {
+    fn new(rate: f32, shared: Arc<Shared>, ui: UiSynth) -> Self {
+        let race = if shared.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
         Self {
             rate,
             shared,
@@ -212,6 +245,8 @@ impl Synth {
             thump_phase: 0.0,
             hp_x: 0.0,
             hp_y: 0.0,
+            ui,
+            race,
         }
     }
 
@@ -234,6 +269,8 @@ impl Synth {
             if s.airborne.load(Ordering::Relaxed) { 1.0 } else { 0.0 },
             if s.muted.load(Ordering::Relaxed) { 0.0 } else { 0.7 },
         );
+        let race_target = if s.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+        let ambience = Ambience::from_u32(s.ambience.load(Ordering::Relaxed));
         let gear = s.gear.load(Ordering::Relaxed);
         if gear > self.seen_gear && target.1 > 0.3 {
             self.engine.shift();
@@ -256,6 +293,7 @@ impl Synth {
             self.scrub += (target.5 - self.scrub) * k;
             self.air += (target.6 - self.air) * k;
             self.master += (target.7 - self.master) * k * 0.2;
+            self.race += (race_target - self.race) * k * 0.2;
 
             // Electric drivetrain with the recording's gravel on dirt (see engine_sound.rs).
             let ground = self.gravel * (1.0 - self.air);
@@ -282,7 +320,8 @@ impl Synth {
                 self.thump *= (-1.0 / (0.08 * rate)).exp();
             }
 
-            let raw = (engine + wind + squeal + thump) * self.master;
+            let ui = self.ui.next(ambience);
+            let raw = ((engine + wind + squeal + thump) * self.race + ui * 1.2) * self.master;
             // ~30 Hz high-pass: nothing below what speakers can play.
             let a = (-std::f32::consts::TAU * 30.0 / rate).exp();
             let mix = a * (self.hp_y + raw - self.hp_x);

@@ -30,6 +30,13 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 - `crates/track` — block kit, maps, triangle meshes with a surface per triangle.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
+- `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title, planets, modes, solo circuits),
+  in a wide layout (1280 × 720 design space) and a tall phone one (390 × 844), fitted to the
+  window with egui's zoom. Its background (night sky, procedural planets) is `menu_gfx.rs` with
+  `shaders/menu.wgsl`, its sounds `ui_sound.rs`, its typefaces (Saira, Saira Stencil One,
+  Martian Mono, from Google Fonts under the OFL) `crates/app/assets/fonts/`. Self-tests: `MARS_MENU=title|planets|modes|solo`
+  opens it on a screen, `MARS_MENU_NAV=1.5:right,3:confirm` moves through it, `MARS_WINDOW=390x844`
+  shows the phone layout; race self-tests (`MARS_MAP`, `MARS_AUTODRIVE`…) skip it.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged
   suspension, the registered plans as image empties) and exports `crates/app/assets/buggy.glb` and
   its livery atlas `buggy_livery.png`, which the app embeds: rerun

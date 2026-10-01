@@ -1,5 +1,6 @@
-//! Mars Racer demo: a native macOS window (winit + wgpu on Metal) running the deterministic
-//! physics at 100 Hz, rendering interpolated between ticks, with an egui tuning panel.
+//! Planet Tracks (codename Mars Racer): a native macOS window (winit + wgpu on Metal) opening on
+//! the menu, then running the deterministic physics at 100 Hz, rendering interpolated between
+//! ticks, with an egui tuning panel.
 
 mod audio;
 mod camera;
@@ -10,11 +11,14 @@ mod game;
 mod gfx;
 mod input;
 mod marks;
+mod menu;
+mod menu_gfx;
 mod particles;
 mod race;
 mod session;
 mod surfaces;
 mod ui;
+mod ui_sound;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,6 +32,8 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::game::{CarMeshes, CornerMeshes, Game};
 use crate::gfx::{Gpu, MeshData, SceneRenderer, Shading, Vertex, View};
+use crate::input::Action;
+use crate::menu::{Layout, Menu, MenuInput, Request};
 
 struct Graphics {
     window: Arc<Window>,
@@ -37,11 +43,13 @@ struct Graphics {
     egui_renderer: egui_wgpu::Renderer,
     track_mesh: gfx::MeshId,
     car: CarMeshes,
+    menu_gfx: menu_gfx::MenuRenderer,
 }
 
 struct App {
     gfx: Option<Graphics>,
     game: Game,
+    menu: Menu,
     egui_ctx: egui::Context,
     last_frame: Instant,
     accumulator: f32,
@@ -170,15 +178,34 @@ impl App {
         self.last_frame = now;
 
         game.controls.poll();
+        let navs = game.controls.take_nav();
         for action in game.controls.take_actions() {
-            game.apply(action);
+            match action {
+                // In the menu the keys move through it; only the window and the sound keys stay.
+                _ if self.menu.active => {
+                    if matches!(action, Action::Fullscreen | Action::Mute) {
+                        game.apply(action);
+                    }
+                }
+                Action::Menu => {
+                    game.restart();
+                    self.menu.open_from_race(game.map_index);
+                }
+                _ => game.apply(action),
+            }
+        }
+        if self.menu.active {
+            for n in navs {
+                self.menu.push_nav(n);
+            }
         }
         if std::mem::take(&mut game.fullscreen_requested) {
             let full = g.window.fullscreen().is_some();
             g.window.set_fullscreen(if full { None } else { Some(Fullscreen::Borderless(None)) });
         }
 
-        self.accumulator += dt;
+        // The race waits while the menu is up.
+        self.accumulator = if self.menu.active { 0.0 } else { self.accumulator + dt };
         let mut ticks = 0;
         while self.accumulator >= physics::DT && ticks < 25 {
             game.tick();
@@ -231,12 +258,47 @@ impl App {
             (None, None) => return,
         };
 
+        // The menu is laid out in a fixed design space that egui's zoom fits to the window.
+        let size = g.window.inner_size();
+        let scale = g.window.scale_factor() as f32;
+        let zoom = if self.menu.shows() { Layout::zoom(size.width as f32 / scale, size.height as f32 / scale) } else { 1.0 };
+        if (self.egui_ctx.zoom_factor() - zoom).abs() > 1e-4 {
+            // Straight into the options, so this frame is laid out with it (`set_zoom_factor`
+            // waits for the next one).
+            self.egui_ctx.options_mut(|o| o.zoom_factor = zoom);
+        }
+
         // UI first: it can change the profile or the tuning.
-        let raw = g.egui_state.take_egui_input(&g.window);
+        let mut raw = g.egui_state.take_egui_input(&g.window);
+        // A hidden window (self-tests) reports no screen size: take the surface's.
+        let screen = egui::vec2(g.gpu.config.width as f32, g.gpu.config.height as f32) / (scale * zoom);
+        if raw.screen_rect.is_none_or(|r| (r.size() - screen).length() > 1.0) {
+            raw.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen));
+        }
         let fps = &self.fps;
-        let mut full = self.egui_ctx.run_ui(raw, |ui| ui::draw(ui, game, fps));
+        let menu = &mut self.menu;
+        let bests: Vec<Option<u32>> =
+            game.maps.iter().map(|m| game.session.profile().best(&session::map_key(m)).map(|b| b.ticks)).collect();
+        let muted = self.audio.as_ref().is_some_and(|a| a.muted());
+        let mut sky = None;
+        let mut full = self.egui_ctx.run_ui(raw, |ui| {
+            if menu.shows() {
+                sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted }).clone());
+            }
+            if !menu.shows() {
+                ui::draw(ui, game, fps);
+            }
+        });
         g.egui_state.handle_platform_output(&g.window, full.platform_output);
         let prims = self.egui_ctx.tessellate(full.shapes, full.pixels_per_point);
+        for request in self.menu.take_requests() {
+            match request {
+                Request::Build(map) if map != game.map_index => game.select_map(map),
+                Request::Build(_) => {}
+                Request::Start(_) => game.restart(),
+                Request::ToggleMute => game.mute_requested = true,
+            }
+        }
         game.session.autosave();
 
         if std::mem::take(&mut game.track_changed) {
@@ -269,7 +331,11 @@ impl App {
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
-            audio.update(&game.sound_frame());
+            audio.set_scene(!self.menu.active, self.menu.ambience());
+            for cue in self.menu.take_cues() {
+                audio.cue(cue);
+            }
+            audio.update(&if self.menu.active { audio::SoundFrame::default() } else { game.sound_frame() });
             for strength in game.impacts.drain(..) {
                 audio.impact(strength);
             }
@@ -278,6 +344,7 @@ impl App {
             }
         } else {
             game.impacts.clear();
+            self.menu.take_cues();
         }
         let right = view.row(0).truncate();
         let up = view.row(1).truncate();
@@ -285,7 +352,10 @@ impl App {
         let clear = std::mem::take(&mut game.marks.cleared);
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
         g.scene.textures = game.session.textures;
-        g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items);
+        match (&sky, self.menu.active) {
+            (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
+            _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items),
+        }
 
         let screen = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [g.gpu.config.width, g.gpu.config.height],
@@ -347,8 +417,8 @@ impl ApplicationHandler for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("Mars Racer · démo")
-            .with_inner_size(LogicalSize::new(1600.0, 900.0))
+            .with_title("Planet Tracks")
+            .with_inner_size(window_size())
             .with_visible(!self.debug.runs_hidden());
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
         let gpu = Gpu::new(window.clone());
@@ -366,8 +436,9 @@ impl ApplicationHandler for App {
             Some(max_texture),
         );
         let egui_renderer = egui_wgpu::Renderer::new(&gpu.device, gpu.config.format, Default::default());
+        let menu_gfx = menu_gfx::MenuRenderer::new(&gpu);
         self.last_frame = Instant::now();
-        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car });
+        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car, menu_gfx });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -409,6 +480,18 @@ impl ApplicationHandler for App {
             g.window.request_redraw();
         }
     }
+}
+
+/// The window's logical size: 1600 × 900, or `MARS_WINDOW=WxH` (a portrait size shows the phone
+/// layout of the menu).
+fn window_size() -> LogicalSize<f64> {
+    std::env::var("MARS_WINDOW")
+        .ok()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some(LogicalSize::new(w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or(LogicalSize::new(1600.0, 900.0))
 }
 
 /// `MARS_HEADLESS=1`: the autopilot drives every profile without a window and prints the
@@ -594,10 +677,25 @@ fn main() {
     if debug.autodrive {
         game.autodrive = Some(debug::Autopilot::default());
     }
+    // The game opens on the menu; self-tests of the race (a map, a profile, a view or the
+    // autopilot asked for) start driving at once. `MARS_MENU=title|planets|modes|solo` opens the
+    // menu on that screen, for its own checks.
+    let mut menu = Menu::new(&game.maps);
+    let race_test = ["MARS_MAP", "MARS_PROFILE", "MARS_VIEW", "MARS_ORBIT", "MARS_AUTODRIVE", "MARS_BENCH"]
+        .iter()
+        .any(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()));
+    match std::env::var("MARS_MENU").ok().filter(|v| !v.is_empty()) {
+        Some(screen) => menu.open_on(&screen),
+        None if race_test => menu.active = false,
+        None => {}
+    }
+    let egui_ctx = egui::Context::default();
+    egui_ctx.set_fonts(menu::fonts());
     let mut app = App {
         gfx: None,
         game,
-        egui_ctx: egui::Context::default(),
+        menu,
+        egui_ctx,
         last_frame: Instant::now(),
         accumulator: 0.0,
         fps: ui::Fps::new(),

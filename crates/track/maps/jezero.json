@@ -2,10 +2,11 @@
   "format": 1,
   "name": "Jezero",
   "author": "mars-racer",
-  "version": 1,
+  "version": 2,
   "terrain": {"seed":1977,"size":8192.0,"relief":14.0,"dunes":4.0,"ripples":0.35,"bumps":0.4,"mesas":10,"craters":6,"horizon":180.0,"rocks":1.0},
   "blocks": [
-    {"block":"start","cell":[13,-10],"level":0,"rotation":0},
+    {"block":"start","cell":[13,-12],"level":2,"rotation":0},
+    {"block":"slope2_down2","cell":[13,-11],"level":2,"rotation":0},
     {"block":"turn2_right","cell":[13,-9],"level":0,"rotation":0},
     {"block":"turn3_left","cell":[11,-8],"level":0,"rotation":3},
     {"block":"slope4_up2","cell":[9,-5],"level":0,"rotation":0},
@@ -33,12 +34,20 @@
     {"block":"turn2_right","cell":[-9,-9],"level":0,"rotation":2},
     {"block":"finish","cell":[-7,-10],"level":0,"rotation":1}
   ],
+  "landforms": [
+    {"landform":"butte","position":[432.0,-398.0],"radius":46.0,"height":18.5,"length":24.0,"yaw":90.0},
+    {"landform":"butte","position":[548.0,-330.0],"radius":38.0,"height":62.0,"length":40.0,"yaw":30.0},
+    {"landform":"butte","position":[480.0,-185.0],"radius":15.0,"height":32.0},
+    {"landform":"butte","position":[425.0,-85.0],"radius":40.0,"height":52.0,"length":50.0,"yaw":-20.0},
+    {"landform":"mesa","position":[40.0,-150.0],"radius":95.0,"height":58.0},
+    {"landform":"butte","position":[-20.0,232.0],"radius":32.0,"height":50.0,"length":30.0,"yaw":60.0},
+    {"landform":"mesa","position":[-175.0,525.0],"radius":60.0,"height":72.0,"length":520.0,"yaw":90.0},
+    {"landform":"mesa","position":[-650.0,-40.0],"radius":70.0,"height":64.0},
+    {"landform":"butte","position":[-120.0,-435.0],"radius":36.0,"height":46.0,"length":60.0,"yaw":80.0}
+  ],
   "scenery": [
-    {"prop":"spire","position":[470.0,0.0,-170.0],"yaw":15.0,"scale":9.0},
     {"prop":"boulder","position":[440.0,0.0,-200.0],"yaw":70.0,"scale":6.0},
     {"prop":"rock","position":[452.0,0.0,-186.0],"yaw":10.0,"scale":2.5},
-    {"prop":"spire","position":[60.0,0.0,-60.0],"yaw":0.0,"scale":11.0},
-    {"prop":"spire","position":[85.0,0.0,-75.0],"yaw":40.0,"scale":7.0},
     {"prop":"boulder","position":[-120.0,0.0,40.0],"yaw":120.0,"scale":9.0},
     {"prop":"boulder","position":[-256.0,0.0,228.0],"yaw":200.0,"scale":6.0},
     {"prop":"slab","position":[-248.0,0.0,210.0],"yaw":30.0,"scale":6.0},

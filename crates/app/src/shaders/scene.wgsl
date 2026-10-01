@@ -477,12 +477,12 @@ const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
 
 // The storm's main wall, as in storm.wgsl: an arc of this radius, this wide, about this high.
 const STORM_ARC_RADIUS: f32 = 7000.0;
-const STORM_HALF_ANGLE: f32 = 0.85;
+const STORM_HALF_ANGLE: f32 = 0.45;
 const STORM_HEIGHT: f32 = 1400.0;
 
 // The sandstorm over the ground in front of it: x, how much of the sun its wall hides there
 // (the sun stands behind it); y, how thick its dust lies there (it thickens over the last
-// 2.5 km before the wall).
+// 900 m before the wall, short of the circuit where the storm stops).
 fn storm_ground(p: vec3<f32>) -> vec2<f32> {
     let d = frame.storm_a.zw;
     let centre = frame.storm_a.xy + d * (frame.storm_b.x + STORM_ARC_RADIUS);
@@ -500,7 +500,7 @@ fn storm_ground(p: vec3<f32>) -> vec2<f32> {
     let closing = -dot(sun.xz / sun_h, away);
     let climb = p.y - frame.storm_b.z + max(gap, 0.0) / max(closing, 1e-3) * sun.y / sun_h;
     let hidden = select(0.0, 1.0 - smoothstep(0.5, 1.0, climb / STORM_HEIGHT), closing > 0.0 || gap < 0.0);
-    let dust = 1.0 - smoothstep(0.0, 2500.0, gap);
+    let dust = 1.0 - smoothstep(0.0, 900.0, gap);
     let present = select(0.0, 1.0, dot(d, d) > 0.5);
     return vec2<f32>(hidden, dust) * side * present;
 }
@@ -654,7 +654,8 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             g = over(g, driven_dirt(xz, in.uv, dpx, dpy, bump), wear);
         }
         // Rock on steep slopes and cliffs (not on the dug banks), in level strata, a larger tile
-        // of them taking over with distance.
+        // of them taking over with distance, and in broad patches a larger one still, so a long
+        // cliff close to the track does not show one tile repeating along it.
         let rocky = smoothstep(0.9, 0.72, ng.y + (n_high - 0.5) * 0.1) * max(1.0 - 2.0 * in.dirt, 0.0);
         if rocky > 0.01 {
             let far_t = smoothstep(30.0, 120.0, eye_dist);
@@ -663,7 +664,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
                 rock = surf_triplanar(L_ROCK, TILE_ROCK, in.world, ng, dpx, dpy, bump);
             }
             if far_t > 0.01 {
-                let far = surf_triplanar(L_ROCK, TILE_ROCK * 5.3, in.world + vec3<f32>(37.0, 11.0, 53.0), ng, dpx, dpy, 0.0);
+                var far = surf_triplanar(L_ROCK, TILE_ROCK * 5.3, in.world + vec3<f32>(37.0, 11.0, 53.0), ng, dpx, dpy, 0.0);
+                let w = in.world;
+                let broad = smoothstep(0.38, 0.62, value_noise(vec2<f32>(w.x * 0.006 + w.z * 0.004, w.y * 0.014 - w.x * 0.002 + w.z * 0.005)));
+                if broad > 0.01 {
+                    let wide = surf_triplanar(L_ROCK, TILE_ROCK * 12.7, w + vec3<f32>(-91.0, 23.0, 17.0), ng, dpx, dpy, 0.0);
+                    far = Surf(mix(far.colour, wide.colour, broad), far.bump, mix(far.height, wide.height, broad));
+                }
                 rock = Surf(mix(rock.colour, far.colour, far_t), rock.bump * (1.0 - far_t), mix(rock.height, far.height, far_t));
             }
             g = over(g, rock, rocky);

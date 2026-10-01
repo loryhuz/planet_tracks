@@ -8,14 +8,15 @@ use track::map::{self, BuiltMap, FORMAT, Map, MapError};
 use track::scenery::ROUTE_CLEARANCE;
 use track::{Surface, TrackMesh, demo, dirt};
 
-/// Jezero as it was written before the map file existed: the chain of pieces the file must
-/// reproduce exactly.
+/// Jezero as it was written before the map file existed, with the elevated start it has had
+/// since: the chain of pieces the file must reproduce exactly.
 fn legacy_jezero() -> Layout {
     use Side::{Left, Right};
     let road = Piece::road;
     let dirt = Piece::dirt;
-    let mut l = Layout::new("Jezero", Connector::entering((13, -10), 0, Heading::North));
+    let mut l = Layout::new("Jezero", Connector::entering((13, -12), 2, Heading::North));
     l.push(road(Kind::Straight { cells: 1 }).gate(Gate::Start))
+        .push(road(Kind::Slope { cells: 2, levels: -2 }))
         .push(road(Kind::turn(2, Right)))
         .push(road(Kind::turn(3, Left)))
         .push(road(Kind::Slope { cells: 4, levels: 2 }))
@@ -195,8 +196,9 @@ fn terrain_is_watertight() {
 }
 
 /// Points around the footprint of every swept part of a block (not where a dirt corridor's apron
-/// runs under it): deck edges, skirt feet, gate posts.
-fn footprint_points(layout: &Layout) -> Vec<(Vec2, f32)> {
+/// runs under it): deck edges, skirt feet, gate posts, with their offset from the centreline and
+/// the height of the deck's lower edge there.
+fn footprint_points(layout: &Layout) -> Vec<(Vec2, f32, f32)> {
     let mut out = Vec::new();
     for (i, p) in layout.pieces.iter().enumerate() {
         let Some((s0, s1)) = p.swept_range() else { continue };
@@ -218,9 +220,10 @@ fn footprint_points(layout: &Layout) -> Vec<(Vec2, f32)> {
         let n = ((s1 - s0) / 2.0).ceil() as usize;
         for k in 0..=n {
             let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
+            let low = f.deck_point(-HALF_WIDTH).y.min(f.deck_point(HALF_WIDTH).y);
             for u in [-15.0, -13.0, -12.2, -HALF_WIDTH, 0.0, HALF_WIDTH, 12.2, 13.0, 15.0] {
                 let q = f.horiz + f.left * u;
-                out.push((Vec2::new(q.x, q.z), u));
+                out.push((Vec2::new(q.x, q.z), u, low));
             }
         }
     }
@@ -229,12 +232,31 @@ fn footprint_points(layout: &Layout) -> Vec<(Vec2, f32)> {
 
 #[test]
 fn terrain_is_flat_under_the_swept_blocks() {
+    // At the terrain plane, or where a landform comes up under an elevated deck, a level below
+    // the deck's lower edge.
     let b = built();
-    for (p, u) in footprint_points(&b.layout) {
+    for (p, u, low) in footprint_points(&b.layout) {
         let h = b.terrain.height(p.x, p.y);
-        assert!(h == TERRAIN_Y || u.abs() > 13.0, "terrain at {p} (u {u}) is {h}");
+        let rock = b.terrain.landform(p.x, p.y);
+        assert!(rock <= low + 1e-3, "landform {rock} m high under a deck {low} m up at {p}");
+        let flat = TERRAIN_Y + rock;
+        assert!(h == flat || u.abs() > 13.0, "terrain at {p} (u {u}) is {h}, not {flat}");
         // Just past the footprint the ground leaves the pad smoothly.
-        assert!((h - TERRAIN_Y).abs() < 0.05, "terrain at {p} (u {u}) is {h}");
+        assert!((h - flat).abs() < 0.05, "terrain at {p} (u {u}) is {h}, not {flat}");
+    }
+}
+
+#[test]
+fn jezero_starts_on_a_butte() {
+    // The start block stands 16 m up on a butte: the rock comes up to its deck all around it.
+    let b = built();
+    let s = b.track.start.position;
+    assert!(s.y > 15.0, "start at {s}");
+    let f = b.layout.pieces[0].frame(kit::START_POSE_S);
+    for u in [-15.0, -HALF_WIDTH, 0.0, HALF_WIDTH, 15.0] {
+        let q = f.horiz + f.left * u;
+        let h = b.terrain.height(q.x, q.z);
+        assert!((h - (s.y + TERRAIN_Y)).abs() < 1e-3, "ground {u} m aside the start at {h}");
     }
 }
 
@@ -263,9 +285,11 @@ fn nothing_but_the_deck_under_the_route() {
 fn ground_near_the_road_is_gentle() {
     // Within 40 m of the driving line along roads: no cliff (slopes under 20°) and never more
     // than a few metres from the road's ground level. (Dirt corridors have banks, see
-    // `dirt_corridors_are_dug_into_the_plain`.)
+    // `dirt_corridors_are_dug_into_the_plain`; the map's own landforms stand close on purpose,
+    // cut around the road, see `terrain_is_flat_under_the_swept_blocks`.)
     let b = built();
     let route = &b.track.route;
+    let on_landform = |q: Vec3| [(0.0, 0.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)].iter().any(|(dx, dz)| b.terrain.landform(q.x + dx, q.z + dz) > 0.0);
     for (i, w) in route.windows(2).enumerate().step_by(3) {
         let near_dirt = |q: Vec3| b.terrain.sample(q.x, q.z).edge < dirt::REACH;
         if [-40.0, 0.0, 40.0].iter().any(|&u| near_dirt(w[0] + Vec3::new((w[1] - w[0]).z, 0.0, -(w[1] - w[0]).x).normalize() * u)) {
@@ -275,6 +299,9 @@ fn ground_near_the_road_is_gentle() {
         let left = Vec3::new(d.z, 0.0, -d.x).normalize();
         for u in [-40.0, -30.0, -20.0, 20.0, 30.0, 40.0] {
             let q = w[0] + left * u;
+            if on_landform(q) {
+                continue;
+            }
             let n = b.terrain.normal(q.x, q.z);
             assert!(n.y > 20f32.to_radians().cos(), "route point {i}, {u} m aside: slope {:.0}°", n.y.acos().to_degrees());
             let h = b.terrain.height(q.x, q.z);

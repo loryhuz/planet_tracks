@@ -7,7 +7,7 @@ use track::Surface;
 
 struct Run {
     finished: bool,
-    /// Lowest speed on the two-level climb after the start, km/h.
+    /// Lowest speed on the two-level climb after the opening descent, km/h.
     climb_min_kmh: f32,
     /// Speed when the route enters the dirt section, km/h.
     dirt_entry_kmh: f32,
@@ -23,10 +23,11 @@ fn run(p: &physics::CarParams) -> Run {
     let track = track::demo_track();
     let world = World::new(&track.mesh);
     let route = &track.route;
-    // The first climb: from where the route starts rising to where it is two levels (16 m) up.
-    let base = track.start.position.y;
-    let climb_from = route.iter().position(|q| q.y > base + 1.0).expect("climb start");
-    let climb_to = climb_from + route[climb_from..].iter().position(|q| q.y > base + 15.0).expect("climb top");
+    // The first climb, once the descent from the start has reached the ground: from where the
+    // route starts rising to where it is two levels (16 m) up.
+    let ground = route.iter().position(|q| q.y < 0.5).expect("descent to the ground");
+    let climb_from = ground + route[ground..].iter().position(|q| q.y > 1.0).expect("climb start");
+    let climb_to = climb_from + route[climb_from..].iter().position(|q| q.y > 15.0).expect("climb top");
     let dirt: Vec<bool> = route
         .iter()
         .map(|q| world.raycast(*q + Vec3::Y * 3.0, -Vec3::Y, 8.0).is_some_and(|h| h.surface == Surface::Dirt))

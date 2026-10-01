@@ -12,6 +12,7 @@ pub mod demo;
 pub mod dirt;
 pub mod jump;
 pub mod kit;
+pub mod landform;
 pub mod map;
 mod mesh;
 mod noise;

@@ -7,6 +7,7 @@
 //! - `MARS_ORBIT=yaw_deg,distance,height`: look at the car from a fixed angle (model checks);
 //! - `MARS_VIEW=s,height,back`: look along the route at `s` metres from the start, from `back`
 //!   metres before it and `height` metres above it (surface checks at a given place);
+//! - `MARS_EYE=x,y,z,tx,ty,tz`: look from a fixed point at another (scenery checks);
 //! - `MARS_STORM_TIME=seconds`: start the sandstorm that far into its approach (read by the
 //!   renderer);
 //! - `MARS_MAP=name`: start on that map; `MARS_HIDE_UI=1`: settings panel closed;
@@ -31,6 +32,7 @@ pub struct Debug {
     exit_after: Option<f32>,
     pub orbit: Option<(f32, f32, f32)>,
     pub view: Option<(f32, f32, f32)>,
+    pub eye: Option<(Vec3, Vec3)>,
     bench: Option<Bench>,
 }
 
@@ -65,6 +67,10 @@ impl Debug {
             view: var("MARS_VIEW").and_then(|s| {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
                 (v.len() == 3).then(|| (v[0], v[1], v[2]))
+            }),
+            eye: var("MARS_EYE").and_then(|s| {
+                let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.len() == 6).then(|| (Vec3::new(v[0], v[1], v[2]), Vec3::new(v[3], v[4], v[5])))
             }),
             bench: var("MARS_BENCH").and_then(|s| {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();

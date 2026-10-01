@@ -13,11 +13,17 @@
 //!     {"block":"turn2_right","cell":[13,-9],"level":0,"rotation":0},
 //!     {"block":"checkpoint","cell":[-10,7],"level":0,"rotation":2,"variant":"dirt"}
 //!   ],
+//!   "landforms": [
+//!     {"landform":"butte","position":[436.0,-450.0],"radius":42.0,"height":28.0}
+//!   ],
 //!   "scenery": [
 //!     {"prop":"spire","position":[470.0,0.0,-170.0],"yaw":15.0,"scale":9.0}
 //!   ]
 //! }
 //! ```
+//!
+//! `landforms` (optional) are mesas, buttes and escarpments standing close to the track, cut and
+//! filled around the blocks (see [`crate::landform`]).
 //!
 //! # Blocks
 //!
@@ -54,6 +60,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirt::Corridors;
 use crate::kit::{self, CELL, Connector, FALL_LIMIT_Y, Gate, Heading, Kind, LEVEL, Layout, Piece, Pivot, Placed, Side};
+use crate::landform::Landform;
 use crate::mesh::MeshBuilder;
 use crate::scenery::{self, PlacedProp, Prop};
 use crate::terrain::{Capsule, Terrain, TerrainSettings};
@@ -92,6 +99,8 @@ pub struct Map {
     #[serde(default)]
     pub terrain: TerrainSettings,
     pub blocks: Vec<BlockPlacement>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub landforms: Vec<Landform>,
     #[serde(default)]
     pub scenery: Vec<Prop>,
 }
@@ -404,14 +413,20 @@ impl Map {
         let list = |items: Vec<String>| {
             if items.is_empty() { "[]".to_string() } else { format!("[\n    {}\n  ]", items.join(",\n    ")) }
         };
+        let landforms = if self.landforms.is_empty() {
+            String::new()
+        } else {
+            format!("  \"landforms\": {},\n", list(self.landforms.iter().map(compact).collect()))
+        };
         format!(
-            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n  \"blocks\": {},\n  \"scenery\": {}\n}}\n",
+            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n  \"blocks\": {},\n{}  \"scenery\": {}\n}}\n",
             self.format,
             compact(&self.name),
             compact(&self.author),
             self.version,
             compact(&self.terrain),
             list(self.blocks.iter().map(compact).collect()),
+            landforms,
             list(self.scenery.iter().map(compact).collect()),
         )
     }
@@ -535,12 +550,12 @@ impl Map {
             }
             let discs = kit::footprint(p, range);
             for w in discs.windows(2) {
-                caps.push(Capsule { a: w[0].0, b: w[1].0, r: w[0].1.max(w[1].1) });
+                caps.push(Capsule { a: w[0].0, b: w[1].0, r: w[0].1.max(w[1].1), low: (w[0].2, w[1].2) });
             }
         }
         // Terrain, with the dirt corridors.
         let dirt = Corridors::new(&r.pieces, &route_s, &r.next, self.terrain.seed);
-        let terrain = Terrain::new(&self.terrain, kit::centre_of(&r.pieces), caps, dirt);
+        let terrain = Terrain::new(&self.terrain, kit::centre_of(&r.pieces), caps, dirt, &self.landforms);
         // Gates, standing on the terrain.
         for p in &r.pieces {
             if let Some(g) = p.piece.gate {

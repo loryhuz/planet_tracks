@@ -324,6 +324,10 @@ impl App {
             eye = debug::route_point(&game.track.route, s - back) + glam::Vec3::Y * height;
             view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
         }
+        if let Some((from, at)) = self.debug.eye {
+            eye = from;
+            view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
+        }
         let mut items = vec![gfx::DrawItem {
             mesh: g.track_mesh,
             model: glam::Mat4::IDENTITY,
@@ -422,6 +426,10 @@ impl ApplicationHandler for App {
             .with_inner_size(window_size())
             .with_visible(!self.debug.runs_hidden());
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
+        #[cfg(target_os = "macos")]
+        if !self.debug.runs_hidden() {
+            bring_to_front();
+        }
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_mesh_data(&self.game.track.mesh));
@@ -481,6 +489,22 @@ impl ApplicationHandler for App {
             g.window.request_redraw();
         }
     }
+}
+
+/// Brings the game in front of the other apps. Launched from a terminal (`cargo run`), the window
+/// otherwise opens behind the terminal's app: since macOS 14 an app may not take the front by
+/// itself, and the activation winit asks for is declined. System Events still does it (the first
+/// time, macOS asks to let the terminal control System Events).
+#[cfg(target_os = "macos")]
+fn bring_to_front() {
+    let script = format!("tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true", std::process::id());
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .args(["-e", &script])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    });
 }
 
 /// The window's logical size: 1600 × 900, or `MARS_WINDOW=WxH` (a portrait size shows the phone

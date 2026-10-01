@@ -117,6 +117,7 @@ fn main() {
         version: 1,
         terrain,
         blocks,
+        landforms: Vec::new(),
         scenery: serde_json::from_value(serde_json::Value::Array(props)).expect("props"),
     };
     let json = map.to_json();

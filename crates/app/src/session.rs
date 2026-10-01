@@ -59,6 +59,8 @@ pub struct Session {
     pub map: String,
     /// Surfaces drawn with their textures (off: the earlier procedural look, to compare).
     pub textures: bool,
+    /// Off for self-test runs: they never write the player's session file.
+    pub persist: bool,
     dirty_since: Option<Instant>,
 }
 
@@ -141,7 +143,7 @@ impl Session {
             .collect::<Vec<_>>();
         // By name; a session saved before names were stored starts on the first profile.
         let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
-        Self { profiles, current, map: saved.map, textures: !saved.textures_off, dirty_since: None }
+        Self { profiles, current, map: saved.map, textures: !saved.textures_off, persist: true, dirty_since: None }
     }
 
     pub fn toggle_textures(&mut self) {
@@ -170,6 +172,9 @@ impl Session {
 
     pub fn save(&mut self) {
         self.dirty_since = None;
+        if !self.persist {
+            return;
+        }
         let saved = Saved {
             current: self.current,
             current_name: self.profiles[self.current].defaults.name.clone(),

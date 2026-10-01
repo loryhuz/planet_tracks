@@ -133,17 +133,32 @@ fn procedural_ground(in: VsOut, xz: vec2<f32>, aa: f32, g_fine: f32, g_coarse: f
     // Dug banks: fresh, redder earth in faint layers.
     let layers = 1.0 + 0.08 * sin(in.world.y * 2.6 + 3.0 * n_high);
     let bank = base * vec3<f32>(0.8, 0.62, 0.55) * layers;
-    // Driven dirt: compacted and darker, streaked along the track, darker in the ruts, loose
-    // lighter earth between them, a few clods.
-    let r = ruts(in.uv);
-    let streak = value_noise(vec2<f32>(in.uv.x * 0.09, in.uv.y * 1.4));
-    let fine = value_noise(vec2<f32>(in.uv.x * 0.6, in.uv.y * 5.0));
+    return mix(mix(natural, bank, dug), procedural_driven(base, in.uv, xz, aa), wear);
+}
+
+// Driven dirt of the procedural look, over ground of colour `base`: compacted and darker,
+// streaked along the track (`uv` the track coordinates), darker in the ruts, loose lighter earth
+// between them, a few clods.
+fn procedural_driven(base: vec3<f32>, uv: vec2<f32>, xz: vec2<f32>, aa: f32) -> vec3<f32> {
+    let r = ruts(uv);
+    let streak = value_noise(vec2<f32>(uv.x * 0.09, uv.y * 1.4));
+    let fine = value_noise(vec2<f32>(uv.x * 0.6, uv.y * 5.0));
     var driven = base * vec3<f32>(0.68, 0.52, 0.45);
     driven *= 0.92 + 0.14 * streak + 0.06 * fine;
     driven *= 1.0 - 0.2 * r;
     driven *= 1.0 + 0.1 * (1.0 - r) * smoothstep(0.45, 0.7, streak);
-    driven = mix(driven, driven * vec3<f32>(0.78, 0.7, 0.68), stones(xz, 3.1, 0.12, aa) * 0.6);
-    return mix(mix(natural, bank, dug), driven, wear);
+    return mix(driven, driven * vec3<f32>(0.78, 0.7, 0.68), stones(xz, 3.1, 0.12, aa) * 0.6);
+}
+
+// How much of a road the earth of the dirt track it leads to covers, 0..1, from the road
+// vertex's `dirt` (0 far from the track, 1 where it meets it, main.rs road_spill) and the track
+// coordinates `uv`: patches first, then all of it, the front reaching further along some lines
+// across the road (tongues of earth several metres long). `rub` lays it in the wheel paths first.
+fn spill_cover(dirt: f32, xz: vec2<f32>, uv: vec2<f32>, rub: f32) -> f32 {
+    let tongues = value_noise(vec2<f32>(uv.y * 0.45, 7.3)) - 0.5 + 0.5 * (value_noise(vec2<f32>(uv.y * 1.3, 2.9)) - 0.5);
+    let patches = value_noise(xz * 0.17 + vec2<f32>(4.1, 0.7)) - 0.5;
+    let d = dirt + (0.55 * tongues + 0.9 * patches) * dirt * (1.0 - dirt) * 2.0;
+    return clamp(2.2 * (d - 0.5) + 0.5 + 0.35 * rub * dirt, 0.0, 1.0);
 }
 
 fn band(x: f32, width: f32) -> f32 {
@@ -198,6 +213,8 @@ const RELIEF_FAR: f32 = 50.0;
 
 // Colours the vertex colours are measured against (track/src/kit.rs, terrain.rs, scenery.rs).
 const KIT_GROUND: vec3<f32> = vec3<f32>(0.55, 0.22, 0.10);
+// The colour terrain.rs blends the ground toward next to the swept blocks.
+const KIT_GRADED: vec3<f32> = vec3<f32>(0.56, 0.26, 0.135);
 const KIT_STEEP: vec3<f32> = vec3<f32>(0.27, 0.115, 0.065);
 const KIT_LIP: vec3<f32> = vec3<f32>(0.68, 0.68, 0.66);
 const KIT_EARTH_FACE: vec3<f32> = vec3<f32>(0.40, 0.16, 0.075);
@@ -593,6 +610,16 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         n = rut_relief(n, n, dpx, dpy, dhx, dhy, (1.0 - smoothstep(30.0, 90.0, eye_dist)) * dug);
     } else if terrain && k == 0u && !textured {
         base *= 1.0 - 0.12 * g_fine;
+        // Earth carried onto the road before a dirt track: a dusting first, then clumps with a
+        // ragged edge, then the dirt floor's own surface (the ground graded next to the road,
+        // terrain.rs), so the two meet without a line.
+        if in.dirt > 0.01 {
+            let cover = spill_cover(in.dirt, xz, in.uv, 0.0);
+            let ground = mix(KIT_GROUND, KIT_GRADED, 0.5) * (0.88 + 0.24 * n_low + 0.06 * n_high);
+            let earth = procedural_driven(ground, in.uv, xz, aa);
+            let clumps = smoothstep(0.42, 0.58, cover + (value_noise(xz * 1.9) - 0.5) * 0.35 + (n_high - 0.5) * 0.15);
+            base = mix(mix(base, earth * 1.1, 0.45 * smoothstep(0.0, 0.5, cover)), earth, clumps);
+        }
     } else if terrain && k == 2u {
         let ng = n;
         // The terrain's own colour variations (broad tints, graded pads, crater ejecta), measured
@@ -671,8 +698,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         // it covers everything it is the dirt floor's own surface, so the two meet without a line.
         var cover = 0.0;
         if in.dirt > 0.01 {
-            let patches = value_noise(xz * 0.17 + vec2<f32>(4.1, 0.7)) - 0.5;
-            cover = clamp(2.2 * (in.dirt - 0.5) + 0.5 + 0.9 * patches * (1.0 - in.dirt) + 0.35 * rub * in.dirt, 0.0, 1.0);
+            cover = spill_cover(in.dirt, xz, in.uv, rub);
             if cover > 0.0 {
                 a = over(a, driven_dirt(xz, in.uv, dpx, dpy, bump), cover);
             }

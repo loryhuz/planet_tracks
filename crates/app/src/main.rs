@@ -574,6 +574,8 @@ fn main() {
     }
     let event_loop = builder.build().expect("event loop");
     let mut game = Game::new();
+    // A self-test run leaves the player's session (profiles, records, settings) untouched.
+    game.session.persist = !debug.runs_hidden();
     if let Ok(name) = std::env::var("MARS_MAP") {
         if let Some(i) = game.maps.iter().position(|m| m.name.eq_ignore_ascii_case(&name)) {
             game.select_map(i);

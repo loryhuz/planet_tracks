@@ -16,7 +16,7 @@ https://claude.ai/artifact/QNgJoQ6GnMenV8nMVZ1USZ
 - Un bloc est orienté : on y entre par `cell` (sa cellule d'entrée), au niveau `level`, avec la
   direction `rotation` (quarts de tour vers la gauche depuis le nord : 0 = +Z, 1 = +X, 2 = −Z,
   3 = −X).
-- Une pente d'un niveau sur une cellule fait 14° en moyenne (26° au plus raide), sur deux
+- Une pente d'un niveau sur une cellule fait 14° en moyenne (27° au plus raide), sur deux
   cellules 7°, sur trois 5°.
 
 ## Le catalogue
@@ -40,8 +40,123 @@ https://claude.ai/artifact/QNgJoQ6GnMenV8nMVZ1USZ
 | `kicker_landingN_downL` | la colline de réception d'un `kicker`, posée comme `landingN_downL` |
 | `…_left`, `…_right` sur une réception | la même réception qui décale d'une cellule sur le côté (un S sous le vol) |
 
-Le catalogue de l'éditeur va jusqu'à 3 cellules et 2 niveaux pour les virages et pentes, et de 4
-à 8 cellules pour les réceptions.
+Le catalogue de l'éditeur va jusqu'à 3 cellules pour les virages, 4 cellules et 2 niveaux pour
+les pentes, et de 4 à 8 cellules pour les réceptions. Le code accepte des tailles plus grandes
+(`straight7`, `slope6_up3`…, jusqu'à 32 cellules et 8 niveaux), toujours sur la grille.
+
+## La planche des formes
+
+Un bloc, c'est une **forme** (ci-dessous) et une **variante** (bâche bordée de sacs ou de
+boudins, ou terre : « Les variantes »). Chaque variante s'applique à toutes les formes.
+
+### L'élévation
+
+- La hauteur se compte en **niveaux de 8 m**. Chaque bloc commence et finit **à plat, à un
+  niveau entier**, au milieu d'un bord de cellule.
+- On ne change de niveau qu'avec une pente (`slopeN_upL`, `slopeN_downL`) ou la réception d'un
+  saut. L'angle n'est pas libre : il découle de `N` et `L`. Deux pentes à la suite repassent par
+  le plat entre elles.
+- Le dévers des virages relevés vaut 18° (moins sur la terre dans les petits virages). Il se met
+  en place et disparaît à l'intérieur du bloc.
+- Il n'y a donc ni virage qui monte, ni pente ou dévers qui continue d'un bloc à l'autre, ni angle
+  hors de la grille.
+
+### Comment lire les vignettes
+
+Les vignettes sont dessinées depuis la géométrie du jeu par
+`cargo run -p track --release --example shapes` (`crates/track/examples/shapes.rs`), à relancer
+quand un bloc change. On y voit :
+
+- la grille de 32 m, avec en plus foncé les cellules qu'occupe le bloc ;
+- la chaussée : de la bâche, qui se teinte d'abricot à mesure qu'elle monte, ou de la terre. Des
+  traits en travers tous les 8 m font lire le dévers et la pente. Une flèche indique le sens ;
+- les bords de la variante automatique : sacs de sable (beige) au sol, boudins (rouge) en
+  hauteur ;
+- sous ce qui quitte le sol, un rideau rose jusqu'au sol, marqué d'un trait rouge tous les 8 m,
+  et la hauteur des raccords en mètres (pour un virage relevé au sol, celle de son extérieur au
+  milieu du virage) ;
+- pour un saut, la trajectoire d'une voiture qui se pose au milieu de la réception.
+
+Seules les versions `_left` sont dessinées : `_right` en est le miroir. Une descente
+`slopeN_downL` est la montée `slopeN_upL` prise dans l'autre sens. Les vignettes d'une ligne sont
+à la même échelle, sauf qu'un bloc plus petit y est agrandi (deux fois au plus).
+
+### Lignes droites
+
+| `straight` | `straight2` | `straight3` |
+|---|---|---|
+| ![straight](blocks/straight.svg) | ![straight2](blocks/straight2.svg) | ![straight3](blocks/straight3.svg) |
+
+### Portiques
+
+| `start` | `checkpoint` | `finish` |
+|---|---|---|
+| ![start](blocks/start.svg) | ![checkpoint](blocks/checkpoint.svg) | ![finish](blocks/finish.svg) |
+
+### Virages plats
+
+| `turn1_left` | `turn2_left` | `turn3_left` |
+|---|---|---|
+| ![turn1_left](blocks/turn1_left.svg) | ![turn2_left](blocks/turn2_left.svg) | ![turn3_left](blocks/turn3_left.svg) |
+
+### Virages relevés en hauteur
+
+Relevés autour de leur axe : l'intérieur descend autant que l'extérieur monte, d'où leur place sur
+une route surélevée (ici au niveau 1).
+
+| `banked1_left` | `banked2_left` | `banked3_left` |
+|---|---|---|
+| ![banked1_left](blocks/banked1_left.svg) | ![banked2_left](blocks/banked2_left.svg) | ![banked3_left](blocks/banked3_left.svg) |
+
+### Virages relevés au sol
+
+L'intérieur reste au sol, l'extérieur monte.
+
+| `berm1_left` | `berm2_left` | `berm3_left` |
+|---|---|---|
+| ![berm1_left](blocks/berm1_left.svg) | ![berm2_left](blocks/berm2_left.svg) | ![berm3_left](blocks/berm3_left.svg) |
+
+### Demi-tours relevés au sol
+
+| `uberm1_left` | `uberm2_left` | `uberm3_left` |
+|---|---|---|
+| ![uberm1_left](blocks/uberm1_left.svg) | ![uberm2_left](blocks/uberm2_left.svg) | ![uberm3_left](blocks/uberm3_left.svg) |
+
+### Montées d'un niveau
+
+| `slope1_up1` | `slope2_up1` | `slope3_up1` | `slope4_up1` |
+|---|---|---|---|
+| ![slope1_up1](blocks/slope1_up1.svg) | ![slope2_up1](blocks/slope2_up1.svg) | ![slope3_up1](blocks/slope3_up1.svg) | ![slope4_up1](blocks/slope4_up1.svg) |
+
+### Montées de deux niveaux
+
+| `slope1_up2` | `slope2_up2` | `slope3_up2` | `slope4_up2` |
+|---|---|---|---|
+| ![slope1_up2](blocks/slope1_up2.svg) | ![slope2_up2](blocks/slope2_up2.svg) | ![slope3_up2](blocks/slope3_up2.svg) | ![slope4_up2](blocks/slope4_up2.svg) |
+
+### Bosses
+
+| `whoops1` | `whoops2` | `whoops3` |
+|---|---|---|
+| ![whoops1](blocks/whoops1.svg) | ![whoops2](blocks/whoops2.svg) | ![whoops3](blocks/whoops3.svg) |
+
+### Terre
+
+Sur Mars, la terre est creusée dans le terrain, plus large à l'extérieur des virages et aux bords
+irréguliers : les vignettes en montrent la forme de base.
+
+| `to_dirt` | `to_road` | `berm2_left dirt` |
+|---|---|---|
+| ![to_dirt](blocks/to_dirt.svg) | ![to_road](blocks/to_road.svg) | ![berm2_left dirt](blocks/berm2_left_dirt.svg) |
+
+### Sauts
+
+La rampe et sa réception, posées l'une après l'autre. Les réceptions existent de 4 à 8 cellules,
+sur 1 ou 2 niveaux, droites ou décalées d'une cellule à gauche ou à droite.
+
+| `jump_ramp` + `landing4_down1` | `kicker` + `kicker_landing5_down2` | `kicker` + `kicker_landing5_down2_left` |
+|---|---|---|
+| ![jump_ramp + landing4_down1](blocks/landing4_down1.svg) | ![kicker + kicker_landing5_down2](blocks/kicker_landing5_down2.svg) | ![kicker + kicker_landing5_down2_left](blocks/kicker_landing5_down2_left.svg) |
 
 ## Les variantes
 

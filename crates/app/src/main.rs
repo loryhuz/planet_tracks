@@ -447,6 +447,7 @@ impl App {
             model: glam::Mat4::IDENTITY,
             tint: glam::Vec4::ONE,
             cast_shadow: true,
+            tyre: None,
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {

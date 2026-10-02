@@ -36,7 +36,8 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
-  kept up to date with the code.
+  kept up to date with the code. Its shape sheet (`docs/blocks/*.svg`) is drawn from the
+  geometry by `cargo run -p track --release --example shapes`: rerun it when a shape changes.
   The colony's scenery (observation posts, base camps, the colony with its giant domes, tower
   and rocket) is `crates/track/src/camp.rs`, placed by a map's `structures` list and levelling the
   terrain under it; its art direction is `art/scenery/brief.md`.

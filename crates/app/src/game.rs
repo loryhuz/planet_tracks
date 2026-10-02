@@ -5,8 +5,8 @@ use physics::{CarParams, CarState, Telemetry, World};
 use track::Track;
 
 use crate::camera::ChaseCamera;
-use crate::car_model::{CornerRig, Look};
-use crate::gfx::{DrawItem, MeshId};
+use crate::car_model::{self, CornerRig, Look};
+use crate::gfx::{DrawItem, MeshId, Tyre};
 use crate::input::{Action, Controls};
 use crate::race::{Frame, RaceEvent, Run, format_time};
 use crate::session::{Best, Session, map_key};
@@ -388,29 +388,43 @@ fn car_items(
     let look = look_prev.lerp(look_cur, alpha);
     let body = Mat4::from_rotation_translation(rot, pos) * Mat4::from_rotation_x(look.pitch);
     let into_body = Quat::from_rotation_x(-look.pitch);
-    let mut push = |mesh, model| items.push(DrawItem { mesh, model, tint, cast_shadow: shadow });
-    push(meshes.body, body);
+    let mut push = |mesh, model, tyre| items.push(DrawItem { mesh, model, tint, cast_shadow: shadow, tyre });
+    push(meshes.body, body, None);
     let anchors = params.wheel_anchors();
     let scale = params.wheel_radius / meshes.wheel_radius.max(0.05);
     for (i, (rig, parts)) in meshes.rigs.iter().zip(&meshes.corners).enumerate() {
         let (w0, w1) = (&prev.wheels[i], &cur.wheels[i]);
+        // The ground under the tyre: where it touches at either tick, else where it last touched.
+        let (point, normal) = match (w0.contact, w1.contact) {
+            (true, true) => (w0.contact_point.lerp(w1.contact_point, alpha), w0.contact_normal.lerp(w1.contact_normal, alpha).normalize_or(Vec3::Y)),
+            (true, false) => (w0.contact_point, w0.contact_normal),
+            (false, true) => (w1.contact_point, w1.contact_normal),
+            (false, false) => look.ground[i],
+        };
+        let tyre = (look.touch[i] > 0.0).then(|| Tyre {
+            ground: normal.extend(normal.dot(point)),
+            radius: params.wheel_radius,
+            half_width: 0.5 * car_model::TYRE_WIDTH * scale,
+            pressed: w0.contact || w1.contact,
+            shade: look.touch[i],
+        });
         let anchor = if w1.anchor == Vec3::ZERO { anchors[i] } else { w1.anchor };
-        let centre = into_body * (anchor - Vec3::Y * look.travel[i]);
+        let centre = into_body * (anchor - Vec3::Y * (look.travel[i] + look.squash[i]));
         let steer = w0.steer_display + (w1.steer_display - w0.steer_display) * alpha;
         let pose = rig.pose(centre.y, steer, angle_lerp(w0.spin, w1.spin, alpha), scale);
+        push(parts.wheel, body * pose.wheel, tyre);
         for (mesh, m) in [
             (parts.arm_lo, pose.arm_lo),
             (parts.arm_up, pose.arm_up),
             (parts.upright, pose.upright),
-            (parts.wheel, pose.wheel),
             (parts.damper, pose.damper),
             (parts.rod, pose.rod),
             (parts.spring, pose.spring),
         ] {
-            push(mesh, body * m);
+            push(mesh, body * m, None);
         }
         if let (Some(mesh), Some(m)) = (parts.tierod, pose.tierod) {
-            push(mesh, body * m);
+            push(mesh, body * m, None);
         }
     }
 }

@@ -17,6 +17,8 @@
 //! - `MARS_MAP=name`: start on that map; `MARS_DEBUG_PANEL=1`: the debug panel (Tab) open;
 //!   `MARS_HUD_SETTINGS=seconds`: the settings sheet opened that far into the race (read by
 //!   the HUD);
+//! - `MARS_SAFE_AREA=top,right,bottom,left`: a phone's safe-area insets in points, on the computer
+//!   (an iPhone 15 Pro held upright: `59,0,34,0`);
 //! - `MARS_BENCH=from,to`: between those seconds every frame renders off screen (so a hidden
 //!   window is measured too, without the display's frame cap) and waits for the GPU; the GPU time
 //!   of those frames is printed at the end;
@@ -46,6 +48,7 @@ pub struct Debug {
     pub orbit: Option<(f32, f32, f32)>,
     pub view: Option<(f32, f32, f32)>,
     pub eye: Option<(Vec3, Vec3)>,
+    pub safe_area: Option<[f32; 4]>,
     bench: Option<Bench>,
     pub film: Option<Film>,
 }
@@ -101,6 +104,10 @@ impl Debug {
             eye: var("MARS_EYE").and_then(|s| {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
                 (v.len() == 6).then(|| (Vec3::new(v[0], v[1], v[2]), Vec3::new(v[3], v[4], v[5])))
+            }),
+            safe_area: var("MARS_SAFE_AREA").and_then(|s| {
+                let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (v.len() == 4).then(|| [v[0], v[1], v[2], v[3]])
             }),
             bench: var("MARS_BENCH").and_then(|s| {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();

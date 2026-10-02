@@ -110,6 +110,8 @@ const CUTS: [f32; 8] = [0.0, 2.6, 4.8, 7.2, 9.4, 11.6, 13.8, 16.0];
 pub struct Menu {
     /// The menu is on screen (otherwise the race is).
     pub active: bool,
+    /// Played on a touch screen: no keys on the buttons, the title asks for a touch.
+    pub touch: bool,
     screen: Screen,
     entered: f64,
     /// Set when the menu opens from a race: the screen's time starts on the next frame.
@@ -156,6 +158,7 @@ impl Menu {
     pub fn new(maps: &[track::Map]) -> Self {
         Self {
             active: true,
+            touch: false,
             screen: Screen::Title,
             entered: 0.0,
             reopened: false,
@@ -569,8 +572,9 @@ impl Menu {
         }
         if let Some(w) = &self.wipe {
             let t = ((now - w.start) / 0.72) as f32;
-            let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("menu wipe")));
-            paint::wipe(&p, screen_rect, t, w.dir);
+            let full = ui.ctx().viewport_rect();
+            let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("menu wipe"))).with_clip_rect(full);
+            paint::wipe(&p, full, t, w.dir);
         }
         self.hover_last = self.hover_now;
 

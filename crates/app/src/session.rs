@@ -1,6 +1,6 @@
 //! The tuning session: every gameplay profile with its tuned parameters, its best run on each
 //! map and whether the player eliminated it. Saved to tuning/session.json so it survives
-//! restarts.
+//! restarts (on iOS, to the app's Documents folder).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -98,6 +98,11 @@ struct SavedProfile {
 }
 
 pub fn path() -> PathBuf {
+    if cfg!(target_os = "ios") {
+        // HOME is the app's container.
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        return home.join("Documents/session.json");
+    }
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tuning/session.json"))
 }
 

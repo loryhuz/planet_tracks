@@ -22,7 +22,7 @@ can therefore ship without them and still look like it works, so before every re
    | Platform | Files | Where |
    |---|---|---|
    | macOS (`Planet Tracks.app`) | `menu-wide.mp4`, `menu-tall.mp4` | `Contents/Resources/video/` |
-   | iOS | `menu-tall.mp4` | the `.app` bundle's root, or a `video/` folder there (Xcode: the target's Copy Bundle Resources) |
+   | iOS | `menu-tall.mp4` | the bundle's `video/` folder: `ios/build-rust.sh` copies it there (a Release build fails without it) |
    | Android | none yet | no decoder: the menu shows the night sky |
 
    On iOS, an iPad held in landscape takes the wide layout and plays `menu-wide.mp4`: ship a

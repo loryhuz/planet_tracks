@@ -14,7 +14,8 @@ reference taken from the real game is its observed behaviour, summarised as numb
 
 ## Toolchain
 
-Rust comes from Homebrew's rustup, which is keg-only. Prefix commands with:
+Rust comes from Homebrew's rustup (with the `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+targets), which is keg-only. Prefix commands with:
 
     export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
@@ -37,7 +38,22 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
   kept up to date with the code.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
-- `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
+- `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
+- `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a
+  simulator), whose only build phase, `ios/build-rust.sh`, builds `mars-racer` with cargo for
+  `aarch64-apple-ios` or `aarch64-apple-ios-sim` (into the main checkout's `target/`, with the
+  worktree fingerprint clean-up below) and makes it the app's executable; Xcode then signs it.
+  From the command line: `xcodebuild -project ios/PlanetTracks.xcodeproj -scheme PlanetTracks
+  -sdk iphonesimulator -derivedDataPath DIR build`. On iOS the window is the whole screen
+  (`gfx::window_pixels`; winit's inner size is the safe area), drawn at 2× rather than 3×, put
+  in the scene `Info.plist` declares (iOS 27 stops apps without one; winit 0.30 makes none, so
+  `crates/app/src/ios.rs` attaches its window; the edges deferring system gestures, the hidden
+  status bar and home indicator are asked again once it is there, or iOS holds back taps along
+  the edges), and the session is saved in the app's Documents folder. The race's touch controls
+  are the HUD's (`hud.rs`, from egui's touch events). egui clips painting to the safe area
+  unless a painter's clip rect is set to `viewport_rect()`; `MARS_SAFE_AREA=59,0,34,0` gives a
+  macOS self-test an iPhone's insets. Self-test variables reach the app as
+  `SIMCTL_CHILD_MARS_MAP=Jezero xcrun simctl launch booted com.marsracer.planettracks`.
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title with the tagline, one planet at
   a time, then the planet's circuits as tiles; no Solo/Multi choice, multiplayer will get one
   entry before the planets), in a wide layout (1280 × 720 design space) and a tall phone one
@@ -59,7 +75,9 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
   countdown and the finish card in the menu's style; wide and tall like the menu. On phones the
   buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and a settings
-  button pauses the race (`MARS_HUD_SETTINGS=seconds` opens it in a self-test). Everything for
+  button pauses the race and slides the scene up so the car shows above its sheet
+  (`MARS_HUD_SETTINGS=seconds` opens it in a self-test; a hidden run draws the HUD only on its
+  screenshot frames, so the sheet opens on one and needs another shot 0.3 s later). Everything for
   debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
   `MARS_DEBUG_PANEL=1`.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged

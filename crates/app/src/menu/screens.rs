@@ -92,6 +92,13 @@ fn pointer_moved(ui: &Ui) -> bool {
     ui.input(|i| i.pointer.delta() != Vec2::ZERO)
 }
 
+/// Where fills go and what they may cover: the whole screen, past the safe area that the text
+/// keeps to (on iOS, behind the notch and the home indicator).
+fn full_screen(ui: &Ui) -> (Painter, Rect) {
+    let full = ui.ctx().viewport_rect();
+    (ui.painter().with_clip_rect(full), full)
+}
+
 /// Small spaced capitals in the mono face: units, labels on the footage.
 fn mono_caps(size: f32) -> Font {
     Font { spacing: 0.14, ..Font::data(size) }
@@ -153,6 +160,7 @@ impl Menu {
         paint::stripes(&clip, rect, fade(col::INK_STRIPE, alpha));
         paint::shine(&clip, rect, now);
         let ts = paint::text_size(p, label, font);
+        let key = key.filter(|_| !self.touch);
         let key_w = key.map_or(0.0, |k| paint::text_size(p, k, Font::data(11.0)).x.max(14.0) + 14.0 + 12.0);
         let x = rect.center().x - (ts.x + key_w) / 2.0;
         paint::text(p, pos2(x, rect.center().y), Align2::LEFT_CENTER, label, font, fade(col::LIVERY_INK, alpha));
@@ -177,6 +185,7 @@ impl Menu {
     /// The logo and its tagline over the footage, and the prompt to start.
     pub(super) fn title(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64) {
         let p = ui.painter().clone();
+        let (fill, full) = full_screen(ui);
         if ui.interact(r, Id::new("menu title"), Sense::click()).clicked() {
             self.start(now);
         }
@@ -186,11 +195,11 @@ impl Menu {
         let wide = layout == Layout::Wide;
         let (w, h) = (r.width(), r.height());
         if wide {
-            paint::gradient(&p, r, true, &[(0.0, 0.88), (0.45, 0.62), (0.62, 0.0)], col::VOID);
-            paint::gradient(&p, r, true, &[(0.74, 0.0), (1.0, 0.8)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.0, 0.88), (0.45, 0.62), (0.62, 0.0)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.74, 0.0), (1.0, 0.8)], col::VOID);
         } else {
-            paint::gradient(&p, r, true, &[(0.0, 0.92), (0.36, 0.72), (0.48, 0.0)], col::VOID);
-            paint::gradient(&p, r, true, &[(0.64, 0.0), (0.78, 0.82), (1.0, 0.96)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.0, 0.92), (0.36, 0.72), (0.48, 0.0)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.64, 0.0), (0.78, 0.82), (1.0, 0.96)], col::VOID);
         }
         let (size, top) = if wide { (118.0, r.top() + h * 0.06) } else { ((w * 0.215).min(84.0), r.top() + h * 0.12) };
         let font = Font::display(size);
@@ -209,9 +218,10 @@ impl Menu {
             paint::para_centered(&p, pos2(r.center().x, y), tw, tag, f, 1.15, fade(col::DUST, show));
         }
         let pulse = 0.35 + 0.65 * (0.5 + 0.5 * (TAU * now as f32 / 1.6).cos());
-        let (label, font, y) = if wide { ("APPUIE SUR UNE TOUCHE", Font::label(19.0, 0.32), r.bottom() - 62.0) } else { ("TOUCHE L'ÉCRAN", Font::label(16.0, 0.3), r.bottom() - 84.0) };
+        let label = if self.touch || !wide { "TOUCHE L'ÉCRAN" } else { "APPUIE SUR UNE TOUCHE" };
+        let (font, y) = if wide { (Font::label(19.0, 0.32), r.bottom() - 62.0) } else { (Font::label(16.0, 0.3), r.bottom() - 84.0) };
         paint::text_shadowed(&p, pos2(r.center().x, y), Align2::CENTER_CENTER, label, font, fade(col::DUST, show * pulse));
-        self.cut_flash(&p, r, now);
+        self.cut_flash(&fill, full, now);
     }
 
     // ------------------------------------------------------------------ planets
@@ -220,6 +230,7 @@ impl Menu {
     /// arrows on the edges of the screen and the dots of the three planets; a swipe changes it too.
     pub(super) fn planets(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64, muted: bool) {
         let p = ui.painter().clone();
+        let (fill, full) = full_screen(ui);
         let wide = layout == Layout::Wide;
         let (w, h) = (r.width(), r.height());
         let pl = &PLANETS[self.planet];
@@ -236,7 +247,7 @@ impl Menu {
                 (false, _) => (pos2(r.center().x, r.top() + h * 0.59), 135.0),
             };
             let rot = self.rot * 0.6 + self.planet as f32 * 1.7;
-            self.sky.planets.push(planet(pl.kind, c, radius, rot, 0.35, 0.65, r, ([0.0; 3], 0.0, 0.0)));
+            self.sky.planets.push(planet(pl.kind, c, radius, rot, 0.35, 0.65, full, ([0.0; 3], 0.0, 0.0)));
         }
 
         // A horizontal swipe anywhere turns to the next or previous planet (the buttons, laid
@@ -257,11 +268,11 @@ impl Menu {
         }
 
         if wide {
-            paint::gradient(&p, r, false, &[(0.0, 0.92), (0.34, 0.75), (0.6, 0.0)], col::VOID);
-            paint::gradient(&p, r, true, &[(0.75, 0.0), (1.0, 0.6)], col::VOID);
+            paint::gradient(&fill, full, false, &[(0.0, 0.92), (0.34, 0.75), (0.6, 0.0)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.75, 0.0), (1.0, 0.6)], col::VOID);
         } else {
-            paint::gradient(&p, r, true, &[(0.0, 0.92), (0.38, 0.8), (0.52, 0.0)], col::VOID);
-            paint::gradient(&p, r, true, &[(0.68, 0.0), (0.82, 0.6), (1.0, 0.92)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.0, 0.92), (0.38, 0.8), (0.52, 0.0)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.68, 0.0), (0.82, 0.6), (1.0, 0.92)], col::VOID);
         }
         self.top_bar(ui, &p, r, layout, muted, BarLeft::None);
 
@@ -383,16 +394,17 @@ impl Menu {
     /// them on a computer, in a sheet from the bottom on a phone.
     pub(super) fn solo(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64, muted: bool, bests: &[Option<u32>]) {
         let p = ui.painter().clone();
+        let (fill, full) = full_screen(ui);
         let wide = layout == Layout::Wide;
         let w = r.width();
         self.sky.video = 1.0;
         self.sky.dim = 0.5;
         self.sky.glow = [r.center().x, r.top() + 1.15 * r.height(), 1.1 * w, 0.6 * r.height()];
         if wide {
-            paint::gradient(&p, r, false, &[(0.0, 0.85), (0.46, 0.4), (0.64, 0.0)], col::VOID);
-            paint::gradient(&p, r, true, &[(0.6, 0.0), (1.0, 0.75)], col::VOID);
+            paint::gradient(&fill, full, false, &[(0.0, 0.85), (0.46, 0.4), (0.64, 0.0)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.6, 0.0), (1.0, 0.75)], col::VOID);
         } else {
-            paint::gradient(&p, r, true, &[(0.0, 0.85), (0.3, 0.4), (1.0, 0.3)], col::VOID);
+            paint::gradient(&fill, full, true, &[(0.0, 0.85), (0.3, 0.4), (1.0, 0.3)], col::VOID);
         }
         let sheet_open = self.sheet.is_some();
         if self.top_bar(ui, &p, r, layout, muted, BarLeft::Back("PLANÈTES")) && !sheet_open {
@@ -606,10 +618,12 @@ impl Menu {
             self.sheet = None;
             return;
         }
-        let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, Id::new("menu sheet")));
-        p.rect_filled(r, 0.0, fade(col::SCRIM, k));
+        let full = ui.ctx().viewport_rect();
+        let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, Id::new("menu sheet"))).with_clip_rect(full);
+        p.rect_filled(full, 0.0, fade(col::SCRIM, k));
         let h = 372.0;
         let rect = Rect::from_min_size(pos2(r.left(), r.bottom() - h * k), vec2(r.width(), h));
+        let card = Rect::from_min_max(pos2(full.left(), rect.top()), pos2(full.right(), full.bottom().max(rect.bottom())));
         // Clicks outside close the sheet; clicks on it stay on it.
         let scrim = ui.interact(r, Id::new("menu scrim"), Sense::click());
         let _sheet = ui.interact(rect, Id::new("menu sheet body"), Sense::click());
@@ -617,8 +631,8 @@ impl Menu {
             self.cues.push(Cue::Back);
             self.close_sheet(now);
         }
-        p.rect_filled(rect, CornerRadius { nw: 28, ne: 28, sw: 0, se: 0 }, Color32::from_rgba_premultiplied(19, 13, 14, 247));
-        p.hline(rect.x_range().shrink(24.0), rect.top(), Stroke::new(1.0, col::EDGE));
+        p.rect_filled(card, CornerRadius { nw: 28, ne: 28, sw: 0, se: 0 }, Color32::from_rgba_premultiplied(19, 13, 14, 247));
+        p.hline(card.x_range().shrink(24.0), rect.top(), Stroke::new(1.0, col::EDGE));
         p.rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(40.0, 5.0)), 2.5, col::LINE);
         let Some(ti) = self.slot_index(self.sel) else { return };
         let t = &self.tracks[ti];
@@ -661,8 +675,9 @@ impl Menu {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn loading_overlay(&self, ui: &mut Ui, r: Rect, layout: Layout, track: usize, t: f32, alpha: f32, now: f64) {
         let _ = now;
-        let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("menu loading")));
-        p.rect_filled(r, 0.0, fade(col::VOID, alpha));
+        let full = ui.ctx().viewport_rect();
+        let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("menu loading"))).with_clip_rect(full);
+        p.rect_filled(full, 0.0, fade(col::VOID, alpha));
         let wide = layout == Layout::Wide;
         let Some(info) = self.tracks.get(track) else { return };
         let ready = t >= 2.0;

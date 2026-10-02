@@ -1,6 +1,6 @@
-//! Planet Tracks (codename Mars Racer): a native macOS window (winit + wgpu on Metal) opening on
-//! the menu, then running the deterministic physics at 100 Hz, rendering interpolated between
-//! ticks, with an egui tuning panel.
+//! Planet Tracks (codename Mars Racer): a native window (winit + wgpu on Metal, on macOS and iOS)
+//! opening on the menu, then running the deterministic physics at 100 Hz, rendering interpolated
+//! between ticks, with an egui tuning panel.
 
 mod audio;
 mod camera;
@@ -11,6 +11,8 @@ mod game;
 mod gfx;
 mod hud;
 mod input;
+#[cfg(target_os = "ios")]
+mod ios;
 mod marks;
 mod menu;
 mod menu_gfx;
@@ -27,6 +29,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use winit::application::ApplicationHandler;
+#[cfg(not(target_os = "ios"))]
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -49,6 +52,10 @@ struct Graphics {
     car: CarMeshes,
     menu_gfx: menu_gfx::MenuRenderer,
 }
+
+/// Played on a touch screen (iPhone, iPad, Android): the menu shows no key hints and the race
+/// opens on the wide-angle camera.
+const TOUCH_SCREEN: bool = cfg!(any(target_os = "ios", target_os = "android"));
 
 struct App {
     gfx: Option<Graphics>,
@@ -262,7 +269,7 @@ impl App {
         let surface_texture = match g.gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                let size = g.window.inner_size();
+                let size = gfx::window_pixels(&g.window);
                 g.gpu.resize(size.width, size.height);
                 None
             }
@@ -297,7 +304,7 @@ impl App {
         };
 
         // The menu and the HUD are laid out in a fixed design space that egui's zoom fits to the
-        // window.
+        // window (on iOS, its inner size is the safe area, which they keep to).
         let size = g.window.inner_size();
         let scale = g.window.scale_factor() as f32;
         let zoom = Layout::zoom(size.width as f32 / scale, size.height as f32 / scale);
@@ -309,6 +316,14 @@ impl App {
 
         // UI first: it can change the profile or the tuning.
         let mut raw = g.egui_state.take_egui_input(&g.window);
+        #[cfg(target_os = "ios")]
+        {
+            raw.safe_area_insets = Some(ios::safe_area(&g.window, zoom));
+        }
+        if let Some([top, right, bottom, left]) = self.debug.safe_area {
+            let k = 1.0 / zoom;
+            raw.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { left: left * k, right: right * k, top: top * k, bottom: bottom * k }));
+        }
         // A hidden window (self-tests) reports no screen size: take the surface's.
         let screen = egui::vec2(g.gpu.config.width as f32, g.gpu.config.height as f32) / (scale * zoom);
         if raw.screen_rect.is_none_or(|r| (r.size() - screen).length() > 1.0) {
@@ -390,6 +405,13 @@ impl App {
             eye = from;
             view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
         }
+        // While the HUD's settings sheet is open the scene slides up with it, so the car sits in
+        // the part of the screen left above the sheet and a camera change shows on it.
+        let shift = self.hud.car_focus().map_or(0.0, |(k, y)| {
+            let c = proj * view * (car_pos + glam::Vec3::Y * 0.6).extend(1.0);
+            k * ((1.0 - 2.0 * y) - c.y / c.w.max(1e-3))
+        });
+        let proj = glam::Mat4::from_translation(glam::Vec3::new(0.0, shift, 0.0)) * proj;
         let mut items = vec![gfx::DrawItem {
             mesh: g.track_mesh,
             model: glam::Mat4::IDENTITY,
@@ -484,13 +506,40 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
+            // Back from the background (iOS): the race carries on from here.
+            self.last_frame = Instant::now();
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("Planet Tracks")
-            .with_inner_size(window_size())
-            .with_visible(!self.debug.runs_hidden());
+        let attrs = Window::default_attributes().with_title("Planet Tracks").with_visible(!self.debug.runs_hidden());
+        // On iOS the window is the screen.
+        #[cfg(not(target_os = "ios"))]
+        let attrs = attrs.with_inner_size(window_size());
+        // Full screen without the status bar; swipes from the edges reach the game first (a
+        // second swipe opens the Control Centre).
+        #[cfg(target_os = "ios")]
+        let attrs = {
+            use winit::platform::ios::{ScreenEdge, WindowAttributesExtIOS};
+            attrs
+                .with_prefers_status_bar_hidden(true)
+                .with_prefers_home_indicator_hidden(true)
+                .with_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL)
+        };
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
+        // In the app's scene, then drawn at twice the points rather than the 3× of recent
+        // iPhones: hardly visible, and far lighter (set once the view is shown: UIKit resets a
+        // scale given before).
+        #[cfg(target_os = "ios")]
+        {
+            use winit::platform::ios::{ScreenEdge, WindowExtIOS};
+            ios::attach_to_scene(&window);
+            window.set_scale_factor(2.0);
+            // Asked again now that the window is in the scene: winit asked when it made the
+            // window, outside any scene, and iOS ignored it (taps along the edges waited for a
+            // system gesture, and quick ones were lost).
+            window.set_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL);
+            window.set_prefers_home_indicator_hidden(true);
+            window.set_prefers_status_bar_hidden(true);
+        }
         #[cfg(target_os = "macos")]
         if !self.debug.runs_hidden() {
             bring_to_front();
@@ -530,11 +579,20 @@ impl ApplicationHandler for App {
                 self.game.session.save();
                 event_loop.exit();
             }
-            WindowEvent::Resized(size) => g.gpu.resize(size.width, size.height),
+            WindowEvent::Resized(_) => {
+                let size = gfx::window_pixels(&g.window);
+                g.gpu.resize(size.width, size.height);
+            }
             WindowEvent::Focused(false) => self.game.controls.clear(),
             WindowEvent::RedrawRequested => self.frame(),
             _ => {}
         }
+    }
+
+    /// iOS: the app leaves the foreground, and may be closed from there without notice.
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.game.controls.clear();
+        self.game.session.save();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -574,6 +632,7 @@ fn bring_to_front() {
 
 /// The window's logical size: 1600 × 900, or `MARS_WINDOW=WxH` (a portrait size shows the phone
 /// layout of the menu).
+#[cfg(not(target_os = "ios"))]
 fn window_size() -> LogicalSize<f64> {
     std::env::var("MARS_WINDOW")
         .ok()
@@ -752,6 +811,10 @@ fn main() {
     if std::env::var("MARS_DEBUG_PANEL").is_ok() {
         game.panel_open = true;
     }
+    // The wide-angle camera shows the sides of the road on a phone's narrow screen.
+    if TOUCH_SCREEN {
+        game.camera.mode = camera::WIDE;
+    }
     if debug.autodrive {
         game.autodrive = Some(debug::Autopilot::default());
     }
@@ -759,6 +822,7 @@ fn main() {
     // autopilot asked for) start driving at once. `MARS_MENU=title|planets|modes|solo` opens the
     // menu on that screen, for its own checks.
     let mut menu = Menu::new(&game.maps);
+    menu.touch = TOUCH_SCREEN;
     let race_test = ["MARS_MAP", "MARS_PROFILE", "MARS_VIEW", "MARS_ORBIT", "MARS_AUTODRIVE", "MARS_BENCH"]
         .iter()
         .any(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()));

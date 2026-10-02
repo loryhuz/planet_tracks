@@ -24,7 +24,8 @@ pollster = "1"
 cpal = "0.18"
 png = "0.18"
 
-# The menu's video background, decoded by the system (AVFoundation) on Apple platforms.
+# Apple platforms: the menu's video background, decoded by the system (AVFoundation, src/video.rs),
+# and on iOS putting winit's window in the app's scene (src/ios.rs).
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSDictionary", "NSValue", "NSArray", "NSError", "NSObject"] }

@@ -34,3 +34,15 @@ berm3_right bumpers
 turn1_left bumpers
 berm2_right bumpers
 finish bumpers
+
+# The colony's scenery (crates/track/src/camp.rs): a base camp beside the start, a post by the
+# raised hairpin, a mast, a field camp in the dirt loop, two caches, and the colony on a mesa of
+# its own to the north-east, ahead and to the left of the long climb to the kicker.
+landform mesa -880 960 90 50 460 90
+structure base_camp 110 40 -90
+structure post -150 300 0
+structure mast -430 230 0
+structure field_camp -450 560 0
+structure cache -330 510 180
+structure cache -960 300 90
+structure colony -880 960 90

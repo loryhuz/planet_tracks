@@ -55,6 +55,13 @@
     {"landform":"mesa","position":[-370.0,298.0],"radius":45.0,"height":50.0,"length":160.0,"yaw":20.0},
     {"landform":"mesa","position":[-200.0,760.0],"radius":55.0,"height":55.0,"length":300.0,"yaw":90.0}
   ],
+  "structures": [
+    {"structure":"post","position":[150.0,80.0],"yaw":0.0},
+    {"structure":"post","position":[-377.0,138.0],"yaw":90.0},
+    {"structure":"field_camp","position":[-100.0,430.0],"yaw":-90.0},
+    {"structure":"cache","position":[-345.0,10.0],"yaw":90.0},
+    {"structure":"mast","position":[-200.0,760.0],"yaw":0.0}
+  ],
   "scenery": [
     {"prop":"spire","position":[-272.0,0.0,30.0],"yaw":20.0,"scale":6.0},
     {"prop":"rock","position":[-270.0,0.0,4.0],"yaw":75.0,"scale":2.5},

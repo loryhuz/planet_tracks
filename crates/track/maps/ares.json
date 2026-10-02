@@ -31,5 +31,14 @@
     {"block":"straight2","cell":[4,4],"level":0,"rotation":0,"variant":"dirt"},
     {"block":"finish","cell":[4,6],"level":0,"rotation":0,"variant":"dirt"}
   ],
+  "structures": [
+    {"structure":"base_camp","position":[-90.0,60.0],"yaw":90.0},
+    {"structure":"field_camp","position":[80.0,170.0],"yaw":0.0},
+    {"structure":"post","position":[170.0,330.0],"yaw":0.0},
+    {"structure":"mast","position":[480.0,330.0],"yaw":0.0},
+    {"structure":"cache","position":[-200.0,330.0],"yaw":90.0},
+    {"structure":"cache","position":[300.0,160.0],"yaw":-90.0},
+    {"structure":"landing_zone","position":[-20.0,540.0],"yaw":0.0}
+  ],
   "scenery": []
 }

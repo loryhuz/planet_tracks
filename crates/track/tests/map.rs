@@ -607,7 +607,7 @@ fn triangle_budget_by_part() {
     assert_eq!(t.blocks + t.terrain + t.scenery + t.structures, b.track.mesh.triangle_count());
     assert!(b.track.mesh.triangle_count() < 300_000);
     assert!(t.scenery < 60_000);
-    assert!(t.structures + t.structures_drawn < 70_000);
+    assert!(t.structures + t.structures_drawn < 75_000);
 }
 
 #[test]
@@ -684,6 +684,7 @@ fn builtin_maps_load_and_build() {
         let built = map.build_detailed().unwrap_or_else(|e| panic!("{}: {e}", map.name));
         assert!(!built.track.checkpoints.is_empty(), "{} has no checkpoint", map.name);
         assert!(built.track.mesh.triangle_count() < 300_000, "{} is over budget", map.name);
-        assert!(built.track.mesh.triangle_count() + built.track.decor.triangle_count() < 550_000, "{} draws too much", map.name);
+        // As the demo's budget (tests/demo.rs), camps and colony included.
+        assert!(built.track.mesh.triangle_count() + built.track.decor.triangle_count() < 600_000, "{} draws too much", map.name);
     }
 }

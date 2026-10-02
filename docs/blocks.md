@@ -297,15 +297,20 @@ structure base_camp 402 -172 165
 
 | Décor | Taille | Ce que c'est |
 |---|---|---|
+| `cache` | 14 m | dépôt : caisses et fûts sous un appentis de bâche sur tubes rouges, sangles et piquets, manche à air, panneau solaire, tuyau enroulé, jalons à fanion |
 | `post` | 13 à 17 m | poste d'observation : tour en treillis de tubes rouges sur piles de sacs, haubanée de sangles, cabine à bandeau vitré, antennes, parabole, gyrophare |
+| `field_camp` | 35 m | camp de terrain : trois tentes-dômes autour d'une cour, conteneur, panneaux solaires, fanions, manche à air, caisses, muret de sacs |
 | `base_camp` | 85 × 70 m | camp de base, sa façade vers `yaw` : dômes et tunnels gonflables avec sas, citernes sur berceaux, conteneurs, champ solaire, murets de sacs, mât en treillis, fanions, manche à air, rover |
+| `mast` | 80 à 100 m | mât de communication en treillis rouge, haubané à trois hauteurs vers des piles de sacs, paraboles, antennes, balises rouges, abri à son pied |
+| `landing_zone` | 120 m | zone d'atterrissage (fusée de 42 m sur son aire, citernes, conteneurs, panneaux) et mine : engin à chenilles et sa flèche convoyeuse en treillis qui verse le minerai sur un tas, convoyeur sur chevalets vers un second tas |
 | `colony` | 460 m de long, le long de `yaw` | la colonie, faite pour être vue de loin : dôme géant de 92 m tenu par un filet de sangles, deux dômes, serres vitrées, citernes, conteneurs, champs solaires, tour de 170 m à balises, fusée sur son aire |
 
 - Le terrain est aplani sous les camps ; les buttes et les mesas gardent leur relief.
-- Ce qui est à portée de la voiture (postes, camps) est solide ; la colonie n'est que dessinée.
+- Ce qui est à portée de la voiture (postes, camps, dépôts, mâts) est solide ; la colonie et la
+  zone d'atterrissage ne sont que dessinées.
 - Tout ce qui est posé à la main varie avec le décor (tailles, angles, écarts).
-- Sur Jezero : le poste sur la petite butte des premiers virages, le camp de base dans la première
-  boucle face au départ, la colonie sur la longue mesa au nord. Captures : `art/scenery/in-game/`.
+- Les quatre cartes en ont (le détail dans `art/scenery/brief.md`) : environ 65 000 triangles par
+  carte, sans effet mesurable sur le temps GPU. Captures : `art/scenery/in-game/`.
 
 ## Matières
 

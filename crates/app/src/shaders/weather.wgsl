@@ -31,6 +31,11 @@ struct Frame {
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
+// The lattice of the smoke's value noise (weather.rs's `noise_lattice`): a random value per
+// texel, repeating.
+@group(0) @binding(10) var noise_tex: texture_2d<f32>;
+@group(0) @binding(11) var noise_sampler: sampler;
+const NOISE_SIDE: f32 = 256.0;
 
 // Grains drifting around the camera, in a box this big (x, y, z, metres) that starts this far
 // below the camera.
@@ -41,6 +46,9 @@ const BOX_BELOW: f32 = 4.0;
 const PUFFS: u32 = 28u;
 // A puff's width over its height.
 const PUFF_WIDE: f32 = 2.0;
+// How far out from its centre a puff can show (of its radius): past it fs_puff's density is
+// zero whatever the noise (body * 1.6 <= 0.2), so its billboard stops there.
+const PUFF_REACH: f32 = 0.78;
 const GUST_GRAINS: u32 = 260u;
 // Exposure of the streaks (s), and their longest on screen (pixels).
 const SHUTTER: f32 = 0.012;
@@ -72,36 +80,24 @@ fn rand4(i: u32) -> vec4<f32> {
     return vec4<f32>(vec4<u32>(a, b, c, d) >> vec4<u32>(8u)) / 16777216.0;
 }
 
-// As in scene.wgsl.
-fn hash2(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
+// The lattice's four values around `p` blended with smoothstep weights, in one filtered fetch:
+// it lands between their texels at the smoothed offset.
 fn value_noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
     let u = f * f * (3.0 - 2.0 * f);
-    let a = hash2(i);
-    let b = hash2(i + vec2<f32>(1.0, 0.0));
-    let c = hash2(i + vec2<f32>(0.0, 1.0));
-    let d = hash2(i + vec2<f32>(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+    return textureSampleLevel(noise_tex, noise_sampler, (i + u + 0.5) / NOISE_SIDE, 0.0).r;
 }
 
-// Three octaves, each turning and drifting on its own so the smoke boils: about [0, 1].
+// Three octaves, each turning and drifting on its own so the smoke boils (each drifts faster,
+// its direction turned 2.4 rad from the one before): about [0, 1].
 fn fbm(p: vec2<f32>, t: f32) -> f32 {
     let turn = mat2x2<f32>(0.8, -0.6, 0.6, 0.8);
-    var q = p;
-    var sum = 0.0;
-    var amp = 0.5;
-    for (var k = 0; k < 3; k++) {
-        let a = f32(k) * 2.4;
-        sum += amp * value_noise(q + vec2<f32>(cos(a), sin(a)) * t * (1.0 + 0.5 * f32(k)) + f32(k) * 7.31);
-        q = turn * q * 2.07;
-        amp *= 0.5;
-    }
+    let q1 = turn * p * 2.07;
+    let q2 = turn * q1 * 2.07;
+    let sum = 0.5 * value_noise(p + vec2<f32>(1.0, 0.0) * t)
+        + 0.25 * value_noise(q1 + vec2<f32>(-0.7373937, 0.6754632) * t * 1.5 + 7.31)
+        + 0.125 * value_noise(q2 + vec2<f32>(0.0874990, -0.9961646) * t * 2.0 + 14.62);
     return sum / 0.875;
 }
 
@@ -122,13 +118,18 @@ fn ambient() -> vec3<f32> {
 
 // Dust in the sun: lit, and glowing when the sun is behind it (`view` from the camera).
 fn sand_light(view: vec3<f32>, lit: f32, thin: f32) -> vec3<f32> {
-    let glow = pow(max(dot(view, frame.sun_dir.xyz), 0.0), 5.0) * 1.4 * thin;
+    let toward = max(dot(view, frame.sun_dir.xyz), 0.0);
+    let glow = toward * toward * toward * toward * toward * 1.4 * thin;
     return SAND * (frame.sun_color.rgb * (lit + glow) + ambient());
 }
 
 // As scene.wgsl's distance fog, toward the storm's dusty air.
 fn fogged(col: vec3<f32>, to_point: vec3<f32>) -> vec3<f32> {
     let dist = length(to_point);
+    // Nearer than the fog starts, as most of the smoke on screen is: clear.
+    if dist <= frame.fog.y {
+        return col;
+    }
     let dir = to_point / max(dist, 1e-3);
     let h = dir.xz / max(length(dir.xz), 1e-4);
     let toward = smoothstep(0.2, 0.95, dot(h, frame.storm_a.zw));
@@ -346,7 +347,7 @@ fn vs_puff(@builtin(vertex_index) vi: u32, g_in: GustIn) -> PuffOut {
 
     var o: PuffOut;
     let k = corner(vi % 6u);
-    let c = vec2<f32>(k.x, k.y * 2.0 - 1.0);
+    let c = vec2<f32>(k.x, k.y * 2.0 - 1.0) * PUFF_REACH;
     let world = centre + (right * c.x * PUFF_WIDE + up * c.y) * radius;
     o.clip = select(vec4<f32>(-2.0, -2.0, 0.5, 1.0), frame.view_proj * vec4<f32>(world, 1.0), opacity > 0.004);
     o.uv = c;
@@ -359,7 +360,9 @@ fn vs_puff(@builtin(vertex_index) vi: u32, g_in: GustIn) -> PuffOut {
 @fragment
 fn fs_puff(in: PuffOut) -> @location(0) vec4<f32> {
     let e = length(in.uv);
-    if e >= 1.0 {
+    // Soft where it meets the road (it would cut a hard line across the billboard).
+    let ground = smoothstep(in.params.z - 0.1, in.params.z + 0.7, in.world.y);
+    if e >= PUFF_REACH || ground <= 0.0 {
         return vec4<f32>(0.0);
     }
     let t = frame.wind.w;
@@ -372,8 +375,6 @@ fn fs_puff(in: PuffOut) -> @location(0) vec4<f32> {
     let body = 1.0 - smoothstep(0.0, 1.0, e);
     let density = smoothstep(0.2, 0.7, body * (0.3 + 1.3 * n));
     let top = in.uv.y * 0.5 + 0.5;
-    // Soft where it meets the road (it would cut a hard line across the billboard).
-    let ground = smoothstep(in.params.z - 0.1, in.params.z + 0.7, in.world.y);
     let a = clamp(in.params.y * density * mix(1.0, 0.6, top) * ground, 0.0, 1.0);
 
     // Lit from above, darker in its thick lower body and in the hollows between billows.

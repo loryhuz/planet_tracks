@@ -16,6 +16,7 @@
 
 use std::collections::BTreeMap;
 
+use egui::emath::TSTransform;
 use egui::epaint::{CornerRadius, Mesh, PathStroke, Vertex};
 use egui::{Align2, Color32, Event, Id, LayerId, Order, Painter, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TouchPhase, Ui, pos2, vec2};
 use physics::Input;
@@ -644,11 +645,24 @@ impl Hud {
         let t = (now - since) as f32;
         let (scale, alpha) = if t < 0.27 { (1.6 - 0.6 * paint::ease_out(t / 0.27), t / 0.27) } else { (1.0 - 0.06 * ((t - 0.27) / 0.6).min(1.0), 1.0) };
         let alpha = if n == 0 { alpha * (1.0 - ((t - 0.35) / 0.25).clamp(0.0, 1.0)) } else { alpha };
-        let base = if wide { 220.0 } else { 150.0 };
+        let font = Font::display(if wide { 220.0 } else { 150.0 });
         let c = pos2(r.center().x, r.center().y - 30.0);
         let (s, colour) = if n == 0 { ("GO".to_string(), col::LIVERY) } else { (n.to_string(), col::DUST) };
-        paint::text(&fg, c + vec2(0.0, 4.0), Align2::CENTER_CENTER, &s, Font::display(base * scale), fade(Color32::from_black_alpha(110), alpha));
-        paint::text(&fg, c, Align2::CENTER_CENTER, &s, Font::display(base * scale), fade(colour, alpha));
+        // Laid out at one size and scaled as shapes: a font size changing every frame would have
+        // egui rasterise these big glyphs afresh at each size, filling its font atlas, which then
+        // grows and goes to the GPU whole (a freeze at GO). All of them are laid out from the
+        // first step, so none is rasterised later.
+        for step in ["3", "2", "1", "GO"] {
+            paint::text_size(&fg, step, font);
+        }
+        let start = fg.ctx().graphics_mut(|g| g.entry(fg.layer_id()).next_idx());
+        paint::text(&fg, c + vec2(0.0, 4.0 / scale), Align2::CENTER_CENTER, &s, font, fade(Color32::from_black_alpha(110), alpha));
+        paint::text(&fg, c, Align2::CENTER_CENTER, &s, font, fade(colour, alpha));
+        fg.ctx().graphics_mut(|g| {
+            let shapes = g.entry(fg.layer_id());
+            let end = shapes.next_idx();
+            shapes.transform_range(start, end, TSTransform::new(c.to_vec2() * (1.0 - scale), scale));
+        });
     }
 
     #[allow(clippy::too_many_arguments)]

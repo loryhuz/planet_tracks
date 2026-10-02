@@ -12,7 +12,7 @@ use winit::window::Window;
 use crate::marks::{CAPACITY as MARKS_CAPACITY, MarkVertex};
 use crate::particles::{CAPACITY as DUST_CAPACITY, ParticleVertex};
 use crate::surfaces::SurfaceTextures;
-use crate::weather::{Climate, GustInstance, MAX_GUSTS, Weather};
+use crate::weather::{Climate, GustInstance, MAX_GUSTS, NOISE_SIDE, Weather};
 use track::map::TimeOfDay;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -460,6 +460,8 @@ pub struct SceneRenderer {
     livery_sampler: wgpu::Sampler,
     livery_view: wgpu::TextureView,
     surfaces: SurfaceTextures,
+    noise_view: wgpu::TextureView,
+    noise_sampler: wgpu::Sampler,
     object_buffer: wgpu::Buffer,
     object_group: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
@@ -605,6 +607,23 @@ impl SceneRenderer {
                     },
                     count: None,
                 },
+                // The lattice of the weather's smoke noise, and its sampler (repeating).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let shadow_frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -646,6 +665,15 @@ impl SceneRenderer {
         });
         let livery_view = create_livery(gpu, 1, 1, &[255, 255, 255, 255]);
         let surfaces = crate::surfaces::load(gpu);
+        let noise_view = create_noise(gpu);
+        let noise_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("noise sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let frame_group = create_frame_group(
             device,
             &frame_layout,
@@ -655,6 +683,7 @@ impl SceneRenderer {
             &livery_view,
             &livery_sampler,
             &surfaces,
+            (&noise_view, &noise_sampler),
         );
         let shadow_frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow frame group"),
@@ -1060,6 +1089,8 @@ impl SceneRenderer {
             livery_sampler,
             livery_view,
             surfaces,
+            noise_view,
+            noise_sampler,
             object_buffer,
             object_group,
             shadow_view,
@@ -1206,6 +1237,7 @@ impl SceneRenderer {
             &self.livery_view,
             &self.livery_sampler,
             &self.surfaces,
+            (&self.noise_view, &self.noise_sampler),
         );
     }
 
@@ -1561,6 +1593,7 @@ fn create_frame_group(
     livery_view: &wgpu::TextureView,
     livery_sampler: &wgpu::Sampler,
     surfaces: &SurfaceTextures,
+    (noise_view, noise_sampler): (&wgpu::TextureView, &wgpu::Sampler),
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("frame group"),
@@ -1576,8 +1609,31 @@ fn create_frame_group(
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&surfaces.sampler) },
             wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(far_shadow_view) },
             wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(lamp_shadow_view) },
+            wgpu::BindGroupEntry { binding: 10, resource: wgpu::BindingResource::TextureView(noise_view) },
+            wgpu::BindGroupEntry { binding: 11, resource: wgpu::BindingResource::Sampler(noise_sampler) },
         ],
     })
+}
+
+/// The lattice of weather.wgsl's value noise (weather.rs), read at its full size only.
+fn create_noise(gpu: &Gpu) -> wgpu::TextureView {
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("noise lattice"),
+        size: wgpu::Extent3d { width: NOISE_SIDE, height: NOISE_SIDE, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        &crate::weather::noise_lattice(),
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(NOISE_SIDE), rows_per_image: Some(NOISE_SIDE) },
+        wgpu::Extent3d { width: NOISE_SIDE, height: NOISE_SIDE, depth_or_array_layers: 1 },
+    );
+    texture.create_view(&Default::default())
 }
 
 /// An sRGB texture with its whole mip chain (each level averaged from the one above, in linear).

@@ -45,6 +45,24 @@ impl Climate {
     }
 }
 
+/// Side of the lattice of weather.wgsl's value noise, texels (it repeats).
+pub const NOISE_SIDE: u32 = 256;
+
+/// The lattice of weather.wgsl's value noise: a random value per texel, four of which one filtered
+/// fetch blends. Hashing the four lattice points in the shader cost the smoke most of its time,
+/// and the puffs fill the screen when a gust reaches the car.
+pub fn noise_lattice() -> Vec<u8> {
+    let mut seed = 0x9e37_79b9u32;
+    (0..NOISE_SIDE * NOISE_SIDE)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed >> 24) as u8
+        })
+        .collect()
+}
+
 /// One gust as weather.wgsl reads it (an instance of its puffs and of its grains).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]

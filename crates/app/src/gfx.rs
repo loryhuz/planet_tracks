@@ -342,6 +342,8 @@ pub struct SceneRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     storm_pipeline: wgpu::RenderPipeline,
     storm: Option<StormSite>,
+    /// The planet of the track: its sky and its materials (scene.wgsl's `frame.misc.w`).
+    planet: track::Planet,
     /// Wind, drifting sand and gusts over the current track.
     weather: Option<Weather>,
     climate: Climate,
@@ -916,6 +918,7 @@ impl SceneRenderer {
             sky_pipeline,
             storm_pipeline,
             storm: None,
+            planet: track::Planet::Mars,
             weather: None,
             climate: Climate::from_env(),
             grain_pipeline,
@@ -954,11 +957,18 @@ impl SceneRenderer {
         }
     }
 
-    /// Sets the scene up for a new track, drawn with `mesh`: bakes its far shadows, places the
-    /// sandstorm and starts its approach over (kilometres beyond the route, ahead of the start),
-    /// and starts the weather over, the wind blowing from the storm.
-    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId) {
+    /// Sets the scene up for a new track on `planet`, drawn with `mesh`: bakes its far shadows,
+    /// places the sandstorm and starts its approach over (kilometres beyond the route, ahead of
+    /// the start), and starts the weather over, the wind blowing from the storm. The ice planet's
+    /// prototype has neither: still, clear air.
+    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, planet: track::Planet) {
         self.bake_shadows(gpu, track, mesh);
+        self.planet = planet;
+        if !planet.is_mars() {
+            self.weather = None;
+            self.storm = None;
+            return;
+        }
         let (lo, hi) = track.route.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(lo, hi), p| {
             (lo.min(Vec2::new(p.x, p.z)), hi.max(Vec2::new(p.x, p.z)))
         });
@@ -1124,8 +1134,13 @@ impl SceneRenderer {
         let light_view_proj = light_proj * light_view;
         let view_proj = view.proj * view.view;
 
-        let sky_top = srgb(176, 118, 92);
-        let sky_horizon = srgb(226, 178, 140);
+        // Mars's butterscotch sky, or the ice planet's cold one.
+        let mars = self.planet.is_mars();
+        let (sky_top, sky_horizon, sun, bounce) = if mars {
+            (srgb(176, 118, 92), srgb(226, 178, 140), srgb(255, 238, 214), srgb(170, 100, 70))
+        } else {
+            (srgb(70, 104, 150), srgb(184, 204, 226), srgb(255, 248, 240), srgb(150, 165, 185))
+        };
         let four = |c: [f32; 3], s: f32| [c[0] * s, c[1] * s, c[2] * s, 1.0];
         let mut frame = FrameUniform {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1133,12 +1148,13 @@ impl SceneRenderer {
             light_view_proj: light_view_proj.to_cols_array_2d(),
             camera_pos: view.eye.extend(1.0).to_array(),
             sun_dir: self.sun_dir.extend(0.0).to_array(),
-            sun_color: four(srgb(255, 238, 214), 2.6),
+            // The ice planet is farther from the Sun.
+            sun_color: four(sun, if mars { 2.6 } else { 2.0 }),
             sky_top: four(sky_top, 0.8),
             sky_horizon: four(sky_horizon, 1.0),
-            ground_bounce: four(srgb(170, 100, 70), 0.5),
+            ground_bounce: four(bounce, 0.5),
             fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, if mars { 0.0 } else { 1.0 }],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
             far_light_view_proj: self.far_light_view_proj.to_cols_array_2d(),

@@ -1,4 +1,5 @@
-//! Driving metrics of every profile, measured on the physics crate's own test meshes.
+//! Driving metrics of every profile, measured on the physics crate's own test meshes (the ice
+//! planet's car, "Neige", reads their road as ice and their dirt as snow).
 //!
 //!     cargo run -p physics --release --example metrics [profile-name-filter]
 //!
@@ -598,7 +599,7 @@ fn main() {
     let fmt_t = |x: Option<f32>, unit: &str| x.map_or(String::new(), |x| format!("   cible {x:.2} {unit}"));
 
     let mut summary: Vec<String> = Vec::new();
-    for p in presets() {
+    for p in presets().into_iter().chain([physics::neige()]) {
         if let Some(f) = &filter
             && !p.name.to_lowercase().contains(f.as_str())
         {

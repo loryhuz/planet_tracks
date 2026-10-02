@@ -7,7 +7,7 @@
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use track::Surface;
+use track::{Planet, Surface};
 
 /// One tunable parameter, exposed to the in-game tuning panel.
 pub struct Tunable<'a> {
@@ -40,6 +40,37 @@ pub struct SurfaceGrip {
     /// Turn-rate multiplier at full lock (1 everywhere by default: a different value changes the
     /// line when a corner crosses from one surface to another).
     pub yaw: f32,
+    /// Multiplies `CarParams::drift_turn` on this surface: below 1 a drift turns the car's path
+    /// less tightly than it turns its nose (on ice the line lags behind the nose).
+    #[serde(skip_serializing_if = "is_one")]
+    pub drift_turn: f32,
+    /// How quickly a drift moves on this surface: multiplies the rates at which the drift angle
+    /// builds, settles and swings (below 1, a slower, smoother slide; the steering itself always
+    /// answers at once).
+    #[serde(skip_serializing_if = "is_one")]
+    pub response: f32,
+    /// Multiplies `CarParams::drift_bleed` on this surface: above 1 a slide ploughs the surface
+    /// (snow) and costs more speed.
+    #[serde(skip_serializing_if = "is_one")]
+    pub slide_cost: f32,
+    /// How deep the wheels sink into this surface, m (snow, powder): the car rides that much lower.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub sink: f32,
+    /// Least mark the tyres leave on this surface, 0..1, gripping or not (snow keeps every track).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub trail: f32,
+}
+
+fn is_one(x: &f32) -> bool {
+    *x == 1.0
+}
+
+fn is_zero(x: &f32) -> bool {
+    *x == 0.0
+}
+
+fn is_false(x: &bool) -> bool {
+    !*x
 }
 
 impl Default for SurfaceGrip {
@@ -195,6 +226,22 @@ pub struct CarParams {
     /// A mismatch between the body and its motion beyond this angle (walls, landings, grip losses)
     /// is turned into drift angle, so the car never slides sideways, degrees.
     pub drift_catch_deg: f32,
+    /// Braking while steering swings the rear out toward the inside of the turn, as if the
+    /// steering asked beyond the grip: the drift angle this asks at full brake and full lock,
+    /// degrees (0: the brake only slows the car).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub brake_pivot_deg: f32,
+    /// How a drift ends: 0, the body swings back onto its path; 1, under full throttle, the path
+    /// swings onto the body instead (the car leaves along its nose). In between, both meet.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub drift_exit: f32,
+
+    // --- Skis
+    /// The front corners are skis: they steer and hold the car on its path like tyres, but the
+    /// engine and the brakes work through the rear wheels alone (the traction and braking grip is
+    /// the rear's), and they never spin.
+    #[serde(skip_serializing_if = "is_false")]
+    pub front_skis: bool,
 
     // --- Assists
     /// Torque keeping the body parallel to the ground on its wheels, 1/s².
@@ -247,6 +294,11 @@ fn surface_tunables<'a>(group: &'static str, s: &'a mut SurfaceGrip, out: &mut V
     out.push(t("Vitesse max (×)", &mut s.top_speed, 0.2, 1.5));
     out.push(t("Force moteur (×)", &mut s.traction, 0.1, 2.0));
     out.push(t("Vitesse de virage (×)", &mut s.yaw, 0.2, 1.5));
+    out.push(t("Virage serré en dérive (×)", &mut s.drift_turn, 0.0, 1.0));
+    out.push(t("Vitesse de la glisse (×)", &mut s.response, 0.2, 1.5));
+    out.push(t("Coût de la glisse (×)", &mut s.slide_cost, 0.0, 5.0));
+    out.push(t("Enfoncement des roues (m)", &mut s.sink, 0.0, 0.3));
+    out.push(t("Traces minimales", &mut s.trail, 0.0, 1.0));
 }
 
 const STEP_NAMES: [&str; 6] = [
@@ -321,6 +373,8 @@ impl CarParams {
         t!("Dérive", "Vitesse de pivot de la caisse (rad/s)", self.drift_swing_rate, 0.1, 6.0);
         t!("Dérive", "Fin de dérive : rotation cédée (× trajectoire)", self.drift_hold_turn, 0.0, 1.0);
         t!("Dérive", "Glissement toléré avant rattrapage (°)", self.drift_catch_deg, 0.5, 30.0);
+        t!("Dérive", "Pivot au frein en virage (°)", self.brake_pivot_deg, 0.0, 60.0);
+        t!("Dérive", "Sortie de dérive dans l'axe du nez", self.drift_exit, 0.0, 1.0);
 
         t!("Châssis", "Masse (kg)", self.mass, 200.0, 4000.0);
         t!("Châssis", "Inertie en tangage (×)", self.inertia_pitch, 0.2, 5.0);
@@ -455,7 +509,8 @@ impl CarParams {
     }
 }
 
-/// The gameplay profiles offered in the game: only the player's pick, "Combo", for now. The other
+/// Mars's gameplay profiles, which the tests and tools drive on the Mars maps (the game's
+/// profiles, every planet's car, are [`profiles`]): only the player's pick, "Combo", for now. The other
 /// profiles of the comparison (Fidèle, Grip arcade, Drift, Buggy lourd, Basse gravité, Équilibre)
 /// stay below, out of the game; Combo is built from two of them.
 pub fn presets() -> Vec<CarParams> {
@@ -476,6 +531,104 @@ pub fn combo() -> CarParams {
     p.drift_excess_full = dirt.drift_excess_full;
     p.drift_turn = dirt.drift_turn;
     p.mark_start = dirt.mark_start;
+    p
+}
+
+/// The game's profiles: every planet's car, in the planets' order.
+pub fn profiles() -> Vec<CarParams> {
+    vec![combo(), neige()]
+}
+
+/// The car driven on a planet.
+pub fn car_for(planet: Planet) -> CarParams {
+    match planet {
+        Planet::Mars => combo(),
+        Planet::Ice => neige(),
+    }
+}
+
+/// The ice planet's car (prototype), a cross between a snowmobile and a car: skis in front, two
+/// studded rear wheels driving and braking. A road deck there is bare ice, a dirt track packed
+/// snow, the ground deep powder.
+///
+/// On snow the wheels sink in and the car carves: more grip than Mars's dirt, a round, unhurried
+/// answer to the steering, a soft drift that swings out late and comes back gently, a little
+/// ploughing drag, and every wheel leaves its track. On ice the nose answers at once while the
+/// line lags behind it, and catches up with it once the steering lets go. The brake locks the
+/// rear wheels: straight it slows, in a turn it swings the rear out; back on the throttle, the
+/// car leaves along its nose.
+pub fn neige() -> CarParams {
+    let mut p = combo();
+    p.name = "Neige".into();
+    p.description = "Skis devant, propulsion à clous : la neige s'enfonce et la voiture y trace sa courbe, la glace tourne le nez avant la trajectoire, le frein fait pivoter l'arrière.".into();
+    p.front_skis = true;
+    // A slower steering ramp than Mars's: on a keyboard the slides set off progressively.
+    p.steer_rate = 6.0;
+    p.steer_return = 8.0;
+    p.brake = 40.0;
+    p.brake_pivot_deg = 30.0;
+    p.drift_exit = 0.6;
+    // Bare ice, a drift car's surface: little grip, the widest angles, the line slow to follow
+    // the nose; the slide builds, holds and settles slowly, so it is steered, never snapped; it
+    // glides.
+    p.road = SurfaceGrip {
+        grip: 4.0,
+        long_grip: 3.0,
+        drift_angle_deg: 45.0,
+        rolling: 0.4,
+        drag: 0.0,
+        top_speed: 1.0,
+        traction: 0.85,
+        yaw: 1.0,
+        drift_turn: 0.6,
+        response: 0.5,
+        slide_cost: 1.0,
+        sink: 0.0,
+        trail: 0.0,
+    };
+    // Packed snow: the wheels sink in and plough it. More grip than Mars's dirt and the steering
+    // as sharp, but the car is heavier there (it slows as it ploughs, its top speed is lower),
+    // a slide stays small and costs a lot of speed, the ruts rock it gently, and every wheel
+    // leaves its track.
+    p.dirt = SurfaceGrip {
+        grip: 8.5,
+        long_grip: 6.0,
+        drift_angle_deg: 20.0,
+        rolling: 1.5,
+        drag: 0.05,
+        top_speed: 0.9,
+        traction: 0.85,
+        yaw: 1.0,
+        drift_turn: 1.0,
+        response: 0.9,
+        slide_cost: 2.5,
+        sink: 0.1,
+        trail: 0.6,
+    };
+    // Deep powder off the track: the car sinks deep and slows, and never slides.
+    p.ground = SurfaceGrip {
+        grip: 10.0,
+        long_grip: 2.5,
+        drift_angle_deg: 8.0,
+        rolling: 2.5,
+        drag: 0.3,
+        top_speed: 0.5,
+        traction: 0.5,
+        yaw: 1.0,
+        drift_turn: 1.0,
+        response: 0.6,
+        slide_cost: 1.0,
+        sink: 0.22,
+        trail: 1.0,
+    };
+    p.mark_start = 0.75;
+    p.drift_excess_full = 0.35;
+    p.drift_build_s = 0.2;
+    p.drift_release_s = 0.3;
+    p.drift_bleed = 1.8;
+    p.drift_turn = 1.0;
+    p.drift_turn_cost = 0.06;
+    p.drift_swing_rate = 2.0;
     p
 }
 
@@ -551,6 +704,11 @@ pub fn fidele() -> CarParams {
             top_speed: 1.0,
             traction: 1.0,
             yaw: 1.0,
+            drift_turn: 1.0,
+            response: 1.0,
+            slide_cost: 1.0,
+            sink: 0.0,
+            trail: 0.0,
         },
         // Dirt: on rails like TrackMania's Rally car well below the limit, marks near it, then a
         // drift angle that grows with how far the steering asks beyond the grip.
@@ -563,6 +721,11 @@ pub fn fidele() -> CarParams {
             top_speed: 0.92,
             traction: 0.75,
             yaw: 1.0,
+            drift_turn: 1.0,
+            response: 1.0,
+            slide_cost: 1.0,
+            sink: 0.0,
+            trail: 0.0,
         },
         // Off-track: costs speed (rolling, drag, traction, top speed) but never slides.
         ground: SurfaceGrip {
@@ -574,6 +737,11 @@ pub fn fidele() -> CarParams {
             top_speed: 0.65,
             traction: 0.6,
             yaw: 1.0,
+            drift_turn: 1.0,
+            response: 1.0,
+            slide_cost: 1.0,
+            sink: 0.0,
+            trail: 0.0,
         },
         grip_scale: 1.0,
         combined_grip: 0.5,
@@ -590,6 +758,10 @@ pub fn fidele() -> CarParams {
         drift_swing_rate: 1.2,
         drift_hold_turn: 0.5,
         drift_catch_deg: 1.0,
+        brake_pivot_deg: 0.0,
+        drift_exit: 0.0,
+
+        front_skis: false,
 
         ground_level: 2.0,
 

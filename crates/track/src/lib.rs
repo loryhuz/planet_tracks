@@ -41,6 +41,23 @@ pub enum Surface {
     Booster = 4,
 }
 
+/// The planet a map is on: it picks the car (the physics' `car_for`) and the look of the ground
+/// and the sky. A planet gives the same surfaces its own materials: on the ice planet a road deck
+/// is bare ice, a dirt track packed snow and the ground deep powder.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Planet {
+    #[default]
+    Mars,
+    Ice,
+}
+
+impl Planet {
+    pub fn is_mars(&self) -> bool {
+        *self == Planet::Mars
+    }
+}
+
 /// Triangle soup, one triangle per three indices.
 ///
 /// Vertices are never shared between triangles of different surfaces, so a renderer can use
@@ -144,12 +161,14 @@ pub struct Track {
 
 /// The first playable map: « Jezero », loaded from `maps/jezero.json` (see [`demo`]).
 /// Maps shipped with the game, embedded so it needs no data path: (name, JSON).
-pub const BUILTIN_MAPS: [(&str, &str); 5] = [
+pub const BUILTIN_MAPS: [(&str, &str); 6] = [
     (demo::NAME, demo::JSON),
     ("Olympus", include_str!("../maps/olympus.json")),
     ("Ares Vallis", include_str!("../maps/ares.json")),
     ("Noctis", include_str!("../maps/noctis.json")),
     ("Marineris", include_str!("../maps/marineris.json")),
+    // The ice planet's prototype.
+    ("Noctis Neige", include_str!("../maps/noctis_neige.json")),
 ];
 
 /// Every shipped map, parsed. Panics on a broken file (they are checked by the tests).

@@ -274,6 +274,15 @@ const KIT_TERRAIN_Y: f32 = -0.25;
 // Fine Martian dust settled on the roads and the barriers.
 const ROAD_DUST: vec3<f32> = vec3<f32>(0.36, 0.13, 0.055);
 
+// The ice planet's prototype (frame.misc.w = 1): its materials in flat colours, laid over the
+// Martian textures' relief. Deep powder off the track, packed snow on the dirt tracks, bare ice
+// on the road decks, dark rock.
+const SNOW: vec3<f32> = vec3<f32>(0.56, 0.60, 0.66);
+const SNOW_BANK: vec3<f32> = vec3<f32>(0.42, 0.46, 0.53);
+const PACKED_SNOW: vec3<f32> = vec3<f32>(0.22, 0.25, 0.32);
+const ICE: vec3<f32> = vec3<f32>(0.13, 0.27, 0.42);
+const ICE_ROCK: vec3<f32> = vec3<f32>(0.16, 0.165, 0.18);
+
 // The tarp of the road decks (art/roads/brief.md): lengths of tarp DECK_STRIP m wide laid along
 // the road and welded where they overlap, cut every DECK_PANEL m, the cuts staggered from one
 // length to the next.
@@ -832,6 +841,10 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         base = g.colour * mix(tint, 1.0, wear) * (0.94 + 0.12 * n_low);
         n = normalize(ng + g.bump);
         n = rut_relief(n, ng, dpx, dpy, dhx, dhy, (1.0 - smoothstep(30.0, 90.0, eye_dist)) * dug);
+        if frame.misc.w > 0.5 {
+            let snow = mix(mix(SNOW, SNOW_BANK, dug), PACKED_SNOW, wear) * (0.95 + 0.1 * n_low);
+            base = mix(snow, ICE_ROCK * mix(tint, 1.0, 0.5), rocky);
+        }
     } else if k == 1u {
         base *= 0.9 + 0.14 * n_high;
     } else if terrain && k == 0u {
@@ -986,6 +999,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         n = normalize(n + a.bump);
         n = rut_relief(n, ng, dpx, dpy, dwx, dwy, bump * (1.0 - cover));
         sheen = vec2<f32>(0.1 * (1.0 - dust) * (1.0 - cover) * (1.0 - rub) * (1.0 - fixings), 24.0);
+        if frame.misc.w > 0.5 {
+            // Bare ice, glossy, the deck's markings kept as shades of it; packed snow carried on
+            // where it meets a snow track.
+            let shade = clamp(lum(a.colour) / 0.4, 0.3, 1.6);
+            base = mix(ICE * shade, PACKED_SNOW, cover);
+            sheen = vec2<f32>(0.9 * (1.0 - cover), 80.0);
+        }
     } else if k == 20u {
         // Concrete: the sides of dirt mounds.
         let s = surf_triplanar(L_CONCRETE, TILE_CONCRETE, in.world, n, dpx, dpy, 0.8 * bump);
@@ -1120,6 +1140,9 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     } else if k == 21u {
         let s = surf_triplanar(L_EARTH, TILE_EARTH, in.world, n, dpx, dpy, bump);
         base = s.colour * clamp(lum(in.color) / lum(KIT_EARTH_FACE), 0.6, 1.4);
+        if frame.misc.w > 0.5 {
+            base = PACKED_SNOW * clamp(lum(s.colour) / 0.12, 0.7, 1.2);
+        }
         n = normalize(n + s.bump);
     } else if k == 22u {
         let s = surf_triplanar(L_ROCK, TILE_ROCK * 0.5, in.world, n, dpx, dpy, bump);
@@ -1131,6 +1154,9 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         }
         let shade = clamp(lum(in.color) / lum(mix(KIT_ROCK, KIT_GROUND * 1.04, up)), 0.7, 1.3);
         base = r.colour * shade;
+        if frame.misc.w > 0.5 {
+            base = mix(ICE_ROCK * shade, SNOW, up);
+        }
         n = normalize(n + r.bump);
     } else if k == 15u {
         // Bright wires over the dark inside of the tyre.

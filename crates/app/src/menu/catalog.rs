@@ -43,12 +43,13 @@ pub const PLANETS: [PlanetInfo; 3] = [
         stats: [("TRANSMISSION", Stat::Text("4×4")), ("ADHÉRENCE", Stat::Pips(4)), ("GLISSE", Stat::Pips(3))],
         kind: PlanetKind::Mars,
     },
+    // The ice planet's prototype: one circuit to try the ski car.
     PlanetInfo {
-        open: false,
-        name: "???",
-        year: "20??",
-        lore: "Une deuxième planète se prépare, avec son propre véhicule.",
-        stats: [("VÉHICULE", Stat::Text("?")), ("ADHÉRENCE", Stat::Pips(0)), ("GLISSE", Stat::Pips(0))],
+        open: true,
+        name: "GLACE",
+        year: "PROTO",
+        lore: "Prototype : une voiture à skis sur la neige et la glace. Le frein fait pivoter l'arrière.",
+        stats: [("TRANSMISSION", Stat::Text("PROPULSION")), ("ADHÉRENCE", Stat::Pips(2)), ("GLISSE", Stat::Pips(5))],
         kind: PlanetKind::Ice,
     },
     PlanetInfo {
@@ -82,6 +83,8 @@ pub struct TrackInfo {
     /// Share of the medal speeds this circuit allows (tight ones are slower).
     pub pace: f32,
     pub series: Series,
+    /// The planet it is on, an index in [`PLANETS`].
+    pub planet: usize,
 }
 
 impl TrackInfo {
@@ -97,7 +100,7 @@ impl TrackInfo {
 /// gold is 46.5 s, silver 51.7 s, bronze 58.1 s.
 fn pace(name: &str) -> f32 {
     match name.to_lowercase().as_str() {
-        "noctis" => 0.87,
+        "noctis" | "noctis neige" => 0.87,
         "marineris" => 1.357,
         _ => 1.0,
     }
@@ -142,5 +145,9 @@ fn info(index: usize, map: &track::Map) -> Option<TrackInfo> {
         route,
         pace: pace(&map.name),
         series: series(&map.name),
+        planet: match map.planet {
+            track::Planet::Mars => 0,
+            track::Planet::Ice => 1,
+        },
     })
 }

@@ -74,8 +74,9 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         let maps = track::builtin_maps();
-        let session = Session::load();
+        let mut session = Session::load();
         let map_index = maps.iter().position(|m| map_key(m) == session.map).unwrap_or(0);
+        session.use_car_for(maps[map_index].planet);
         let track = maps[map_index].build();
         let world = World::new(&track.mesh);
         let run = Run::new(session.profile().params.clone(), &world, &track);
@@ -151,6 +152,7 @@ impl Game {
         self.world = World::new(&self.track.mesh);
         self.track_changed = true;
         self.session.map = self.map_key();
+        self.session.use_car_for(self.maps[index].planet);
         self.session.mark_dirty();
         self.restart();
     }
@@ -233,7 +235,9 @@ impl Game {
         let input = match &mut self.autodrive {
             Some(pilot) => {
                 let s = &self.run.car.state;
-                pilot.input(&self.track.route, s.position, s.rotation * Vec3::Z, s.velocity.length())
+                // Aim along the way the car travels (its nose is off it in a drift).
+                let heading = if s.velocity.length() > 2.0 { s.velocity } else { s.rotation * Vec3::Z };
+                pilot.input(&self.track.route, s.position, heading, s.velocity.length())
             }
             None => self.controls.driving(),
         };
@@ -412,8 +416,11 @@ fn car_items(
             (false, true) => (w1.contact_point, w1.contact_normal),
             (false, false) => look.ground[i],
         };
+        // A wheel sunk into snow is pressed against the ground below its surface: the tyre is
+        // drawn buried in it, not flattened on it.
+        let sink = w0.sink + (w1.sink - w0.sink) * alpha;
         let tyre = (look.touch[i] > 0.0).then(|| Tyre {
-            ground: normal.extend(normal.dot(point)),
+            ground: normal.extend(normal.dot(point) - sink),
             radius: params.wheel_radius,
             half_width: 0.5 * car_model::TYRE_WIDTH * scale,
             pressed: w0.contact || w1.contact,
@@ -423,7 +430,14 @@ fn car_items(
         let centre = into_body * (anchor - Vec3::Y * (look.travel[i] + look.squash[i]));
         let steer = w0.steer_display + (w1.steer_display - w0.steer_display) * alpha;
         let pose = rig.pose(centre.y, steer, angle_lerp(w0.spin, w1.spin, alpha), scale);
-        push(parts.wheel, body * pose.wheel, tyre);
+        if params.front_skis && i < 2 {
+            // The ice planet's prototype: the front wheel flattened into a ski on the snow (its
+            // own model is still to come).
+            let ski = Mat4::from_translation(Vec3::new(0.0, -0.82 * meshes.wheel_radius, 0.0)) * Mat4::from_scale(Vec3::new(0.7, 0.16, 2.6));
+            push(parts.wheel, body * pose.wheel * ski, None);
+        } else {
+            push(parts.wheel, body * pose.wheel, tyre);
+        }
         for (mesh, m) in [
             (parts.arm_lo, pose.arm_lo),
             (parts.arm_up, pose.arm_up),

@@ -1,5 +1,5 @@
-//! Martian dust kicked up by the wheels on dirt and off-track ground (render only, not part
-//! of the deterministic simulation).
+//! Martian dust kicked up by the wheels on dirt and off-track ground, and snow thrown aside by
+//! the wheels ploughing through it (render only, not part of the deterministic simulation).
 
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
@@ -24,6 +24,10 @@ struct Particle {
     life: f32,
     size: f32,
     alpha: f32,
+    /// Upward acceleration, m/s²: fine dust drifts up a little, lumps of snow fall back.
+    lift: f32,
+    /// Growth of the size, m/s.
+    grow: f32,
 }
 
 pub struct Dust {
@@ -57,16 +61,47 @@ impl Dust {
         for p in &mut self.particles {
             p.age += dt;
             p.vel *= 1.0 - 2.2 * dt;
-            p.vel.y += 0.35 * dt; // fine dust drifts up a little before settling
+            p.vel.y += p.lift * dt;
             p.pos += p.vel * dt;
-            p.size += 2.6 * dt;
+            p.size += p.grow * dt;
         }
         self.particles.retain(|p| p.age < p.life);
 
         let speed = state.velocity.length();
-        for w in state.wheels.iter().skip(2) {
+        let left = state.rotation * Vec3::X;
+        for (i, w) in state.wheels.iter().enumerate() {
             let loose = matches!(w.surface, Some(Surface::Dirt) | Some(Surface::Ground));
             if !w.contact || !loose || speed < 6.0 {
+                continue;
+            }
+            if w.sink > 0.02 {
+                // Ploughing through snow (every wheel, the skis too): lumps thrown aside and up
+                // from the wheel's own side, falling back; a wing of them in a slide.
+                let side = if i % 2 == 0 { left } else { -left };
+                let rate = (speed / 30.0).min(2.0) * (1.0 + 4.0 * w.smear) * 32.0;
+                self.carry += rate * dt;
+                while self.carry >= 1.0 && self.particles.len() < CAPACITY {
+                    self.carry -= 1.0;
+                    let jitter = Vec3::new(self.rand() - 0.5, self.rand() - 0.5, self.rand() - 0.5);
+                    let out = 3.0 + 6.0 * w.smear + 3.0 * self.rand();
+                    let up = 2.0 + 2.5 * self.rand();
+                    let life = 0.45 + 0.4 * self.rand();
+                    let size = 0.25 + 0.3 * self.rand();
+                    self.particles.push(Particle {
+                        pos: w.contact_point + Vec3::Y * 0.1,
+                        vel: state.velocity * 0.6 + side * out + Vec3::Y * up + jitter * 1.5,
+                        age: 0.0,
+                        life,
+                        size,
+                        alpha: 0.55 + 0.3 * w.smear,
+                        lift: -14.0,
+                        grow: 0.9,
+                    });
+                }
+                self.carry = self.carry.min(1.0);
+                continue;
+            }
+            if i < 2 {
                 continue;
             }
             let rate = (speed / 40.0).min(1.5) * (0.8 + 3.0 * w.smear + 1.0 * w.mark) * 60.0;
@@ -86,6 +121,9 @@ impl Dust {
                     life,
                     size,
                     alpha,
+                    // Fine dust drifts up a little before settling.
+                    lift: 0.35,
+                    grow: 2.6,
                 });
             }
             self.carry = self.carry.min(1.0);

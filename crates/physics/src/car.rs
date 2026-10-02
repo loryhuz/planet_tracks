@@ -46,6 +46,31 @@ const SCRAPE_YAW: f32 = 0.2;
 /// holds its angle to the path firmly (critically damped), whatever bumps or scrapes do to it.
 const BODY_RATE_GAIN: f32 = 20.0;
 const BODY_ANGLE_GAIN: f32 = 9.0;
+/// Time for a wheel to settle into a soft surface (or climb out of it), s.
+const SINK_TIME: f32 = 0.12;
+/// Share of a surface's `sink` a ski sinks by: it spreads the load and glides on the snow.
+const SKI_SINK: f32 = 0.3;
+/// How much the depth a wheel sinks to varies over the ruts of soft snow (share of it), and the
+/// size of those ruts, m: the car bobs gently as it rolls through snow.
+const SINK_RIPPLE: f32 = 0.35;
+const RIPPLE_CELL: f32 = 9.0;
+
+/// Smooth value noise in -1..1 over a grid of `RIPPLE_CELL` metres (integer hashing and plain
+/// arithmetic only, so it is the same on every platform).
+fn ripple(x: f32, z: f32) -> f32 {
+    let (gx, gz) = (x / RIPPLE_CELL, z / RIPPLE_CELL);
+    let (ix, iz) = (libm::floorf(gx), libm::floorf(gz));
+    let (fx, fz) = (gx - ix, gz - iz);
+    let corner = |a: f32, b: f32| -> f32 {
+        let n = ((a as i32).wrapping_mul(73_856_093) ^ (b as i32).wrapping_mul(19_349_663)) as u32;
+        let n = n.wrapping_mul(0x9E37_79B1) >> 8;
+        n as f32 / 8_388_608.0 - 1.0
+    };
+    let (sx, sz) = (fx * fx * (3.0 - 2.0 * fx), fz * fz * (3.0 - 2.0 * fz));
+    let lo = corner(ix, iz) + (corner(ix + 1.0, iz) - corner(ix, iz)) * sx;
+    let hi = corner(ix, iz + 1.0) + (corner(ix + 1.0, iz + 1.0) - corner(ix, iz + 1.0)) * sx;
+    lo + (hi - lo) * sz
+}
 /// Wheel angle shown at full lock, radians (render only).
 const DISPLAY_LOCK: f32 = 25.0 * core::f32::consts::PI / 180.0;
 
@@ -250,12 +275,21 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     for i in 0..4 {
         let anchor_w = s.position + rot * anchors[i];
         let origin = anchor_w + up * lift;
+        // A wheel sunk into snow rides that much below its surface, deeper or shallower over the
+        // ruts.
+        let mut sink = s.wheels[i].sink;
+        if sink > 0.0 {
+            sink *= 1.0 + SINK_RIPPLE * ripple(anchor_w.x, anchor_w.z);
+        }
         let hit = world.raycast_in(&cands, origin, -up, lift + travel + radius, |h| {
             let c = h.normal.dot(up);
             if h.surface == Surface::Wall { c > 0.7 } else { c > 0.3 }
         });
         if let Some(hit) = hit {
-            let len = hit.distance - lift - radius;
+            let len = hit.distance - lift - radius + sink;
+            if sink > 0.0 && len > travel {
+                continue;
+            }
             let mc = corner_mass(i);
             let k = mc * w_n * w_n;
             let c = 2.0 * p.damping.max(0.0) * mc * w_n;
@@ -292,30 +326,50 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     let (mut lat_raw, mut long_raw) = (0.0f32, 0.0f32);
     let mut weights = [0.0f32; 4];
     let sens = p.load_sensitivity.clamp(0.0, 1.0);
+    // The wheels that drive and brake (skis never do), and how much of the drift's tighter turn
+    // the surfaces allow.
+    let mut n_drive = 0usize;
+    let mut drift_turn_mult = 0.0f32;
+    let mut response = 0.0f32;
+    let mut slide_cost = 0.0f32;
     for i in 0..4 {
         let Some(c) = contacts[i] else { continue };
         let sg = p.surface(c.hit.surface);
+        let ski = p.front_skis && i < 2;
         n_sum += c.hit.normal;
         top_mult += sg.top_speed;
-        traction_mult += sg.traction;
         yaw_mult += sg.yaw;
         drift_max += sg.drift_angle_deg;
+        drift_turn_mult += sg.drift_turn;
+        response += sg.response;
+        slide_cost += sg.slide_cost;
         rolling += sg.rolling;
         drag += sg.drag;
         let rho = c.force * c.hit.normal.dot(up).max(0.0) / (corner_mass(i) * g.max(0.1));
         let rho_eff = (rho_ref(rho) + (rho - rho_ref(rho)) * sens).clamp(0.0, 2.5);
         let share = corner_mass(i) / m * rho_eff;
         lat_raw += sg.grip * share;
-        long_raw += sg.long_grip * share;
+        if !ski {
+            traction_mult += sg.traction;
+            long_raw += sg.long_grip * share;
+            n_drive += 1;
+        }
         weights[i] = sg.grip * share;
         s.wheels[i].load = rho;
+    }
+    if p.front_skis {
+        // The rear wheels alone carry the car's traction and braking grip.
+        long_raw /= rear_share;
     }
     let n_avg = if grounded {
         let k = 1.0 / n_contact as f32;
         top_mult *= k;
-        traction_mult *= k;
+        traction_mult *= if n_drive > 0 { 1.0 / n_drive as f32 } else { 0.0 };
         yaw_mult *= k;
         drift_max *= k;
+        drift_turn_mult *= k;
+        response = (response * k).max(0.05);
+        slide_cost *= k;
         rolling *= k;
         drag *= k;
         n_sum.normalize_or(up)
@@ -323,6 +377,9 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         top_mult = 1.0;
         traction_mult = 1.0;
         yaw_mult = 1.0;
+        drift_turn_mult = 1.0;
+        response = 1.0;
+        slide_cost = 1.0;
         up
     };
     let scale = p.grip_scale.max(0.0);
@@ -362,6 +419,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     let path_before = s.path_rate;
     let usage;
     let drift_ref_rate;
+    let mut exit_pull = 0.0;
     {
         let cap = p.yaw_cap_at(vf) * yaw_mult;
         let command = (vf * tanf(steer_angle) / wheelbase * yaw_mult).clamp(-cap, cap) * s.contact;
@@ -370,7 +428,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         s.yaw_cmd += (command - s.yaw_cmd) * (k * dt).min(1.0);
         let grip_acc = (s.grip * G).max(0.1);
         usage = if speed_plane > 2.0 { s.yaw_cmd.abs() * speed_plane / grip_acc } else { 0.0 };
-        let target = if grounded && vf > 0.0 && usage > 1.0 {
+        let mut target = if grounded && vf > 0.0 && usage > 1.0 {
             let e = (usage - 1.0) / p.drift_excess_full.max(0.05);
             s.yaw_cmd.signum() * drift_max.max(0.0).to_radians() * drift_curve(e)
         } else if grounded {
@@ -378,12 +436,20 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         } else {
             s.drift_ref
         };
+        if grounded && vf > 2.0 && p.brake_pivot_deg > 0.0 {
+            // Braking in a turn locks the rear wheels: the rear swings out toward the outside, the
+            // nose in (the steering's side), up to the surface's largest drift angle.
+            let pivot = (-s.steer * brake).clamp(-1.0, 1.0) * p.brake_pivot_deg.min(drift_max).max(0.0).to_radians();
+            if pivot.abs() > target.abs() && pivot * target >= 0.0 {
+                target = pivot;
+            }
+        }
         let building = target.abs() > s.drift_ref.abs() && target * s.drift_ref >= 0.0;
-        let tau = if building { p.drift_build_s } else { p.drift_release_s }.max(dt);
+        let tau = (if building { p.drift_build_s } else { p.drift_release_s } / response).max(dt);
         let mut rate = (target - s.drift_ref) / tau;
         if building {
             // The body swings out no faster than this relative to its path (no whip).
-            let most = p.drift_swing_rate.max(0.1);
+            let most = p.drift_swing_rate.max(0.1) * response;
             rate = rate.clamp(-most, most);
         } else if s.drift_ref != 0.0 {
             // The angle closes by the body turning less than its path, never against it: while
@@ -393,7 +459,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
             let dir = s.drift_ref.signum();
             let into = (-s.steer * dir).clamp(0.0, 1.0);
             let path_turn = (s.path_rate * dir).max(0.0);
-            let most = p.drift_hold_turn.clamp(0.0, 1.0) * path_turn + (1.0 - into) * p.drift_swing_rate.max(0.1);
+            let most = p.drift_hold_turn.clamp(0.0, 1.0) * path_turn + (1.0 - into) * p.drift_swing_rate.max(0.1) * response;
             if rate * dir < -most {
                 rate = -most * dir;
             }
@@ -404,6 +470,11 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
             s.drift_ref = target;
         }
         drift_ref_rate = (s.drift_ref - before) / dt;
+        // The end of a drift under throttle: the path swings onto the body by `drift_exit` of the
+        // angle closing, so the car leaves along its nose instead of the nose swinging back.
+        if grounded && p.drift_exit > 0.0 && !building && drift_ref_rate * before < 0.0 {
+            exit_pull = -drift_ref_rate * p.drift_exit.clamp(0.0, 1.0) * gas;
+        }
 
         // The path: as asked within the grip. Beyond it, drifting lets the car turn tighter: as
         // the drift angle develops toward what the steering asks, the path's achievable rate grows
@@ -416,7 +487,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
             // angle decays, so the end of a drift never loosens the line.
             let full_at = target.abs().min(10f32.to_radians());
             let progress = if full_at > 1e-3 { (s.drift_ref.abs() / full_at).min(1.0) } else { 1.0 };
-            let extra = (s.yaw_cmd.abs() - grip_rate).max(0.0) * p.drift_turn.clamp(0.0, 1.0) * progress;
+            let extra = (s.yaw_cmd.abs() - grip_rate).max(0.0) * (p.drift_turn * drift_turn_mult).clamp(0.0, 1.0) * progress;
             let most = grip_rate + extra;
             s.yaw_cmd.clamp(-most, most)
         } else {
@@ -429,6 +500,9 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         } else {
             wanted
         };
+        if exit_pull != 0.0 {
+            s.path_rate += exit_pull;
+        }
     }
     let path_accel = (s.path_rate - path_before) / dt;
 
@@ -529,7 +603,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     // Drifting and turning cost speed.
     if grounded && speed_plane > 1.0 {
         let beyond = (s.path_rate.abs() * speed_plane - s.grip * G).max(0.0);
-        let bleed = p.drift_bleed.max(0.0) * (s.drift_angle.abs() / 30f32.to_radians()).min(3.0)
+        let bleed = p.drift_bleed.max(0.0) * slide_cost.max(0.0) * (s.drift_angle.abs() / 30f32.to_radians()).min(3.0)
             + p.drift_turn_cost.max(0.0) * beyond;
         let w = s.path_rate.abs().min(p.yaw_cap_at(vf));
         let decel = (bleed + p.turn_drag.max(0.0) * w * w).min(speed_plane / dt * 0.5);
@@ -669,13 +743,17 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
                 // what the path needs (path assumed through the rear axle).
                 let slip_angle = if i < 2 { s.drift_angle + steer_angle - kinematic } else { s.drift_angle };
                 w.smear = libm::fabsf(sinf(slip_angle));
-                w.mark = mark;
+                let sg = p.surface(c.hit.surface);
+                w.mark = mark.max(sg.trail);
+                let sink = if p.front_skis && i < 2 { sg.sink * SKI_SINK } else { sg.sink };
+                w.sink += (sink - w.sink) * (dt / SINK_TIME).min(1.0);
                 w.slip = w.smear.max(wheelspin);
             }
             None => {
                 w.contact = false;
                 w.surface = None;
                 w.suspension = travel;
+                w.sink += (0.0 - w.sink) * (dt / SINK_TIME).min(1.0);
                 w.slip = 0.0;
                 w.load = 0.0;
                 w.mark = 0.0;
@@ -684,6 +762,9 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
                 let target = if brake > 0.0 { 0.0 } else { target };
                 w.spin_rate += (target - w.spin_rate) * (3.0 * dt);
             }
+        }
+        if p.front_skis && i < 2 {
+            w.spin_rate = 0.0;
         }
         w.spin = (w.spin + w.spin_rate * dt) % TWO_PI;
     }

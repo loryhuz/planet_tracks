@@ -40,6 +40,7 @@ fn fs_dust(in: VsOut) -> @location(0) vec4<f32> {
     let d = length(in.uv);
     let soft = 1.0 - smoothstep(0.2, 1.0, d);
     let a = clamp(in.alpha * soft, 0.0, 1.0);
-    let color = to_srgb(vec3<f32>(0.85, 0.58, 0.40));
+    // Martian dust, or snow spray on the ice planet (frame.misc.w = 1).
+    let color = to_srgb(select(vec3<f32>(0.85, 0.58, 0.40), vec3<f32>(0.9, 0.94, 1.0), frame.misc.w > 0.5));
     return vec4<f32>(color * a, a);
 }

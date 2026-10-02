@@ -415,7 +415,7 @@ impl App {
 
         if std::mem::take(&mut game.track_changed) {
             g.scene.replace(&g.gpu.device, g.track_mesh, &track_render_data(&game.track));
-            g.scene.set_track(&g.gpu, &game.track, g.track_mesh);
+            g.scene.set_track(&g.gpu, &game.track, g.track_mesh, game.maps[game.map_index].planet);
         }
 
         let target = target_texture.create_view(&Default::default());
@@ -593,7 +593,7 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
-        scene.set_track(&gpu, &self.game.track, track_mesh);
+        scene.set_track(&gpu, &self.game.track, track_mesh, self.game.maps[self.game.map_index].planet);
         let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
@@ -689,8 +689,8 @@ fn window_size() -> LogicalSize<f64> {
         .unwrap_or(LogicalSize::new(1600.0, 900.0))
 }
 
-/// `MARS_HEADLESS=1`: the autopilot drives every profile without a window and prints the
-/// race events (technical check: the track is completed, nothing falls through).
+/// `MARS_HEADLESS=1`: the autopilot drives the map's car (its planet's profiles) without a window
+/// and prints the race events (technical check: the track is completed, nothing falls through).
 fn headless() {
     let mut game = Game::new();
     if let Ok(name) = std::env::var("MARS_MAP") {
@@ -699,7 +699,11 @@ fn headless() {
         }
     }
     game.autodrive = Some(debug::Autopilot::default());
+    let car = physics::car_for(game.maps[game.map_index].planet).name;
     for i in 0..game.session.profiles.len() {
+        if game.session.profiles[i].defaults.name != car {
+            continue;
+        }
         game.select_profile(i);
         let name = game.session.profile().params.name.clone();
         let mut ticks = 0;

@@ -7,7 +7,8 @@
 //! With two numbers the driver lifts and brakes before the bends, allowing itself that lateral
 //! acceleration (m/s²) on road and on dirt (see `Autopilot::braking`); without, it never brakes.
 //! `QUIET=1` prints the summary only; `PARAMS=session` drives with the current profile of the
-//! game's session file (`tuning/session.json`) instead of the presets.
+//! game's session file (`tuning/session.json`) instead of the presets. Another planet's map is
+//! driven with that planet's car.
 use physics::{Car, World, presets, testing::Autopilot};
 use track::Surface;
 
@@ -43,8 +44,10 @@ fn main() {
         let session: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).expect("session file")).expect("session JSON");
         let profile = &session["profiles"][session["current"].as_u64().unwrap_or(0) as usize];
         vec![serde_json::from_value::<physics::CarParams>(profile["params"].clone()).expect("params")]
-    } else {
+    } else if map.planet.is_mars() {
         presets()
+    } else {
+        vec![physics::car_for(map.planet)]
     };
     for p in cars {
         let mut car = Car::new(p.clone(), &world, track.start);

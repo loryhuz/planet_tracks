@@ -81,6 +81,14 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   on one and needs another shot 0.3 s later). Everything for
   debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
   `MARS_DEBUG_PANEL=1`.
+- `crates/app/src/weather.rs` — the weather, render only (the wind never pushes the car): a
+  `Climate` per planet (Mars: a breeze blowing from the sandstorm, light sand drifting in the
+  air, a gust every few seconds) that every map gets, the gusts being placed on the track's route
+  ahead of the car, often to cross the road as it gets there. Drawn by `shaders/weather.wgsl`:
+  grains as short streaks in a box of air that follows the camera, gust clouds as puffs of
+  animated smoke that thin out near the camera, a light veil when the camera is inside one.
+  `MARS_WEATHER=off|gusty` stills the air or brings a gust every second (checks); a hidden
+  screenshot run needs `MARS_BENCH` for the weather to advance between its shots.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged
   suspension, the registered plans as image empties) and exports `crates/app/assets/buggy.glb` and
   its livery atlas `buggy_livery.png`, which the app embeds: rerun

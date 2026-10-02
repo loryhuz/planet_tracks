@@ -24,6 +24,7 @@ mod surfaces;
 mod ui;
 mod ui_sound;
 mod video;
+mod weather;
 
 use std::sync::Arc;
 use std::time::Instant;

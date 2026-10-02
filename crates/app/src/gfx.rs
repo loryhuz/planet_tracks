@@ -12,6 +12,7 @@ use winit::window::Window;
 use crate::marks::{CAPACITY as MARKS_CAPACITY, MarkVertex};
 use crate::particles::{CAPACITY as DUST_CAPACITY, ParticleVertex};
 use crate::surfaces::SurfaceTextures;
+use crate::weather::{Climate, GustInstance, MAX_GUSTS, Weather};
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const MSAA: u32 = 4;
@@ -40,6 +41,10 @@ const STORM_SUN_OFFSET: f32 = 30.0;
 /// storm.wgsl draws COLUMNS × ROWS quads per curtain, two curtains.
 const STORM_VERTICES: u32 = 128 * 10 * 6;
 const STORM_CURTAINS: u32 = 2;
+/// weather.wgsl's grains around the camera, and each gust's puffs and grains (6 vertices each).
+const WEATHER_GRAIN_VERTICES: u32 = 2400 * 6;
+const PUFF_VERTICES: u32 = 28 * 6;
+const GUST_GRAIN_VERTICES: u32 = 260 * 6;
 
 pub struct Gpu {
     pub surface: wgpu::Surface<'static>,
@@ -130,6 +135,8 @@ const VERTEX_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
 ];
 const SHADOW_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const DUST_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32];
+const GUST_ATTRS: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
 const MARK_ATTRS: [wgpu::VertexAttribute; 5] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32, 3 => Float32, 4 => Uint32];
 
@@ -236,6 +243,12 @@ struct FrameUniform {
     storm_a: [f32; 4],
     storm_b: [f32; 4],
     far_light_view_proj: [[f32; 4]; 4],
+    /// The weather (weather.rs): wind, drift of the air, camera velocity.
+    wind: [f32; 4],
+    drift: [f32; 4],
+    eye_vel: [f32; 4],
+    /// Viewport in pixels, and pixels per metre at a metre's depth.
+    viewport: [f32; 4],
 }
 
 #[repr(C)]
@@ -277,6 +290,15 @@ pub struct SceneRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     storm_pipeline: wgpu::RenderPipeline,
     storm: Option<StormSite>,
+    /// Wind, drifting sand and gusts over the current track.
+    weather: Option<Weather>,
+    climate: Climate,
+    grain_pipeline: wgpu::RenderPipeline,
+    gust_grain_pipeline: wgpu::RenderPipeline,
+    puff_pipeline: wgpu::RenderPipeline,
+    veil_pipeline: wgpu::RenderPipeline,
+    gust_buffer: wgpu::Buffer,
+    gust_count: u32,
     /// `MARS_STORM_TIME`: seconds of approach skipped, to see the storm at its closest.
     storm_skip: f32,
     /// Seconds since the track was set, when the clock is not the wall's (filming).
@@ -771,6 +793,62 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let weather_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("weather.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/weather.wgsl").into()),
+        });
+        let gust_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<GustInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &GUST_ATTRS,
+        };
+        let gust_buffers = [Some(gust_layout)];
+        // Blended over the scene like the dust, tested against its depth (the veil over all of it).
+        let weather_pipeline = |label: &str, vertex: &str, fragment: &str, gusts: bool, depth: wgpu::CompareFunction| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&scene_layout),
+                vertex: wgpu::VertexState {
+                    module: &weather_module,
+                    entry_point: Some(vertex),
+                    compilation_options: Default::default(),
+                    buffers: if gusts { &gust_buffers } else { &[] },
+                },
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(depth),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: MSAA, mask: !0, alpha_to_coverage_enabled: false },
+                fragment: Some(wgpu::FragmentState {
+                    module: &weather_module,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState { color: premultiplied, alpha: premultiplied }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let nearer = wgpu::CompareFunction::GreaterEqual;
+        let grain_pipeline = weather_pipeline("weather grains", "vs_grain", "fs_grain", false, nearer);
+        let gust_grain_pipeline = weather_pipeline("gust grains", "vs_gust_grain", "fs_grain", true, nearer);
+        let puff_pipeline = weather_pipeline("gust puffs", "vs_puff", "fs_puff", true, nearer);
+        let veil_pipeline = weather_pipeline("gust veil", "vs_veil", "fs_veil", false, wgpu::CompareFunction::Always);
+        let gust_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gusts"),
+            size: (MAX_GUSTS * std::mem::size_of::<GustInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let (msaa_view, depth_view) = create_targets(device, format, gpu.config.width, gpu.config.height);
         Self {
             pipeline,
@@ -785,6 +863,14 @@ impl SceneRenderer {
             sky_pipeline,
             storm_pipeline,
             storm: None,
+            weather: None,
+            climate: Climate::from_env(),
+            grain_pipeline,
+            gust_grain_pipeline,
+            puff_pipeline,
+            veil_pipeline,
+            gust_buffer,
+            gust_count: 0,
             storm_skip: std::env::var("MARS_STORM_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.0),
             clock: None,
             shadow_pipeline,
@@ -815,7 +901,8 @@ impl SceneRenderer {
     }
 
     /// Sets the scene up for a new track, drawn with `mesh`: bakes its far shadows, places the
-    /// sandstorm and starts its approach over (kilometres beyond the route, ahead of the start).
+    /// sandstorm and starts its approach over (kilometres beyond the route, ahead of the start),
+    /// and starts the weather over, the wind blowing from the storm.
     pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId) {
         self.bake_shadows(gpu, track, mesh);
         let (lo, hi) = track.route.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(lo, hi), p| {
@@ -827,6 +914,7 @@ impl SceneRenderer {
         let forward = Vec2::new(track.start.forward().x, track.start.forward().z);
         let away = if forward.perp_dot(sun) > 0.0 { -STORM_SUN_OFFSET } else { STORM_SUN_OFFSET };
         let dir = Vec2::from_angle(away.to_radians()).rotate(forward);
+        self.weather = Some(Weather::new(self.climate, &track.route, -dir));
         self.storm = Some(StormSite {
             centre: Vec3::new(mid.x, track.start.position.y, mid.y),
             dir,
@@ -1000,13 +1088,28 @@ impl SceneRenderer {
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
             far_light_view_proj: self.far_light_view_proj.to_cols_array_2d(),
+            wind: [0.0; 4],
+            drift: [0.0; 4],
+            eye_vel: [0.0; 4],
+            viewport: [self.size.0 as f32, self.size.1 as f32, 0.5 * self.size.1 as f32 * view.proj.y_axis.y, 0.0],
         };
         if let Some(s) = &self.storm {
-            let t = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32()) + self.storm_skip;
+            let since = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32());
+            let t = since + self.storm_skip;
             let left = (-t / STORM_APPROACH).exp();
             let front = s.reach + STORM_STOP + (STORM_START - STORM_STOP) * left;
             frame.storm_a = [s.centre.x, s.centre.z, s.dir.x, s.dir.y];
             frame.storm_b = [front, t, s.centre.y, 1.0 - left];
+            if let Some(w) = &mut self.weather {
+                w.update(since, view.eye);
+                let u = w.uniforms();
+                (frame.wind, frame.drift, frame.eye_vel) = (u.wind, u.drift, u.eye_vel);
+                let gusts = w.instances();
+                if !gusts.is_empty() {
+                    gpu.queue.write_buffer(&self.gust_buffer, 0, bytemuck::cast_slice(&gusts));
+                }
+                self.gust_count = gusts.len() as u32;
+            }
         }
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
 
@@ -1091,10 +1194,29 @@ impl SceneRenderer {
             pass.set_bind_group(1, &self.object_group, &[0]);
             pass.set_vertex_buffer(0, self.marks_buffer.slice(..));
             pass.draw(0..(MARKS_CAPACITY * 6) as u32, 0..1);
+            // The weather: the gusts' clouds and sand, the grains in the air, then the wheels'
+            // dust (nearer), and the veil when the camera stands in a gust.
+            if self.weather.is_some() {
+                if self.gust_count > 0 {
+                    pass.set_vertex_buffer(0, self.gust_buffer.slice(..));
+                    pass.set_pipeline(&self.puff_pipeline);
+                    pass.draw(0..PUFF_VERTICES, 0..self.gust_count);
+                    pass.set_pipeline(&self.gust_grain_pipeline);
+                    pass.draw(0..GUST_GRAIN_VERTICES, 0..self.gust_count);
+                }
+                if frame.drift[2] > 0.0 {
+                    pass.set_pipeline(&self.grain_pipeline);
+                    pass.draw(0..WEATHER_GRAIN_VERTICES, 0..1);
+                }
+            }
             if self.dust_count > 0 {
                 pass.set_pipeline(&self.dust_pipeline);
                 pass.set_vertex_buffer(0, self.dust_buffer.slice(..));
                 pass.draw(0..self.dust_count, 0..1);
+            }
+            if frame.drift[3] > 0.004 {
+                pass.set_pipeline(&self.veil_pipeline);
+                pass.draw(0..3, 0..1);
             }
         }
     }

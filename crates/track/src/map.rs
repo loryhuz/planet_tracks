@@ -65,6 +65,7 @@ use std::fmt;
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::camp::{self, Structure};
 use crate::dirt::Corridors;
 use crate::kit::{self, CELL, Connector, Edge, FALL_LIMIT_Y, Gate, Heading, Kind, LEVEL, Layout, Piece, Pivot, Placed, Side};
 use crate::landform::Landform;
@@ -120,6 +121,9 @@ pub struct Map {
     pub blocks: Vec<BlockPlacement>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub landforms: Vec<Landform>,
+    /// The colony's camps, posts and buildings (see [`crate::camp`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub structures: Vec<Structure>,
     #[serde(default)]
     pub scenery: Vec<Prop>,
 }
@@ -450,6 +454,9 @@ pub struct TriangleCounts {
     pub blocks: usize,
     pub terrain: usize,
     pub scenery: usize,
+    /// The structures: what collides (in the track's mesh), what only draws (in its decor).
+    pub structures: usize,
+    pub structures_drawn: usize,
 }
 
 /// A built map with the parts tools and checks need.
@@ -484,8 +491,13 @@ impl Map {
         } else {
             format!("  \"landforms\": {},\n", list(self.landforms.iter().map(compact).collect()))
         };
+        let structures = if self.structures.is_empty() {
+            String::new()
+        } else {
+            format!("  \"structures\": {},\n", list(self.structures.iter().map(compact).collect()))
+        };
         format!(
-            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n  \"blocks\": {},\n{}  \"scenery\": {}\n}}\n",
+            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n  \"blocks\": {},\n{}{}  \"scenery\": {}\n}}\n",
             self.format,
             compact(&self.name),
             compact(&self.author),
@@ -493,6 +505,7 @@ impl Map {
             compact(&self.terrain),
             list(self.blocks.iter().map(compact).collect()),
             landforms,
+            structures,
             list(self.scenery.iter().map(compact).collect()),
         )
     }
@@ -623,7 +636,8 @@ impl Map {
         }
         // Terrain, with the dirt corridors.
         let dirt = Corridors::new(&r.pieces, &route_s, &r.next, self.terrain.seed);
-        let terrain = Terrain::new(&self.terrain, kit::centre_of(&r.pieces), caps, dirt, &self.landforms);
+        let pads: Vec<camp::Pad> = self.structures.iter().flat_map(|s| s.pads()).collect();
+        let terrain = Terrain::new(&self.terrain, kit::centre_of(&r.pieces), caps, dirt, &self.landforms, &pads);
         // Gates, standing on the terrain.
         for p in &r.pieces {
             if p.piece.gate.is_some() {
@@ -648,14 +662,26 @@ impl Map {
         let mut track = layout.track(TrackMesh::default(), FALL_LIMIT_Y.min(lowest - 20.0));
         let mut props = self.scenery.clone();
         let scattered = scenery::scatter(&terrain, &track.route, &self.scenery);
-        props.extend(scattered);
+        let clear = |p: &Prop| !self.structures.iter().any(|s| s.covers(Vec2::new(p.position[0], p.position[2]), p.radius()));
+        props.extend(scattered.into_iter().filter(clear));
         let rocks = scenery::props_mesh(&props, &terrain);
         mesh.append(&rocks);
+        // The structures, standing on the levelled terrain.
+        let (camps, camp_decor) = camp::build(&self.structures, &terrain);
+        mesh.append(&camps);
         track.mesh = mesh;
-        track.decor = decor.finish();
+        let mut decor = decor.finish();
+        decor.append(&camp_decor);
+        track.decor = decor;
         Ok(BuiltMap {
             props: scenery::placed(&props, &terrain),
-            triangles: TriangleCounts { blocks, terrain: ground.triangle_count(), scenery: rocks.triangle_count() },
+            triangles: TriangleCounts {
+                blocks,
+                terrain: ground.triangle_count(),
+                scenery: rocks.triangle_count(),
+                structures: camps.triangle_count(),
+                structures_drawn: camp_decor.triangle_count(),
+            },
             track,
             layout,
             terrain,

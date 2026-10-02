@@ -27,6 +27,23 @@ pub fn attach_to_scene(window: &Window) {
     }
 }
 
+/// Puts the app's audio session in the Playback category, so the game is heard with the phone on
+/// silent: the default category, SoloAmbient, is muted by the Ring/Silent switch and the Action
+/// button. Before the output stream starts, which activates the session.
+pub fn play_sound_when_silenced() {
+    // SAFETY: AVAudioSession (AVFAudio, linked by cpal) answers on any thread; the category is the
+    // value of AVAudioSessionCategoryPlayback, and a null error pointer is allowed.
+    unsafe {
+        let session: *mut AnyObject = msg_send![class!(AVAudioSession), sharedInstance];
+        let category = objc2_foundation::NSString::from_str("AVAudioSessionCategoryPlayback");
+        let error: *mut *mut AnyObject = std::ptr::null_mut();
+        let ok: bool = msg_send![session, setCategory: &*category, error: error];
+        if !ok {
+            eprintln!("audio: the session refused the Playback category");
+        }
+    }
+}
+
 /// The screen's notch, rounded corners and home indicator, in egui points. winit's inner
 /// rectangle is the safe area; egui-winit's insets would ignore the menu's zoom.
 pub fn safe_area(window: &Window, zoom: f32) -> egui::SafeAreaInsets {

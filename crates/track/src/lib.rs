@@ -8,6 +8,7 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+pub mod camp;
 pub mod demo;
 pub mod dirt;
 pub mod gates;

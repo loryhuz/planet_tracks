@@ -22,12 +22,26 @@ struct Frame {
     storm_b: vec4<f32>,
     // The far shadow map's sun: baked once over the whole circuit (see shadow_factor).
     far_light_view_proj: mat4x4<f32>,
+    // The weather's and the viewport's (weather.wgsl).
+    wind: vec4<f32>,
+    drift: vec4<f32>,
+    eye_vel: vec4<f32>,
+    viewport: vec4<f32>,
+    // The car's tyres on the ground (tyre_shade), three vectors each: the middle of the footprint
+    // and the shade's strength (0: none); the axle and the footprint's half width; the heading
+    // and its half length.
+    contacts: array<vec4<f32>, 12>,
 };
 
 struct Object {
     model: mat4x4<f32>,
     // rgb multiplies the vertex colour; a < 1 draws the object as a ghost
     tint: vec4<f32>,
+    // A wheel near the ground (squash_tyre): the ground plane (unit normal, its dot with a point
+    // of the plane), and the tyre's unloaded radius, half width, and whether it is pressed on
+    // that ground (x = 0: not a wheel).
+    ground: vec4<f32>,
+    tyre: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -73,9 +87,66 @@ struct VsOut {
     @location(5) dirt: f32,
 };
 
+// Rubber (gfx::kind::RUBBER).
+const K_RUBBER: u32 = 11u;
+// Width of the rounded edge round a tyre's contact patch, m, and how far the sidewalls bulge out
+// over the patch, per metre the tyre is pressed in.
+const PATCH_EDGE: f32 = 0.012;
+const BULGE: f32 = 0.6;
+
+// A loaded tyre: the renderer sinks the wheel into the ground by the tyre's deflection
+// (car_model::Look), and the rubber below the ground is pressed flat onto it here, the contact
+// patch with a rounded edge, while the sidewalls bulge out over it.
+fn squash_tyre(p: vec3<f32>) -> vec3<f32> {
+    let n = object.ground.xyz;
+    let centre = object.model[3].xyz;
+    let r = object.tyre.x;
+    let sink = r - (dot(n, centre) - object.ground.w);
+    if sink <= 0.0 {
+        return p;
+    }
+    let h = dot(n, p) - object.ground.w;
+    // max(h, 0), rounded over PATCH_EDGE.
+    let e = max(PATCH_EDGE - abs(h), 0.0) / PATCH_EDGE;
+    let lifted = max(h, 0.0) + e * e * PATCH_EDGE * 0.25;
+    let axle = normalize(object.model[0].xyz);
+    let across = dot(p - centre, axle);
+    let side = sign(across) * smoothstep(0.35, 0.95, abs(across) / object.tyre.y);
+    let low = 1.0 - smoothstep(0.0, 0.5 * r, lifted);
+    return p + n * (lifted - h) + axle * (side * low * sink * BULGE);
+}
+
+// How much ambient light reaches the ground at `p` past the car's tyres: each hides the sky
+// from the ground round its footprint, darkest at its edge and fading over a few decimetres.
+const TYRE_SHADE: f32 = 0.6;
+const TYRE_SHADE_REACH: f32 = 0.16;
+
+fn tyre_shade(p: vec3<f32>) -> f32 {
+    var lit = 1.0;
+    for (var i = 0u; i < 4u; i++) {
+        let c = frame.contacts[3u * i];
+        if c.w <= 0.0 {
+            continue;
+        }
+        let axle = frame.contacts[3u * i + 1u];
+        let heading = frame.contacts[3u * i + 2u];
+        let v = p - c.xyz;
+        let q = vec3<f32>(
+            max(abs(dot(v, axle.xyz)) - axle.w, 0.0),
+            max(abs(dot(v, heading.xyz)) - heading.w, 0.0),
+            dot(v, cross(axle.xyz, heading.xyz)),
+        );
+        lit *= 1.0 - c.w * TYRE_SHADE * exp(-length(q) / TYRE_SHADE_REACH);
+    }
+    return lit;
+}
+
 @vertex
 fn vs_main(v: VsIn) -> VsOut {
-    let world = object.model * vec4<f32>(v.pos, 1.0);
+    var world = object.model * vec4<f32>(v.pos, 1.0);
+    if object.tyre.z > 0.5 && v.kind == K_RUBBER {
+        world = vec4<f32>(squash_tyre(world.xyz), 1.0);
+    }
     var o: VsOut;
     o.clip = frame.view_proj * world;
     o.world = world.xyz;
@@ -1075,7 +1146,10 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     let ndl = select(max(dot(n, l), 0.0), max((dot(n, l) + 0.45) / 1.45, 0.0), cloth);
     let sun = shadow_factor(in.world, n);
     let sh = select(sun, mix(sun, 1.0, 0.35), cloth);
-    let hemi = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, n.y * 0.5 + 0.5);
+    var hemi = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, n.y * 0.5 + 0.5);
+    if terrain {
+        hemi *= tyre_shade(in.world);
+    }
     let storm = storm_ground(in.world);
     var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi) + emit;
 

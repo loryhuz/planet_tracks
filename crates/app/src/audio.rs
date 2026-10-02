@@ -71,6 +71,8 @@ pub struct Audio {
 impl Audio {
     /// None when there is no output device; the game runs silent.
     pub fn new() -> Option<Self> {
+        #[cfg(target_os = "ios")]
+        crate::ios::play_sound_when_silenced();
         let host = cpal::default_host();
         let device = host.default_output_device()?;
         let supported = device.default_output_config().ok()?;

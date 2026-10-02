@@ -42,8 +42,13 @@ link the main checkout's `track` (missing a new block or surface).
   Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
-  kept up to date with the code. The `booster` variant paints arrows on any road block (a
-  `Surface::Booster` deck: the physics' `boost_accel`/`boost_time` push along the path).
+  kept up to date with the code. Its shape sheet (`docs/blocks/*.svg`) is drawn from the
+  geometry by `cargo run -p track --release --example shapes`: rerun it when a shape changes.
+  The `booster` variant paints arrows on any road block (a `Surface::Booster` deck: the physics'
+  `boost_accel`/`boost_time` push along the path).
+  The colony's scenery (observation posts, base camps, the colony with its giant domes, tower
+  and rocket) is `crates/track/src/camp.rs`, placed by a map's `structures` list and levelling the
+  terrain under it; its art direction is `art/scenery/brief.md`.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a

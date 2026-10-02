@@ -166,8 +166,9 @@ fn road_spill(vertices: &mut [Vertex]) {
 
 /// What a wall is made of, told by the kit's colour it was given: inflatable bumpers, sandbags,
 /// tarp-wrapped slabs and the gates' fabric sleeves, the gates' banner, plastic tubes, straps,
-/// steel stakes and buckles, concrete sides of dirt mounds, the dug earth of dirt jumps, and
-/// rocks (any other colour: the scenery shades each rock its own way).
+/// steel stakes and buckles, concrete sides of dirt mounds, the dug earth of dirt jumps, the
+/// camps' fabric, paint, glass, lamps and tyres, and rocks (any other colour: the scenery shades
+/// each rock its own way).
 fn wall_kind(color: [f32; 3]) -> u32 {
     use track::kit::color as c;
     match color {
@@ -180,6 +181,12 @@ fn wall_kind(color: [f32; 3]) -> u32 {
         x if x == c::STEEL || x == c::RUST || x == c::STAKE => gfx::kind::STEEL,
         x if x == c::WALL => gfx::kind::CONCRETE,
         x if x == c::EARTH_FACE => gfx::kind::EARTH,
+        // The camps (track's camp.rs).
+        x if x == c::FABRIC || x == c::FLAG => gfx::kind::TARP,
+        x if x == c::PAINT_WHITE || x == c::PAINT_ORANGE || x == c::PAINT_GREY || x == c::PAINT_BLACK => gfx::kind::PAINT,
+        x if x == c::WINDOW || x == c::SOLAR || x == c::GREENHOUSE => gfx::kind::GLASS,
+        x if x == c::BEACON_RED || x == c::BEACON_AMBER => gfx::kind::GLOW,
+        x if x == c::TYRE => gfx::kind::RUBBER,
         _ => gfx::kind::ROCK,
     }
 }
@@ -443,6 +450,7 @@ impl App {
             model: glam::Mat4::IDENTITY,
             tint: glam::Vec4::ONE,
             cast_shadow: true,
+            tyre: None,
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {

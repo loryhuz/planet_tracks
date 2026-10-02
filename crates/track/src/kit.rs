@@ -189,6 +189,24 @@ pub mod color {
     /// sleeves on their legs.
     pub const BANNER: [f32; 3] = [0.81, 0.80, 0.77];
     pub const SLEEVE: [f32; 3] = [0.80, 0.79, 0.76];
+    /// The camps (camp.rs): white fabric of the domes, tunnels and cabins, and the flags and pad
+    /// marks in orange fabric (both drawn as tarp).
+    pub const FABRIC: [f32; 3] = [0.83, 0.82, 0.79];
+    pub const FLAG: [f32; 3] = [0.86, 0.32, 0.06];
+    /// Painted steel of the tanks, containers, rovers and the rocket.
+    pub const PAINT_WHITE: [f32; 3] = [0.72, 0.72, 0.70];
+    pub const PAINT_ORANGE: [f32; 3] = [0.80, 0.26, 0.035];
+    pub const PAINT_GREY: [f32; 3] = [0.30, 0.31, 0.32];
+    pub const PAINT_BLACK: [f32; 3] = [0.035, 0.035, 0.04];
+    /// Glass: tinted windows, solar panels, greenhouse panes.
+    pub const WINDOW: [f32; 3] = [0.035, 0.045, 0.055];
+    pub const SOLAR: [f32; 3] = [0.02, 0.035, 0.09];
+    pub const GREENHOUSE: [f32; 3] = [0.16, 0.30, 0.20];
+    /// Lamps of the beacons, unlit by the sun.
+    pub const BEACON_RED: [f32; 3] = [1.0, 0.06, 0.03];
+    pub const BEACON_AMBER: [f32; 3] = [1.0, 0.42, 0.04];
+    /// Rubber of the rovers' tyres, and the pads' scorch marks.
+    pub const TYRE: [f32; 3] = [0.05, 0.045, 0.04];
 }
 
 /// Half the width of a deck of this surface.

@@ -217,7 +217,29 @@ pub struct DrawItem {
     pub model: Mat4,
     pub tint: Vec4,
     pub cast_shadow: bool,
+    /// A wheel near the ground: its tyre flattens on it (scene.wgsl's `squash_tyre`) and shades
+    /// it (`tyre_shade`).
+    pub tyre: Option<Tyre>,
 }
+
+/// The ground under a wheel and the tyre's size: the vertex shader flattens the tyre's rubber
+/// where the renderer sinks it into the ground, and the ground round it is shaded.
+#[derive(Clone, Copy, Debug)]
+pub struct Tyre {
+    /// Ground plane, world: unit normal, and the normal's dot with a point of the plane (where
+    /// the tyre last touched it).
+    pub ground: Vec4,
+    /// Unloaded radius and half width, m.
+    pub radius: f32,
+    pub half_width: f32,
+    /// The tyre is on that ground now (its rubber flattens on it).
+    pub pressed: bool,
+    /// How dark the shade round it, 0..1 (eased with the contact).
+    pub shade: f32,
+}
+
+/// Tyres whose shade the ground shows (the player's car's).
+const MAX_CONTACTS: usize = 4;
 
 /// Camera and lighting for one frame.
 pub struct View {
@@ -251,6 +273,10 @@ struct FrameUniform {
     eye_vel: [f32; 4],
     /// Viewport in pixels, and pixels per metre at a metre's depth.
     viewport: [f32; 4],
+    /// Tyres on the ground, three vectors each: the middle of the footprint and the shade's
+    /// strength (0: none); the axle and the footprint's half width; the heading and its half
+    /// length (all in the ground's plane).
+    contacts: [[f32; 4]; 3 * MAX_CONTACTS],
 }
 
 #[repr(C)]
@@ -258,6 +284,30 @@ struct FrameUniform {
 struct ObjectUniform {
     model: [[f32; 4]; 4],
     tint: [f32; 4],
+    /// A tyre's ground plane, and its radius and half width (0: not a tyre); see [`Tyre`].
+    ground: [f32; 4],
+    tyre: [f32; 4],
+}
+
+/// The footprints of the opaque cars' tyres on the ground (see [`FrameUniform::contacts`]): under
+/// each wheel's centre, faded as the wheel rises off the ground.
+fn tyre_contacts(items: &[DrawItem]) -> [[f32; 4]; 3 * MAX_CONTACTS] {
+    let mut out = [[0.0; 4]; 3 * MAX_CONTACTS];
+    let tyres = items.iter().filter(|item| item.tint.w >= 0.99).filter_map(|item| Some((item.model, item.tyre?)));
+    for (k, (model, t)) in tyres.take(MAX_CONTACTS).enumerate() {
+        let n = t.ground.truncate();
+        let centre = model.w_axis.truncate();
+        let above = n.dot(centre) - t.ground.w;
+        let axle = model.x_axis.truncate();
+        let axle = (axle - n * n.dot(axle)).normalize_or_zero();
+        let heading = axle.cross(n);
+        let lift = (above - t.radius).max(0.0) / (0.6 * t.radius);
+        let shade = t.shade * (1.0 - lift.min(1.0));
+        out[3 * k] = (centre - n * above).extend(shade).to_array();
+        out[3 * k + 1] = axle.extend(t.half_width).to_array();
+        out[3 * k + 2] = heading.extend(0.35 * t.radius).to_array();
+    }
+    out
 }
 
 pub fn srgb(r: u8, g: u8, b: u8) -> [f32; 3] {
@@ -967,7 +1017,7 @@ impl SceneRenderer {
         self.far_light_view_proj = light_proj * light_view;
         self.far_lift = 0.5 * (max.x - min.x).max(max.y - min.y) / FAR_SHADOW_SIZE as f32;
 
-        let object = ObjectUniform { model: Mat4::IDENTITY.to_cols_array_2d(), tint: [1.0; 4] };
+        let object = ObjectUniform { model: Mat4::IDENTITY.to_cols_array_2d(), tint: [1.0; 4], ground: [0.0; 4], tyre: [0.0; 4] };
         gpu.queue.write_buffer(&self.object_buffer, 0, bytemuck::bytes_of(&object));
         let frame = [[[0.0f32; 4]; 4], [[0.0; 4]; 4], self.far_light_view_proj.to_cols_array_2d()];
         gpu.queue.write_buffer(&self.far_shadow_buffer, 0, bytemuck::bytes_of(&frame));
@@ -1096,6 +1146,7 @@ impl SceneRenderer {
             drift: [0.0; 4],
             eye_vel: [0.0; 4],
             viewport: [self.size.0 as f32, self.size.1 as f32, 0.5 * self.size.1 as f32 * view.proj.y_axis.y, 0.0],
+            contacts: tyre_contacts(items),
         };
         if let Some(s) = &self.storm {
             let since = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32());
@@ -1119,7 +1170,9 @@ impl SceneRenderer {
 
         let mut objects = vec![0u8; (OBJECT_STRIDE as usize) * items.len().max(1)];
         for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
-            let o = ObjectUniform { model: item.model.to_cols_array_2d(), tint: item.tint.to_array() };
+            let (ground, tyre) =
+                item.tyre.map_or(([0.0; 4], [0.0; 4]), |t| (t.ground.to_array(), [t.radius, t.half_width, if t.pressed { 1.0 } else { 0.0 }, 0.0]));
+            let o = ObjectUniform { model: item.model.to_cols_array_2d(), tint: item.tint.to_array(), ground, tyre };
             let at = i * OBJECT_STRIDE as usize;
             objects[at..at + std::mem::size_of::<ObjectUniform>()].copy_from_slice(bytemuck::bytes_of(&o));
         }

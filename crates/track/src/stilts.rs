@@ -311,7 +311,7 @@ fn tube(b: &mut MeshBuilder, a: Vec3, c: Vec3, r: f32, sides: u32) {
 /// layer laid crosswise to the one under it and a little smaller, every bag a little askew
 /// (`seed`). The bags are drawn into `decor`; the car meets a plain box around them, not drawn.
 #[allow(clippy::too_many_arguments)]
-fn bag_stack(b: &mut MeshBuilder, decor: &mut MeshBuilder, foot: Vec3, height: f32, forward: Vec3, long: f32, wide: f32, bag: Vec3, seed: u32) {
+pub(crate) fn bag_stack(b: &mut MeshBuilder, decor: &mut MeshBuilder, foot: Vec3, height: f32, forward: Vec3, long: f32, wide: f32, bag: Vec3, seed: u32) {
     let left = Vec3::Y.cross(forward);
     let layers = libm::roundf(height / (0.85 * bag.y)).max(1.0) as u32;
     let mut n = 0;

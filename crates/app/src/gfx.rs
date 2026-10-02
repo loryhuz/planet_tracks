@@ -262,8 +262,6 @@ pub struct SceneRenderer {
     format: wgpu::TextureFormat,
     meshes: Vec<GpuMesh>,
     sun_dir: Vec3,
-    /// Surfaces drawn with their textures (off: the earlier procedural look).
-    pub textures: bool,
 }
 
 impl SceneRenderer {
@@ -747,7 +745,6 @@ impl SceneRenderer {
             format,
             meshes: Vec::new(),
             sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
-            textures: true,
         }
     }
 
@@ -864,7 +861,7 @@ impl SceneRenderer {
             sky_horizon: four(sky_horizon, 1.0),
             ground_bounce: four(srgb(170, 100, 70), 0.5),
             fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, if self.textures { 1.0 } else { 0.0 }, 0.0, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, 0.0, 0.0, 0.0],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
         };

@@ -356,7 +356,6 @@ impl App {
         g.scene.write_dust(&g.gpu.queue, &game.dust.vertices(right, up));
         let clear = std::mem::take(&mut game.marks.cleared);
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
-        g.scene.textures = game.session.textures;
         match (&sky, self.menu.active) {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
             _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items),
@@ -685,10 +684,6 @@ fn main() {
     }
     if std::env::var("MARS_HIDE_UI").is_ok() {
         game.panel_open = false;
-    }
-    // Surface textures on (1) or off (0) for this run, whatever the session says.
-    if let Ok(v) = std::env::var("MARS_TEXTURES") {
-        game.session.textures = v != "0";
     }
     if debug.autodrive {
         game.autodrive = Some(debug::Autopilot::default());

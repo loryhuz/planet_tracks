@@ -57,8 +57,6 @@ pub struct Session {
     pub current: usize,
     /// Key of the map last played.
     pub map: String,
-    /// Surfaces drawn with their textures (off: the earlier procedural look, to compare).
-    pub textures: bool,
     /// Off for self-test runs: they never write the player's session file.
     pub persist: bool,
     dirty_since: Option<Instant>,
@@ -72,8 +70,6 @@ struct Saved {
     current_name: String,
     #[serde(default)]
     map: String,
-    #[serde(default)]
-    textures_off: bool,
     profiles: Vec<SavedProfile>,
 }
 
@@ -143,12 +139,7 @@ impl Session {
             .collect::<Vec<_>>();
         // By name; a session saved before names were stored starts on the first profile.
         let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
-        Self { profiles, current, map: saved.map, textures: !saved.textures_off, persist: true, dirty_since: None }
-    }
-
-    pub fn toggle_textures(&mut self) {
-        self.textures = !self.textures;
-        self.mark_dirty();
+        Self { profiles, current, map: saved.map, persist: true, dirty_since: None }
     }
 
     pub fn profile(&self) -> &Profile {
@@ -179,7 +170,6 @@ impl Session {
             current: self.current,
             current_name: self.profiles[self.current].defaults.name.clone(),
             map: self.map.clone(),
-            textures_off: !self.textures,
             profiles: self
                 .profiles
                 .iter()
@@ -205,5 +195,18 @@ impl Session {
         if let Ok(json) = serde_json::to_string_pretty(&saved) {
             let _ = std::fs::write(path, json);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_saved_with_the_textures_setting_still_loads() {
+        // Sessions saved while the procedural look could be chosen carry `textures_off`.
+        let json = r#"{"current": 1, "current_name": "B", "map": "Noctis@1", "textures_off": true, "profiles": []}"#;
+        let saved: Saved = serde_json::from_str(json).expect("an old session loads");
+        assert_eq!((saved.current, saved.current_name.as_str(), saved.map.as_str()), (1, "B", "Noctis@1"));
     }
 }

@@ -219,7 +219,6 @@ impl Game {
             Action::Fullscreen => self.fullscreen_requested = true,
             Action::Mute => self.mute_requested = true,
             Action::NextMap => self.select_map((self.map_index + 1) % self.maps.len()),
-            Action::Textures => self.session.toggle_textures(),
             // The app opens the menu.
             Action::Menu => {}
         }

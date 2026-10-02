@@ -111,7 +111,7 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
         hud_frame().show(ui, |ui| {
             let c = Color32::from_gray(215);
             ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer · Échap : menu").color(c).size(12.0));
-            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante · T : textures").color(c).size(12.0));
+            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante").color(c).size(12.0));
             if let Some(name) = &game.controls.gamepad_name {
                 ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil, Start menu)")).color(c).size(12.0));
             }
@@ -147,14 +147,6 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
                     }
                 }
             });
-            let mut textures = game.session.textures;
-            if ui
-                .checkbox(&mut textures, "Textures des surfaces (T)")
-                .on_hover_text("Décoché : l'ancien rendu procédural, pour comparer")
-                .changed()
-            {
-                game.session.toggle_textures();
-            }
             ui.separator();
             egui::Grid::new("profiles").striped(true).num_columns(5).show(ui, |ui| {
                 ui.label("");

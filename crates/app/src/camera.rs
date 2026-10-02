@@ -67,7 +67,11 @@ impl ChaseCamera {
         };
         let up = if self.mode == HOOD { rotation * Vec3::Y } else { Vec3::Y };
         let view = glam::camera::rh::view::look_at_mat4(eye, look, up);
-        let mut proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(self.fov, aspect, 0.1);
+        // On a portrait screen the field of view is widened so the road ahead keeps some width
+        // (at least 58° across; the wide-angle view is wider still).
+        let min_across = 58f32.to_radians();
+        let fov = self.fov.max(2.0 * ((min_across * 0.5).tan() / aspect.max(0.1)).atan());
+        let mut proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(fov, aspect, 0.1);
         if self.mode == WIDE {
             // Lens shift: the frame slides down (verticals stay upright), from none on a square or
             // wide screen to `PORTRAIT_SHIFT` on a phone held upright (aspect 0.46).

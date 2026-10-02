@@ -57,8 +57,6 @@ pub struct Session {
     pub current: usize,
     /// Key of the map last played.
     pub map: String,
-    /// Touch screens: the casual mode (automatic throttle, steering by halves of the screen).
-    pub casual: bool,
     /// Off for self-test runs: they never write the player's session file.
     pub persist: bool,
     dirty_since: Option<Instant>,
@@ -72,8 +70,6 @@ struct Saved {
     current_name: String,
     #[serde(default)]
     map: String,
-    #[serde(default)]
-    casual: bool,
     profiles: Vec<SavedProfile>,
 }
 
@@ -148,7 +144,7 @@ impl Session {
             .collect::<Vec<_>>();
         // By name; a session saved before names were stored starts on the first profile.
         let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
-        Self { profiles, current, map: saved.map, casual: saved.casual, persist: true, dirty_since: None }
+        Self { profiles, current, map: saved.map, persist: true, dirty_since: None }
     }
 
     pub fn profile(&self) -> &Profile {
@@ -179,7 +175,6 @@ impl Session {
             current: self.current,
             current_name: self.profiles[self.current].defaults.name.clone(),
             map: self.map.clone(),
-            casual: self.casual,
             profiles: self
                 .profiles
                 .iter()

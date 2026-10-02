@@ -32,6 +32,19 @@ pub enum Cue {
     Launch,
     /// The circuit is ready.
     Go,
+    /// Race countdown: 3, 2, 1.
+    CountBeep,
+    /// Race countdown: GO.
+    CountGo,
+    /// A checkpoint ahead of the record (or the first time through).
+    SplitFaster,
+    /// A checkpoint behind the record.
+    SplitSlower,
+    /// A checkpoint level with the record, to the hundredth.
+    SplitEqual,
+    Finish,
+    /// A new record at the finish.
+    Record,
 }
 
 /// Looping background of the menu screens.
@@ -329,6 +342,46 @@ impl UiSynth {
                 self.tone(Sine, 900.0, 4200.0, 0.0, d - 0.3, 0.025, 0.3, None);
                 self.hiss(High, 800.0, 4000.0, 0.5, 0.0, d - 0.4, 0.07, 0.4);
             }
+            Cue::CountBeep => {
+                self.tone(Square, 520.0, 520.0, 0.0, 0.14, 0.09, 0.005, Some((2400.0, 2400.0, 0.7)));
+                self.tone(Sine, 1040.0, 1040.0, 0.0, 0.1, 0.04, 0.005, None);
+            }
+            Cue::CountGo => {
+                self.tone(Square, 1040.0, 1040.0, 0.0, 0.32, 0.09, 0.005, Some((3200.0, 3200.0, 0.7)));
+                for (i, f) in [523.25, 659.25, 783.99].into_iter().enumerate() {
+                    self.tone(Triangle, f, f, i as f32 * 0.02, 0.5, 0.07, 0.005, None);
+                }
+                self.tone(Sine, 150.0, 45.0, 0.0, 0.25, 0.35, 0.005, None);
+                self.hiss(Band, 400.0, 2600.0, 0.8, 0.0, 0.5, 0.12, 0.12);
+            }
+            Cue::SplitFaster => {
+                self.tone(Sine, 880.0, 880.0, 0.0, 0.12, 0.12, 0.005, None);
+                self.tone(Sine, 1318.5, 1318.5, 0.09, 0.25, 0.12, 0.005, None);
+                self.tone(Triangle, 2637.0, 2637.0, 0.09, 0.18, 0.02, 0.005, None);
+            }
+            Cue::SplitSlower => {
+                self.tone(Sine, 659.25, 659.25, 0.0, 0.12, 0.12, 0.005, None);
+                self.tone(Sine, 440.0, 440.0, 0.09, 0.28, 0.12, 0.005, None);
+            }
+            Cue::SplitEqual => {
+                self.tone(Sine, 880.0, 880.0, 0.0, 0.12, 0.1, 0.005, None);
+                self.tone(Sine, 880.0, 880.0, 0.09, 0.2, 0.08, 0.005, None);
+            }
+            Cue::Finish => {
+                for (i, f) in [392.0, 523.25, 659.25, 783.99].into_iter().enumerate() {
+                    self.tone(Triangle, f, f, i as f32 * 0.03, 0.9, 0.08, 0.005, None);
+                }
+                self.tone(Sine, 130.0, 45.0, 0.0, 0.3, 0.3, 0.005, None);
+            }
+            Cue::Record => {
+                for (i, f) in [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568.0].into_iter().enumerate() {
+                    let at = i as f32 * 0.08;
+                    self.tone(Triangle, f, f, at, 0.6, 0.08, 0.005, None);
+                    self.tone(Sine, f * 2.0, f * 2.0, at, 0.3, 0.015, 0.005, None);
+                }
+                self.tone(Sine, 130.0, 45.0, 0.0, 0.3, 0.3, 0.005, None);
+                self.hiss(High, 6000.0, 9000.0, 0.7, 0.4, 1.2, 0.05, 0.3);
+            }
             Cue::Go => {
                 for (i, f) in [523.25, 659.25, 783.99, 1046.5].into_iter().enumerate() {
                     self.tone(Triangle, f, f, i as f32 * 0.035, 0.5, 0.1, 0.005, None);
@@ -468,6 +521,13 @@ mod tests {
             Cue::Boot,
             Cue::Launch,
             Cue::Go,
+            Cue::CountBeep,
+            Cue::CountGo,
+            Cue::SplitFaster,
+            Cue::SplitSlower,
+            Cue::SplitEqual,
+            Cue::Finish,
+            Cue::Record,
         ];
         for cue in cues {
             let mut synth = UiSynth::new(44_100.0, None);

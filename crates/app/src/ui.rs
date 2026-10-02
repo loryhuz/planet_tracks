@@ -1,12 +1,12 @@
-//! HUD and the tuning panel (egui). Every changing number uses a monospace font.
+//! The debug panel (egui, shown with Tab): profiles, records, telemetry and the live tuning; and
+//! the frame counter. The race HUD itself is hud.rs.
 
 use std::time::Instant;
 
-use egui::{Align2, Color32, FontId, RichText, vec2};
+use egui::{Align2, Color32, RichText, vec2};
 
-use crate::camera::MODES;
 use crate::game::Game;
-use crate::race::{COUNTDOWN_TICKS, format_time};
+use crate::race::format_time;
 
 pub struct Fps {
     frames: u32,
@@ -32,108 +32,8 @@ impl Fps {
     }
 }
 
-fn hud_frame() -> egui::Frame {
-    egui::Frame::new().fill(Color32::from_black_alpha(110)).corner_radius(6.0).inner_margin(8.0)
-}
-
-fn mono(text: impl Into<String>, size: f32) -> RichText {
-    RichText::new(text).font(FontId::monospace(size)).color(Color32::WHITE)
-}
-
-pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
-    let ctx = ui.ctx().clone();
-    let telemetry = game.telemetry();
-
-    // Top left: FPS (always), profile, camera; under the race time on a narrow (portrait) screen.
-    let top = if ctx.content_rect().width() < 560.0 { 96.0 } else { 10.0 };
-    egui::Area::new(egui::Id::new("fps")).anchor(Align2::LEFT_TOP, vec2(12.0, top)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.add(egui::Label::new(mono(format!("{:>4.0} FPS {:>5.1} ms", fps.fps, fps.frame_ms), 15.0)).extend());
-            let p = game.session.profile();
-            ui.label(RichText::new(format!("{} · Profil {} · {}", game.map_name(), game.session.current + 1, p.params.name)).color(Color32::WHITE).size(14.0));
-            ui.label(RichText::new(format!("Caméra : {}", MODES[game.camera.mode])).color(Color32::from_gray(200)).size(12.0));
-        });
-    });
-
-    // Top centre: race time.
-    let run = &game.run;
-    let time = run.finished.unwrap_or(run.tick);
-    egui::Area::new(egui::Id::new("timer")).anchor(Align2::CENTER_TOP, vec2(0.0, 12.0)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.label(mono(format_time(time), 34.0));
-            let n = game.track.checkpoints.len();
-            if n > 0 {
-                ui.label(mono(format!("CP {}/{}", run.splits.len(), n), 14.0));
-            }
-        });
-    });
-
-    // Checkpoint / finish popup.
-    if let Some(p) = &game.popup {
-        if Instant::now() < p.until {
-            egui::Area::new(egui::Id::new("popup")).anchor(Align2::CENTER_TOP, vec2(0.0, 110.0)).interactable(false).show(&ctx, |ui| {
-                hud_frame().show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label(RichText::new(&p.title).color(Color32::WHITE).size(18.0));
-                        ui.label(mono(&p.time, 28.0));
-                        if let Some(d) = p.delta {
-                            let color = if d <= 0 { Color32::from_rgb(90, 160, 255) } else { Color32::from_rgb(255, 90, 80) };
-                            ui.label(mono(Game::delta_text(d), 20.0).color(color));
-                        }
-                        if game.run.finished.is_some() {
-                            let hint = if game.controls.touch.active { "Drapeau ou flèche ronde pour recommencer" } else { "Entrée ou Retour arrière pour recommencer" };
-                            ui.label(RichText::new(hint).color(Color32::from_gray(210)).size(13.0));
-                        }
-                    });
-                });
-            });
-        }
-    }
-
-    // Countdown.
-    if run.countdown > 0 || (run.tick < 60 && run.finished.is_none()) {
-        let text = if run.countdown > 0 { format!("{}", 1 + run.countdown * 3 / COUNTDOWN_TICKS) } else { "GO".into() };
-        egui::Area::new(egui::Id::new("countdown")).anchor(Align2::CENTER_CENTER, vec2(0.0, -60.0)).interactable(false).show(&ctx, |ui| {
-            ui.add(egui::Label::new(mono(text, 72.0)).extend());
-        });
-    }
-
-    // Bottom centre: speed (above the touch controls when they reach the middle).
-    let lift = if game.controls.touch.active { game.controls.touch.middle_clearance() } else { 0.0 };
-    egui::Area::new(egui::Id::new("speed")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -18.0 - lift)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(mono(format!("{:>3.0}", telemetry.speed_kmh), 40.0));
-                ui.label(RichText::new("km/h").color(Color32::from_gray(210)).size(14.0));
-            });
-        });
-    });
-
-    // On a touch screen, its controls; otherwise the keys, bottom left.
-    if game.controls.touch.active {
-        game.controls.touch.draw(&ctx);
-    } else {
-        keys_help(&ctx, game);
-    }
-
-    game.controls.touch.panel = if game.panel_open { panel(&ctx, game, telemetry) } else { None };
-}
-
-fn keys_help(ctx: &egui::Context, game: &Game) {
-    egui::Area::new(egui::Id::new("help")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -10.0)).interactable(false).show(ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            let c = Color32::from_gray(215);
-            ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer · Échap : menu").color(c).size(12.0));
-            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante").color(c).size(12.0));
-            if let Some(name) = &game.controls.gamepad_name {
-                ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil, Start menu)")).color(c).size(12.0));
-            }
-        });
-    });
-}
-
-/// The tuning panel; returns where it is.
-fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) -> Option<egui::Rect> {
+/// The debug panel (Tab): profiles, records, telemetry and the live tuning.
+pub fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     let mut select = None;
     let mut select_map = None;
     let mut toggle = None;
@@ -141,14 +41,10 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) -> Option<
     let mut reset = false;
     let mut clear = false;
     let mut restart = false;
-    // Clear of the touch controls' buttons, so the one closing it stays in reach.
-    let screen = ctx.content_rect();
-    let room = if game.controls.touch.active { game.controls.touch.room(screen) } else { screen };
-    let shown = egui::Window::new("Profils et réglages")
-        .anchor(Align2::RIGHT_TOP, vec2(room.right() - screen.right() - 12.0, room.top() - screen.top() + 12.0))
-        .default_width(380.0f32.min(room.width() - 24.0))
-        .default_height(room.height() - 40.0)
-        .max_height(room.height() - 24.0)
+    egui::Window::new("Profils et réglages")
+        .anchor(Align2::RIGHT_TOP, vec2(-12.0, 12.0))
+        .default_width(380.0)
+        .default_height(ctx.content_rect().height() - 40.0)
         .resizable(true)
         .vscroll(true)
         .show(ctx, |ui| {
@@ -277,5 +173,4 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) -> Option<
     if let Some(i) = select_map {
         game.select_map(i);
     }
-    shown.map(|w| w.response.rect)
 }

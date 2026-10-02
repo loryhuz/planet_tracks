@@ -39,10 +39,11 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   -sdk iphonesimulator -derivedDataPath DIR build`. On iOS the window is the whole screen
   (`gfx::window_pixels`; winit's inner size is the safe area), drawn at 2× rather than 3×, put
   in the scene `Info.plist` declares (iOS 27 stops apps without one; winit 0.30 makes none, so
-  `crates/app/src/ios.rs` attaches its window), and
-  the session is saved in the app's Documents folder. The race's touch controls are
-  `crates/app/src/touch.rs`. Self-test variables reach the app as `SIMCTL_CHILD_MARS_MAP=Jezero
-  xcrun simctl launch booted com.marsracer.planettracks`.
+  `crates/app/src/ios.rs` attaches its window; the edges deferring system gestures, the hidden
+  status bar and home indicator are asked again once it is there, or iOS holds back taps along
+  the edges), and the session is saved in the app's Documents folder. The race's touch controls
+  are the HUD's (`hud.rs`, from egui's touch events). Self-test variables reach the app as
+  `SIMCTL_CHILD_MARS_MAP=Jezero xcrun simctl launch booted com.marsracer.planettracks`.
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title, planets, modes, solo circuits),
   in a wide layout (1280 × 720 design space) and a tall phone one (390 × 844), fitted to the
   window with egui's zoom. Its background (night sky, procedural planets) is `menu_gfx.rs` with
@@ -50,6 +51,13 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   Martian Mono, from Google Fonts under the OFL) `crates/app/assets/fonts/`. Self-tests: `MARS_MENU=title|planets|modes|solo`
   opens it on a screen, `MARS_MENU_NAV=1.5:right,3:confirm` moves through it, `MARS_WINDOW=390x844`
   shows the phone layout; race self-tests (`MARS_MAP`, `MARS_AUTODRIVE`…) skip it.
+- `crates/app/src/hud.rs` — the race HUD, light like Trackmania's (map name, record and time to
+  beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
+  countdown and the finish card in the menu's style; wide and tall like the menu. On phones the
+  buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and a settings
+  button pauses the race (`MARS_HUD_SETTINGS=seconds` opens it in a self-test). Everything for
+  debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
+  `MARS_DEBUG_PANEL=1`.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged
   suspension, the registered plans as image empties) and exports `crates/app/assets/buggy.glb` and
   its livery atlas `buggy_livery.png`, which the app embeds: rerun

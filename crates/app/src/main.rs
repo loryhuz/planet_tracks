@@ -9,6 +9,7 @@ mod debug;
 mod engine_sound;
 mod game;
 mod gfx;
+mod hud;
 mod input;
 #[cfg(target_os = "ios")]
 mod ios;
@@ -20,7 +21,6 @@ mod race;
 mod sample;
 mod session;
 mod surfaces;
-mod touch;
 mod ui;
 mod ui_sound;
 
@@ -38,6 +38,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 use crate::game::{CarMeshes, CornerMeshes, Game};
 use crate::gfx::{Gpu, MeshData, SceneRenderer, Shading, Vertex, View};
 use crate::input::Action;
+use crate::hud::HudRequest;
 use crate::menu::{Layout, Menu, MenuInput, Request};
 
 struct Graphics {
@@ -51,10 +52,15 @@ struct Graphics {
     menu_gfx: menu_gfx::MenuRenderer,
 }
 
+/// Played on a touch screen (iPhone, iPad, Android): the menu shows no key hints and the race
+/// opens on the wide-angle camera.
+const TOUCH_SCREEN: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
 struct App {
     gfx: Option<Graphics>,
     game: Game,
     menu: Menu,
+    hud: hud::Hud,
     egui_ctx: egui::Context,
     last_frame: Instant,
     accumulator: f32,
@@ -194,7 +200,6 @@ impl App {
                 }
                 Action::Menu => {
                     game.restart();
-                    game.controls.touch.clear();
                     self.menu.open_from_race(game.map_index);
                 }
                 _ => game.apply(action),
@@ -210,8 +215,9 @@ impl App {
             g.window.set_fullscreen(if full { None } else { Some(Fullscreen::Borderless(None)) });
         }
 
-        // The race waits while the menu is up.
-        self.accumulator = if self.menu.active { 0.0 } else { self.accumulator + dt };
+        // The race waits while the menu or the HUD's settings are up.
+        let paused = self.menu.active || self.hud.paused();
+        self.accumulator = if paused { 0.0 } else { self.accumulator + dt };
         let mut ticks = 0;
         while self.accumulator >= physics::DT && ticks < 25 {
             game.tick();
@@ -264,11 +270,11 @@ impl App {
             (None, None) => return,
         };
 
-        // The menu is laid out in a fixed design space that egui's zoom fits to the window (on iOS,
-        // its inner size is the safe area, which the menu keeps to).
+        // The menu and the HUD are laid out in a fixed design space that egui's zoom fits to the
+        // window (on iOS, its inner size is the safe area, which they keep to).
         let size = g.window.inner_size();
         let scale = g.window.scale_factor() as f32;
-        let zoom = if self.menu.shows() { Layout::zoom(size.width as f32 / scale, size.height as f32 / scale) } else { 1.0 };
+        let zoom = Layout::zoom(size.width as f32 / scale, size.height as f32 / scale);
         if (self.egui_ctx.zoom_factor() - zoom).abs() > 1e-4 {
             // Straight into the options, so this frame is laid out with it (`set_zoom_factor`
             // waits for the next one).
@@ -288,7 +294,7 @@ impl App {
         }
         let fps = &self.fps;
         let menu = &mut self.menu;
-        menu.touch = game.controls.touch.active;
+        let hud = &mut self.hud;
         let bests: Vec<Option<u32>> =
             game.maps.iter().map(|m| game.session.profile().best(&session::map_key(m)).map(|b| b.ticks)).collect();
         let muted = self.audio.as_ref().is_some_and(|a| a.muted());
@@ -298,7 +304,11 @@ impl App {
                 sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted }).clone());
             }
             if !menu.shows() {
-                ui::draw(ui, game, fps);
+                hud.ui(ui, game, fps, muted);
+                if game.panel_open {
+                    let t = game.telemetry();
+                    ui::panel(ui.ctx(), game, t);
+                }
             }
         });
         g.egui_state.handle_platform_output(&g.window, full.platform_output);
@@ -309,6 +319,16 @@ impl App {
                 Request::Build(_) => {}
                 Request::Start(_) => game.restart(),
                 Request::ToggleMute => game.mute_requested = true,
+            }
+        }
+        for request in self.hud.take_requests() {
+            match request {
+                HudRequest::Respawn => game.apply(Action::Respawn),
+                HudRequest::Restart => game.restart(),
+                HudRequest::Menu => {
+                    game.restart();
+                    self.menu.open_from_race(game.map_index);
+                }
             }
         }
         game.session.autosave();
@@ -348,10 +368,10 @@ impl App {
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
             audio.set_scene(!self.menu.active, self.menu.ambience());
-            for cue in self.menu.take_cues() {
+            for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }
-            audio.update(&if self.menu.active { audio::SoundFrame::default() } else { game.sound_frame() });
+            audio.update(&if self.menu.active || self.hud.paused() { audio::SoundFrame::default() } else { game.sound_frame() });
             for strength in game.impacts.drain(..) {
                 audio.impact(strength);
             }
@@ -361,6 +381,7 @@ impl App {
         } else {
             game.impacts.clear();
             self.menu.take_cues();
+            self.hud.take_cues();
         }
         let right = view.row(0).truncate();
         let up = view.row(1).truncate();
@@ -495,12 +516,6 @@ impl ApplicationHandler for App {
                 self.game.controls.key(code, key.state.is_pressed(), key.repeat);
             }
             return;
-        }
-        // Every finger goes to the touch controls (egui follows only one, for the menu and the
-        // settings panel).
-        if let WindowEvent::Touch(t) = &event {
-            let pos = egui::pos2(t.location.x as f32, t.location.y as f32);
-            self.game.controls.touch.touch(t.id, t.phase, pos, !self.menu.shows());
         }
         let _ = g.egui_state.on_window_event(&g.window, &event);
         match event {
@@ -736,12 +751,12 @@ fn main() {
     if let Some(p) = debug.profile {
         game.select_profile(p);
     }
-    // The tuning panel starts closed on a phone (its button opens it), and the wide-angle camera
-    // shows the sides of the road on its narrow screen.
-    if std::env::var("MARS_HIDE_UI").is_ok() || game.controls.touch.active {
-        game.panel_open = false;
+    // The debug panel (Tab) open from the start, for checks.
+    if std::env::var("MARS_DEBUG_PANEL").is_ok() {
+        game.panel_open = true;
     }
-    if game.controls.touch.active {
+    // The wide-angle camera shows the sides of the road on a phone's narrow screen.
+    if TOUCH_SCREEN {
         game.camera.mode = camera::WIDE;
     }
     if debug.autodrive {
@@ -751,6 +766,7 @@ fn main() {
     // autopilot asked for) start driving at once. `MARS_MENU=title|planets|modes|solo` opens the
     // menu on that screen, for its own checks.
     let mut menu = Menu::new(&game.maps);
+    menu.touch = TOUCH_SCREEN;
     let race_test = ["MARS_MAP", "MARS_PROFILE", "MARS_VIEW", "MARS_ORBIT", "MARS_AUTODRIVE", "MARS_BENCH"]
         .iter()
         .any(|k| std::env::var(k).is_ok_and(|v| !v.is_empty()));
@@ -761,10 +777,12 @@ fn main() {
     }
     let egui_ctx = egui::Context::default();
     egui_ctx.set_fonts(menu::fonts());
+    let hud = hud::Hud::new(&game.maps);
     let mut app = App {
         gfx: None,
         game,
         menu,
+        hud,
         egui_ctx,
         last_frame: Instant::now(),
         accumulator: 0.0,

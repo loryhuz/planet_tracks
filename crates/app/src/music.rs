@@ -16,12 +16,16 @@ use symphonia::core::meta::MetadataOptions;
 
 /// The menu's theme, "Planet Tracks".
 pub const MENU: &[&[u8]] = &[include_bytes!("../assets/music/theme.m4a")];
+/// "Night Shift", the hypnotic night track.
+const NIGHT_SHIFT: &[u8] = include_bytes!("../assets/music/night_shift.m4a");
 /// Raced to on Mars, in turn: "Red Frontier", "Dust Devil", "Night Shift".
 pub const MARS: &[&[u8]] = &[
     include_bytes!("../assets/music/red_frontier.m4a"),
     include_bytes!("../assets/music/dust_devil.m4a"),
-    include_bytes!("../assets/music/night_shift.m4a"),
+    NIGHT_SHIFT,
 ];
+/// Raced to on Mars by night (a map's `"time": "night"`): "Night Shift", in a loop.
+pub const MARS_NIGHT: &[&[u8]] = &[NIGHT_SHIFT];
 
 /// Frames per chunk handed to the audio thread (about 21 ms).
 const CHUNK: usize = 1024;

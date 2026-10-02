@@ -455,7 +455,7 @@ impl App {
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
-            audio.set_scene(!self.menu.active);
+            audio.set_scene(!self.menu.active, game.time_of_day() == track::map::TimeOfDay::Night);
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }

@@ -241,17 +241,23 @@ impl Menu {
         self.outro = None;
         self.sheet = None;
         self.on_series = false;
-        self.series = Series::Easy;
-        self.sel = self.tracks.iter().position(|t| t.map == map).unwrap_or(0);
+        let k = self.tracks.iter().position(|t| t.map == map);
+        self.series = k.map_or(Series::Easy, |k| self.tracks[k].series);
+        self.sel = k.map_or(0, |k| self.tracks[..k].iter().filter(|t| t.series == self.series).count());
         self.cues.push(Cue::Back);
     }
 
     /// The circuit in slot `i` of the current series, if built.
     fn slot(&self, i: usize) -> Option<&TrackInfo> {
-        match self.series {
-            Series::Easy => self.tracks.get(i).filter(|_| i < SLOTS),
-            Series::Hard => None,
+        self.slot_index(i).map(|k| &self.tracks[k])
+    }
+
+    /// Where the circuit in slot `i` of the current series is in `tracks`, if built.
+    fn slot_index(&self, i: usize) -> Option<usize> {
+        if i >= SLOTS {
+            return None;
         }
+        self.tracks.iter().enumerate().filter(|(_, t)| t.series == self.series).nth(i).map(|(k, _)| k)
     }
 
     fn go(&mut self, to: Screen, now: f64) {
@@ -335,10 +341,7 @@ impl Menu {
     }
 
     fn locked_text(&self) -> &'static str {
-        match self.series {
-            Series::Hard => "Termine la série Facile pour débloquer la série Dur.",
-            Series::Easy => "Ce circuit est encore en construction.",
-        }
+        "Ce circuit est encore en construction."
     }
 
     fn open_sheet(&mut self, i: usize, now: f64) {
@@ -364,13 +367,13 @@ impl Menu {
         if self.loading.is_some() {
             return;
         }
-        if self.slot(self.sel).is_none() {
+        let Some(track) = self.slot_index(self.sel) else {
             let text = self.locked_text();
             self.deny(Shake::Tile(self.sel), text, now);
             return;
-        }
+        };
         self.cues.push(Cue::Launch);
-        self.loading = Some(Loading { start: now, track: self.sel, built: false, ready: false });
+        self.loading = Some(Loading { start: now, track, built: false, ready: false });
     }
 
     /// Keyboard and pad on the circuits: the arrows move through the tiles, up from the first

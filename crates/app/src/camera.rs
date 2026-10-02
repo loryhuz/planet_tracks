@@ -23,11 +23,13 @@ pub struct ChaseCamera {
     /// The mode `fov` follows: a new mode takes its field of view at once (the wide angle's is far
     /// wider), only the speed's widening eases in.
     fov_mode: usize,
+    /// How much speed blur the view takes (0..1): a booster's push, smoothed.
+    pub blur: f32,
 }
 
 impl ChaseCamera {
     pub fn new() -> Self {
-        Self { mode: 0, dir: Vec3::Z, fov: 60f32.to_radians(), fov_mode: 0 }
+        Self { mode: 0, dir: Vec3::Z, fov: 60f32.to_radians(), fov_mode: 0, blur: 0.0 }
     }
 
     pub fn cycle(&mut self) {
@@ -38,8 +40,10 @@ impl ChaseCamera {
         self.dir = flatten(rotation * Vec3::Z);
     }
 
-    /// Returns (view, proj, eye) for the interpolated car pose.
-    pub fn update(&mut self, dt: f32, position: Vec3, rotation: Quat, speed_kmh: f32, airborne: bool, aspect: f32) -> (Mat4, Mat4, Vec3) {
+    /// Returns (view, proj, eye) for the interpolated car pose; `boost` is how much boost the car
+    /// has left (0..1, see the physics' telemetry), which widens the view a little more.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update(&mut self, dt: f32, position: Vec3, rotation: Quat, speed_kmh: f32, boost: f32, airborne: bool, aspect: f32) -> (Mat4, Mat4, Vec3) {
         let forward = rotation * Vec3::Z;
         let target = flatten(forward);
         // Follow the heading quickly on the ground, lazily in the air so flips do not spin the view.
@@ -47,7 +51,12 @@ impl ChaseCamera {
         let k = 1.0 - (-rate * dt).exp();
         self.dir = (self.dir + (target - self.dir) * k).normalize_or(target);
 
-        let rush = (speed_kmh / 350.0).clamp(0.0, 1.0);
+        let rush = (speed_kmh / 350.0 + 0.4 * boost).clamp(0.0, 1.3);
+        // The speed blur: in at once as a booster is touched, gone about a second after it (the
+        // boost's fourth power).
+        let blur = (boost * boost) * (boost * boost);
+        let rate = if blur > self.blur { 14.0 } else { 3.0 };
+        self.blur += (blur - self.blur) * (1.0 - (-rate * dt).exp());
         let fov_target = if self.mode == WIDE {
             // The height of a view that spans the diagonal.
             let diagonal = (WIDE_DIAGONAL + 8.0 * rush).to_radians();
@@ -101,7 +110,7 @@ mod tests {
     #[test]
     fn a_new_camera_takes_its_field_of_view_at_once() {
         let mut cam = ChaseCamera::new();
-        let frame = |cam: &mut ChaseCamera| cam.update(1.0 / 60.0, Vec3::ZERO, Quat::IDENTITY, 0.0, false, 0.46);
+        let frame = |cam: &mut ChaseCamera| cam.update(1.0 / 60.0, Vec3::ZERO, Quat::IDENTITY, 0.0, 0.0, false, 0.46);
         for _ in 0..120 {
             frame(&mut cam);
         }

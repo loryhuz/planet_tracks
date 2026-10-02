@@ -24,7 +24,9 @@ A git worktree building into it (`CARGO_TARGET_DIR`) shares the app crate's outp
 fingerprint with every other checkout (cargo hashes it by its workspace-relative path), so a
 build can look fresh and run another checkout's binary: remove the app's fingerprints before and
 after building in a worktree (`find target/debug/.fingerprint -maxdepth 1 -name 'app-*' -exec rm -rf {} +`;
-a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
+a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches). The same holds
+for `track-*` and `physics-*` when the worktree changes them: an app build there can otherwise
+link the main checkout's `track` (missing a new block or surface).
 
 ## Layout
 
@@ -32,11 +34,16 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   `crates/track/maps/*.json`, written from a `.chain` file (blocks, landforms, props) by
   `cargo run -p track --example chain -- crates/track/maps/noctis.chain`; a new one is added to
   `BUILTIN_MAPS`. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
-  test autopilot over a map (with the two numbers it brakes for the bends).
+  test autopilot over a map (with the two numbers it brakes for the bends). The menu's series:
+  easy circuits stay short (30 s), the hard series' (`series()` in `crates/app/src/menu/catalog.rs`,
+  Marineris first) run 45 s to a minute, a roller coaster on scaffolding with boosters. At
+  300 km/h, under gravity 40, a crest of radius under v²/40 m/s² launches the car: drops and
+  climbs taken fast are 5 to 8 cells long (`marineris.chain` explains its choices).
   Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
-  kept up to date with the code.
+  kept up to date with the code. The `booster` variant paints arrows on any road block (a
+  `Surface::Booster` deck: the physics' `boost_accel`/`boost_time` push along the path).
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a
@@ -111,10 +118,13 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   the palette, with a normal and height map, per material. Rerun
   `blender -b -P tools/textures/bake.py -- art/textures/src crates/app/assets/textures art/textures/preview`
   after changing a source or a setting; the layer order is `scene.wgsl`'s `L_*`. The gates'
-  lettering (one more layer) is drawn by `/usr/bin/python3 tools/textures/signs.py`.
+  lettering (one more layer) is drawn by `/usr/bin/python3 tools/textures/signs.py`, the
+  booster arrow (another) by `/usr/bin/python3 tools/textures/booster.py` from a Higgsfield
+  picture, redrawn as exact polygons.
 - `tools/audio/prepare.py` — turns the ElevenLabs sounds in `art/audio/src/` (prompts and settings
   in its `SOURCES`) into the seamless, levelled loops the app embeds (`crates/app/assets/audio/`):
-  `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`.
+  `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`; the booster's
+  whoosh is a one-shot cut from its take (`trim`), played by `audio.rs` when a pad is touched.
   `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer` renders the car's sound over a scripted lap.
 
 Conventions: metres, y up, right-handed; yaw 0 faces +Z and a positive yaw turns left; a car

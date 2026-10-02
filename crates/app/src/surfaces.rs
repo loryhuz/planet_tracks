@@ -11,7 +11,7 @@ use crate::car_model::{Image, decode_png};
 use crate::gfx::Gpu;
 
 /// (name, colour PNG, relief PNG), in the order of the `L_*` layers of `scene.wgsl`.
-const LAYERS: [(&str, &[u8], &[u8]); 13] = [
+const LAYERS: [(&str, &[u8], &[u8]); 14] = [
     ("tarp", include_bytes!("../assets/textures/tarp_albedo.png"), include_bytes!("../assets/textures/tarp_normal.png")),
     ("dirt", include_bytes!("../assets/textures/dirt_albedo.png"), include_bytes!("../assets/textures/dirt_normal.png")),
     ("earth", include_bytes!("../assets/textures/earth_albedo.png"), include_bytes!("../assets/textures/earth_normal.png")),
@@ -26,6 +26,9 @@ const LAYERS: [(&str, &[u8], &[u8]); 13] = [
     ("rust", include_bytes!("../assets/textures/rust_albedo.png"), include_bytes!("../assets/textures/rust_normal.png")),
     // Lettering of the gates, drawn by tools/textures/signs.py (ink in the alpha channel).
     ("signs", include_bytes!("../assets/textures/signs_albedo.png"), include_bytes!("../assets/textures/signs_normal.png")),
+    // The booster arrow, from a Higgsfield picture by tools/textures/booster.py (coverage in the
+    // alpha channel).
+    ("booster", include_bytes!("../assets/textures/booster_albedo.png"), include_bytes!("../assets/textures/booster_normal.png")),
 ];
 
 pub struct SurfaceTextures {

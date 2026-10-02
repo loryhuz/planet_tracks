@@ -132,6 +132,20 @@ pub fn gate_deck_colour(gate: Gate, gate_route_s: f32, strapped: bool, line: boo
     [0.0, (gate_route_s / GATE_S_SCALE).clamp(0.0, 1.0), (code as f32 + 0.5) / 16.0]
 }
 
+/// Scale of the length of a booster block its deck colour carries (see [`booster_deck_colour`]),
+/// metres.
+pub const BOOSTER_LENGTH_SCALE: f32 = 1024.0;
+
+/// The colour of a booster block's road deck and lines: instead of a colour, where the renderer
+/// paints its arrows (scene.wgsl). Red is above 1 to mark it: 1 + (code + 0.5) / 16, the code
+/// being 4 if the tarp is strapped, plus 8 on a line strip; green is the distance along the
+/// route of the start of the block's deck over [`GATE_S_SCALE`]; blue the deck's length over
+/// [`BOOSTER_LENGTH_SCALE`].
+pub fn booster_deck_colour(entry_route_s: f32, length: f32, strapped: bool, line: bool) -> [f32; 3] {
+    let code = if strapped { 4 } else { 0 } + if line { 8 } else { 0 };
+    [1.0 + (code as f32 + 0.5) / 16.0, (entry_route_s / GATE_S_SCALE).clamp(0.0, 1.0), (length / BOOSTER_LENGTH_SCALE).clamp(0.0, 1.0)]
+}
+
 /// Flat vertex colours (linear RGB).
 pub mod color {
     pub const ROAD: [f32; 3] = [0.20, 0.20, 0.21];
@@ -395,7 +409,7 @@ pub enum Edge {
 }
 
 /// A piece as the map designer picks it: a shape, a deck, the finish of a road's edges and
-/// maybe a gate.
+/// maybe a gate or a booster.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Piece {
     pub kind: Kind,
@@ -403,19 +417,27 @@ pub struct Piece {
     pub deck: Surface,
     pub gate: Option<Gate>,
     pub edge: Edge,
+    /// A road with booster arrows painted along it: its deck is [`Surface::Booster`].
+    pub boost: bool,
 }
 
 impl Piece {
     pub fn road(kind: Kind) -> Self {
-        Self { kind, deck: Surface::Road, gate: None, edge: Edge::Auto }
+        Self { kind, deck: Surface::Road, gate: None, edge: Edge::Auto, boost: false }
     }
 
     pub fn dirt(kind: Kind) -> Self {
-        Self { kind, deck: Surface::Dirt, gate: None, edge: Edge::Auto }
+        Self { kind, deck: Surface::Dirt, gate: None, edge: Edge::Auto, boost: false }
     }
 
     pub fn gate(mut self, gate: Gate) -> Self {
         self.gate = Some(gate);
+        self
+    }
+
+    /// The same road with booster arrows.
+    pub fn booster(mut self) -> Self {
+        self.boost = true;
         self
     }
 }
@@ -1113,8 +1135,10 @@ impl Section {
 
 /// Surface, colour and dirt amount (see [`TrackMesh::dirt`]) of a strip of a road whose edges
 /// are finished with `edge`; `gate`, the gate of a gate block and the distance along the route
-/// of its line (its road deck carries them, see [`gate_deck_colour`]).
-fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, normal: Vec3) -> (Surface, [f32; 3], u8) {
+/// of its line (its road deck carries them, see [`gate_deck_colour`]); `boost`, the distance
+/// along the route at the entry of a booster block and its length (likewise, see
+/// [`booster_deck_colour`]).
+fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, boost: Option<(f32, f32)>, normal: Vec3) -> (Surface, [f32; 3], u8) {
     let worked = if deck == Surface::Dirt { 1 } else { 0 };
     let side = if deck == Surface::Dirt { color::WALL } else { color::SLAB };
     let strapped = edge == Edge::Bumpers;
@@ -1136,6 +1160,10 @@ fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, no
         Role::Line | Role::Deck if gate.is_some() => {
             let (g, s) = gate.unwrap();
             (Surface::Road, gate_deck_colour(g, s, strapped, role == Role::Line), 0)
+        }
+        Role::Line | Role::Deck if boost.is_some() => {
+            let (s, length) = boost.unwrap();
+            (Surface::Booster, booster_deck_colour(s, length, strapped, role == Role::Line), 0)
         }
         Role::Line => (Surface::Road, if strapped { color::LINE_STRAPPED } else { color::LINE }, 0),
         Role::Deck => (Surface::Road, if strapped { color::ROAD_STRAPPED } else { color::ROAD }, 0),
@@ -1185,6 +1213,10 @@ pub(crate) fn sweep(
     let decks: Vec<Surface> = ss.windows(2).map(|w| p.frame(0.5 * (w[0] + w[1])).deck).collect();
     let edge = p.edge();
     let gate = p.piece.gate.map(|g| (g, route_s + p.gate_s()));
+    let boost = p.piece.boost.then(|| {
+        let (d0, d1) = p.deck_range();
+        (route_s + d0, d1 - d0)
+    });
     let n = ss.len();
     let mut run = 0u32;
     for (j, &role) in ROLES.iter().enumerate() {
@@ -1203,7 +1235,7 @@ pub(crate) fn sweep(
                 current = None;
                 continue;
             }
-            let class = classify(role, decks[k], edge, gate, normal);
+            let class = classify(role, decks[k], edge, gate, boost, normal);
             // A border's own normals where they agree with the strip (shaded round), the
             // triangles' elsewhere (its crease against the deck).
             let round = role == Role::Border

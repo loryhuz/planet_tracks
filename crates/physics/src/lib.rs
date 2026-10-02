@@ -124,6 +124,9 @@ pub struct CarState {
     pub wall_contact: bool,
     /// Ticks since the last wheel contact (0 while on the ground).
     pub air_ticks: u32,
+    /// Seconds left of the boost from the last booster pad touched (see
+    /// [`CarParams::boost_time`]), 0 without one.
+    pub boost: f32,
 }
 
 impl CarState {
@@ -174,7 +177,7 @@ impl CarState {
         ]);
         v3(&mut words, self.ground_normal);
         v3(&mut words, self.acceleration);
-        words.extend_from_slice(&[self.impact.to_bits(), self.wall_contact as u32, self.air_ticks]);
+        words.extend_from_slice(&[self.impact.to_bits(), self.wall_contact as u32, self.air_ticks, self.boost.to_bits()]);
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         for word in words {
             for b in word.to_le_bytes() {
@@ -218,6 +221,8 @@ pub struct Telemetry {
     pub impact: f32,
     /// Whether the body is scraping a wall.
     pub wall_contact: bool,
+    /// How much boost is left, 1 just off a booster pad .. 0 (none).
+    pub boost: f32,
 }
 
 pub struct Car {
@@ -273,7 +278,7 @@ impl Car {
         let vf = v.dot(fwd);
         let normal = if on_ground > 0 { s.ground_normal } else { Vec3::Y };
         let slip = libm::fabsf(car::body_vs_motion(s.rotation, v, normal)).to_degrees();
-        let mut counts = [0u8; 4];
+        let mut counts = [0u8; 5];
         for w in &s.wheels {
             if let (true, Some(surf)) = (w.contact, w.surface) {
                 counts[surf as usize] += 1;
@@ -288,7 +293,8 @@ impl Car {
                     0 => Surface::Road,
                     1 => Surface::Dirt,
                     2 => Surface::Ground,
-                    _ => Surface::Wall,
+                    3 => Surface::Wall,
+                    _ => Surface::Booster,
                 });
             }
         }
@@ -309,6 +315,7 @@ impl Car {
             surface,
             impact: s.impact,
             wall_contact: s.wall_contact,
+            boost: if self.params.boost_time > 0.0 { (s.boost / self.params.boost_time).clamp(0.0, 1.0) } else { 0.0 },
         }
     }
 }
@@ -336,5 +343,6 @@ fn rest_state(spawn: Pose) -> CarState {
         impact: 0.0,
         wall_contact: false,
         air_ticks: 0,
+        boost: 0.0,
     }
 }

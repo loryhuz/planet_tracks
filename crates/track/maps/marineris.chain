@@ -1,0 +1,102 @@
+# Marineris: the first of the hard series, a roller coaster in a canyon. The start stands 80 m
+# up on a summit mesa: a booster launches the car off its edge into a plunge of 48 m, over a
+# camelback on red tube scaffolding, round a high banked sweeper and down to a chicane of 90°
+# turns 16 m up, then a booster into the kicker: up to a second in the air and 13 m over the lip
+# at 330 km/h, onto a landing hill that catches 145 to 378 km/h, down to the canyon floor. The east side is the lift hill: 48 m up, an S of 90° turns
+# on the scaffolding (a fall is a respawn), a booster off the top into the longest drop. The
+# south side rolls over two long camelbacks along the canyon wall, a booster climbs 24 m to a
+# last 90° turn at height, and a booster sends the car up a butte to the finish.
+#
+# Every vertical curve is wide enough for the speeds it is taken at (a crest under
+# v² / 40 m/s² launches the car, a tight sag crushes it): the drops and climbs are 5 to 8 cells
+# long; only the first plunge, taken slowly, is steep. Boosters relaunch the car after the slow
+# turns, and into the kicker, with no climb before it (a sag then a crest, at 300 km/h, throws
+# the car as its springs rebound). About 46 s for the braking autopilot, 44 s for a player flat
+# out.
+name Marineris
+seed 4207
+# 2: the north side only drops to 16 m, its chicane and kicker up there, the kicker straight
+# after the booster with an 8-cell landing hill: taken flat out through the chicane and boosted
+# (330 km/h), the climb before the kicker threw the car onto it.
+version 2
+start 0 -8 10 0
+straight booster
+slope5_down6
+slope3_up2
+slope3_down2
+banked3_right
+slope6_down2
+checkpoint
+straight
+turn1_right
+turn1_left
+straight booster
+kicker
+kicker_landing8_down2
+berm3_right
+checkpoint
+slope6_up6
+straight2
+turn1_right
+straight
+turn1_left
+straight booster
+slope8_down6
+checkpoint
+berm3_right
+slope3_up1
+slope3_down1
+slope3_up1
+slope3_down1
+straight
+berm3_right
+straight booster
+slope5_up3
+straight2
+checkpoint
+turn1_right
+straight booster
+slope4_down3
+straight
+berm3_left
+straight booster
+slope5_up3
+finish
+
+terrain hills 10.0
+terrain relief 18.0
+# The summit, 80 m: the start and its booster on top, the plunge off its north cliff.
+landform mesa 16 -262 62 80
+# The butte of the finish, 24 m, the last climb up its flank.
+landform butte -400 72 32 24
+# The canyon's walls, close along the four sides.
+landform mesa -380 390 50 55 760 90
+landform mesa -893 -190 55 72 720 0
+landform mesa -380 -725 50 52 760 90
+landform mesa 150 -40 50 62 260 0
+# Inside the loop: a spine of rock between the summit and the finish, a table between the
+# finish and the lift hill, a butte south of the last descent.
+landform mesa -225 50 42 42 170 0
+landform mesa -528 -10 58 46 80 0
+landform butte -268 -430 40 46
+landform butte -235 -110 18 50
+# Hoodoos and boulders: at the foot of the plunge, by the chicane, under the kicker's flight,
+# at the foot of the lift hill and by the S at its top, along the south camelbacks, around the
+# last turn at height and the finish.
+prop spire 70 0 -60 20 8
+prop boulder 64 0 30 140 7
+prop spire -330 0 300 60 7
+prop boulder -360 0 160 10 6
+prop spire -560 0 150 80 8
+prop rock -600 0 260 30 3
+prop spire -830 0 120 0 9
+prop boulder -820 0 -170 200 8
+prop spire -618 0 -200 45 7
+prop slab -608 0 -150 300 6
+prop spire -488 0 -660 110 8
+prop boulder -388 0 -540 70 7
+prop spire -228 0 -650 15 7
+prop boulder -28 0 -320 160 7
+prop spire -158 0 -300 90 6
+prop spire -438 0 120 30 6
+prop boulder -318 0 -60 250 6

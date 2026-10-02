@@ -1,5 +1,5 @@
-//! Looping recordings: a minimal reader for the 16-bit PCM WAV files the app embeds
-//! (assets/audio/, made by tools/audio/prepare.py) and a loop played at a variable rate.
+//! Recordings: a minimal reader for the 16-bit PCM WAV files the app embeds (assets/audio/, made
+//! by tools/audio/prepare.py), a loop played at a variable rate, and a sound played once.
 
 /// Reads a 16-bit PCM WAV: returns (interleaved samples, channels, rate).
 fn decode_wav(bytes: &[u8]) -> (Vec<f32>, usize, u32) {
@@ -59,6 +59,45 @@ impl Looper {
         let (a, b) = (i * self.channels, (i + 1) % n * self.channels);
         let at = |c: usize| self.samples[a + c] * (1.0 - frac) + self.samples[b + c] * frac;
         let right = if self.channels > 1 { 1 } else { 0 };
+        (at(0), at(right))
+    }
+}
+
+/// A recording played once from its start each time it is triggered (a new trigger restarts it).
+pub struct OneShot {
+    /// Interleaved, `channels` per frame.
+    samples: Vec<f32>,
+    channels: usize,
+    frames: usize,
+    /// Where it is playing, in recording frames; `None` once it has ended.
+    pos: Option<f64>,
+    step: f64,
+}
+
+impl OneShot {
+    pub fn new(bytes: &[u8], out_rate: f32) -> Self {
+        let (samples, channels, rate) = decode_wav(bytes);
+        let frames = samples.len() / channels;
+        Self { samples, channels, frames, pos: None, step: rate as f64 / out_rate as f64 }
+    }
+
+    pub fn trigger(&mut self) {
+        self.pos = Some(0.0);
+    }
+
+    /// The next (left, right) sample, silence once the recording has ended.
+    pub fn next(&mut self) -> (f32, f32) {
+        let Some(pos) = self.pos else { return (0.0, 0.0) };
+        let i = pos as usize;
+        if i + 1 >= self.frames {
+            self.pos = None;
+            return (0.0, 0.0);
+        }
+        let frac = (pos - i as f64) as f32;
+        let (a, b) = (i * self.channels, (i + 1) * self.channels);
+        let at = |c: usize| self.samples[a + c] * (1.0 - frac) + self.samples[b + c] * frac;
+        let right = if self.channels > 1 { 1 } else { 0 };
+        self.pos = Some(pos + self.step);
         (at(0), at(right))
     }
 }

@@ -81,6 +81,7 @@ pub struct TrackInfo {
     pub route: Vec<(Vec2, bool)>,
     /// Share of the medal speeds this circuit allows (tight ones are slower).
     pub pace: f32,
+    pub series: Series,
 }
 
 impl TrackInfo {
@@ -91,15 +92,26 @@ impl TrackInfo {
 }
 
 /// Share of the medal speeds a circuit allows: Noctis, all hairpins, is driven well under 200 km/h
-/// on average (a clean braking lap is about 28 s, 185 km/h), so its gold is 29.6 s.
+/// on average (a clean braking lap is about 28 s, 185 km/h), so its gold is 29.6 s. Marineris,
+/// all drops and boosters, is driven well over: a player flat out did 44 s (290 km/h), so its
+/// gold is 46.5 s, silver 51.7 s, bronze 58.1 s.
 fn pace(name: &str) -> f32 {
     match name.to_lowercase().as_str() {
         "noctis" => 0.87,
+        "marineris" => 1.357,
         _ => 1.0,
     }
 }
 
-/// Every map's card, in the game's order (the easy series, for now).
+/// The series a circuit belongs to: Marineris opens the hard one.
+fn series(name: &str) -> Series {
+    match name.to_lowercase().as_str() {
+        "marineris" => Series::Hard,
+        _ => Series::Easy,
+    }
+}
+
+/// Every map's card, in the game's order (each series lists its circuits in that order).
 pub fn tracks(maps: &[track::Map]) -> Vec<TrackInfo> {
     maps.iter().enumerate().filter_map(|(i, map)| info(i, map)).collect()
 }
@@ -129,5 +141,6 @@ fn info(index: usize, map: &track::Map) -> Option<TrackInfo> {
         dirt,
         route,
         pace: pace(&map.name),
+        series: series(&map.name),
     })
 }

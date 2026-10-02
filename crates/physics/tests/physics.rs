@@ -680,3 +680,65 @@ fn road_acceleration_has_punch() {
         assert!((275.0..=310.0).contains(&top), "{}: top speed {top} km/h", p.name);
     }
 }
+
+/// A straight road from z = −100 to `length`, with a booster pad across it from `pad.0` to
+/// `pad.1` (none if empty).
+fn booster_strip(length: f32, pad: (f32, f32)) -> TrackMesh {
+    let mut b = testing::MeshBuilder::new();
+    b.grid((-30.0, -100.0), (30.0, length), 2.0, |_, _| 0.0, move |_, z| if (pad.0..pad.1).contains(&z) { Surface::Booster } else { Surface::Road });
+    b.build()
+}
+
+#[test]
+fn a_booster_pad_pushes_the_car_then_fades_out() {
+    // From 150 km/h with the throttle held, the car crosses a pad 10 m long: the boost starts at
+    // full on it and is gone `boost_time` after its end, leaving the car about half of
+    // `boost_accel · boost_time` faster than without the pad.
+    let plain = World::new(&booster_strip(2000.0, (0.0, 0.0)));
+    let padded = World::new(&booster_strip(2000.0, (40.0, 50.0)));
+    for p in presets() {
+        let run = |world: &World| {
+            let mut car = Car::new(p.clone(), world, pose(0.0, 0.0, 0.0, 0.0));
+            car.state.velocity = Vec3::Z * (150.0 / 3.6);
+            let (mut after_pad, mut boost_seen) = (None, 0.0f32);
+            for tick in 0..600u32 {
+                car.step(world, Input { gas: 1.0, ..Default::default() });
+                boost_seen = boost_seen.max(car.telemetry().boost);
+                if after_pad.is_none() && car.state.position.z > 50.0 {
+                    after_pad = Some(tick);
+                }
+            }
+            (car.state.velocity.length(), boost_seen, car.telemetry().boost, after_pad)
+        };
+        let (v_plain, seen_plain, _, _) = run(&plain);
+        let (v_boost, seen, left, after) = run(&padded);
+        let gain = v_boost - v_plain;
+        println!("{}: +{:.1} m/s ({:.0} → {:.0} km/h), boost seen {seen:.2}, left {left:.2}, pad left at tick {after:?}", p.name, gain, v_plain * 3.6, v_boost * 3.6);
+        assert_eq!(seen_plain, 0.0, "{}: a boost without a pad", p.name);
+        assert!(seen > 0.99, "{}: the pad did not start the boost ({seen})", p.name);
+        assert_eq!(left, 0.0, "{}: the boost never faded out", p.name);
+        let full = 0.5 * p.boost_accel * p.boost_time;
+        assert!((0.7 * full..=1.05 * full).contains(&gain), "{}: the boost gave {gain} m/s (about {full} expected)", p.name);
+    }
+}
+
+#[test]
+fn a_booster_pushes_past_the_engines_top_speed() {
+    // At 310 km/h the engine no longer pushes; a pad still does.
+    let plain = World::new(&booster_strip(3000.0, (0.0, 0.0)));
+    let padded = World::new(&booster_strip(3000.0, (40.0, 50.0)));
+    for p in presets() {
+        let run = |world: &World| {
+            let mut car = Car::new(p.clone(), world, pose(0.0, 0.0, 0.0, 0.0));
+            car.state.velocity = Vec3::Z * (310.0 / 3.6);
+            for _ in 0..300 {
+                car.step(world, Input { gas: 1.0, ..Default::default() });
+            }
+            car.telemetry().speed_kmh
+        };
+        let (plain, boosted) = (run(&plain), run(&padded));
+        println!("{}: {plain:.0} km/h without the pad, {boosted:.0} with it", p.name);
+        assert!(plain <= 310.5, "{}: the engine pushed past its top speed ({plain} km/h)", p.name);
+        assert!(boosted > plain + 30.0, "{}: the pad hardly pushed ({plain} → {boosted} km/h)", p.name);
+    }
+}

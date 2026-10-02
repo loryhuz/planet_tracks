@@ -7,7 +7,8 @@
 //! - where there is room ([`TRUSS_NEED`] m under the slab), a truss runs under each side of the
 //!   deck, [`TRUSS_DEPTH`] m deep, in panels of [`PANEL`] m: chords, verticals and diagonals,
 //!   tied across by beams under the slab;
-//! - piers carry the trusses down to the ground about every [`PIER_SPACING`] m, irregularly: a leg
+//! - piers carry the trusses down to the ground about every [`PIER_SPACING`] m, irregularly (twice
+//!   as far apart where the trusses stand more than [`TALL`] m up, a roller coaster's trestles): a leg
 //!   of two posts under each truss, braced, on a big stack of sandbags, braced across to the
 //!   other leg;
 //! - closer to the ground, stacks of sandbags under the slab (with a post on them where the gap
@@ -37,6 +38,11 @@ pub const TRUSS_NEED: f32 = TRUSS_DEPTH + 0.8;
 /// the rhythm, metres.
 pub const PIER_SPACING: f32 = 24.0;
 const PIER_JITTER: f32 = 8.0;
+/// Where the trusses stand more than this above the ground, only every other pier is built,
+/// metres.
+pub const TALL: f32 = 20.0;
+/// A leg's braces never have more storeys than this: a tall leg's are taller.
+const MAX_STOREYS: f32 = 8.0;
 /// Track coordinate across of the trusses and the piers' legs (either side), metres.
 const TRUSS_U: f32 = 7.5;
 /// A pier's two posts under each truss stand this far before and after it, metres.
@@ -128,7 +134,7 @@ pub(crate) fn stilts(
     let last = libm::ceilf((r1 + PIER_JITTER) / PIER_SPACING) as i32;
     for m in first..=last {
         let at = m as f32 * PIER_SPACING + (unit(hash2(0x9e2, m, 0)) - 0.5) * 2.0 * PIER_JITTER;
-        if (r0..r1).contains(&at) {
+        if (r0..r1).contains(&at) && (m % 2 == 0 || !tall(p, at - route_s, &ground)) {
             pier(b, decor, p, at - route_s, range, &ground, hash2(0x9e2, m, 1));
         }
     }
@@ -244,14 +250,20 @@ fn pier(
     }
 }
 
+/// Whether the trusses at `s` along `p` stand more than [`TALL`] m above the ground on either
+/// side.
+fn tall(p: &Placed, s: f32, ground: &impl Fn(Vec3) -> f32) -> bool {
+    sides_at(p, s, ground).0.iter().flatten().any(|n| n.bottom.y - n.ground > TALL)
+}
+
 /// X braces between two posts (feet `a0`, `b0`, tops `a1`, `b1`), in storeys about `storey`
-/// metres tall, with a ledger between storeys.
+/// metres tall (at most [`MAX_STOREYS`] of them), with a ledger between storeys.
 fn braces(b: &mut MeshBuilder, a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3, storey: f32) {
     let height = (a1.y - a0.y).min(b1.y - b0.y);
     if height < 1.2 {
         return;
     }
-    let n = libm::roundf(height / storey).max(1.0) as u32;
+    let n = libm::roundf(height / storey).clamp(1.0, MAX_STOREYS) as u32;
     for i in 0..n {
         let (t0, t1) = (i as f32 / n as f32, (i + 1) as f32 / n as f32);
         tube(b, a0.lerp(a1, t0), b0.lerp(b1, t1), BRACE_R, 6);

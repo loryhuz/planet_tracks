@@ -62,6 +62,9 @@ pub struct Game {
     pub mute_requested: bool,
     /// Impacts to play this frame (0..1 strength).
     pub impacts: Vec<f32>,
+    /// Booster pads touched since the last frame, for the sound.
+    pub boosts: u32,
+    last_boost: f32,
     last_impact: f32,
     /// Debug self-test: a route-following autopilot drives instead of the player.
     pub autodrive: Option<crate::debug::Autopilot>,
@@ -94,6 +97,8 @@ impl Game {
             dust: crate::particles::Dust::new(),
             mute_requested: false,
             impacts: Vec::new(),
+            boosts: 0,
+            last_boost: 0.0,
             last_impact: 0.0,
             autodrive: None,
             pending_respawn: false,
@@ -244,6 +249,12 @@ impl Game {
             self.impacts.push((impact / 15.0).clamp(0.15, 1.0));
         }
         self.last_impact = impact;
+        // The boost starts over (it rises) on the first touch of a pad; on the pad it holds.
+        let boost = self.run.car.telemetry().boost;
+        if boost > self.last_boost + 0.01 && !frame.respawn {
+            self.boosts += 1;
+        }
+        self.last_boost = boost;
         if self.autodrive.is_some() && std::env::var("MARS_VERBOSE").is_ok() {
             for e in &events {
                 let p = self.run.car.state.position;
@@ -320,7 +331,7 @@ impl Game {
             }
             on += 1.0;
             match w.surface {
-                Some(track::Surface::Road) => squeal = squeal.max(((w.mark - 0.3) / 0.7).clamp(0.0, 1.0) * (0.4 + 0.6 * w.smear)),
+                Some(track::Surface::Road) | Some(track::Surface::Booster) => squeal = squeal.max(((w.mark - 0.3) / 0.7).clamp(0.0, 1.0) * (0.4 + 0.6 * w.smear)),
                 Some(track::Surface::Dirt) | Some(track::Surface::Ground) => {
                     loose += 1.0;
                     scrub = scrub.max(w.smear.max(w.mark * 0.3));

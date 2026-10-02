@@ -224,6 +224,8 @@ pub struct View {
     pub view: Mat4,
     pub proj: Mat4,
     pub eye: Vec3,
+    /// The speed blur over the scene, 0..1 (a booster's push, see [`crate::blur`]).
+    pub blur: f32,
 }
 
 #[repr(C)]
@@ -329,6 +331,7 @@ pub struct SceneRenderer {
     format: wgpu::TextureFormat,
     meshes: Vec<GpuMesh>,
     sun_dir: Vec3,
+    speed_blur: crate::blur::SpeedBlur,
 }
 
 impl SceneRenderer {
@@ -897,6 +900,7 @@ impl SceneRenderer {
             format,
             meshes: Vec::new(),
             sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+            speed_blur: crate::blur::SpeedBlur::new(device, format),
         }
     }
 
@@ -1142,12 +1146,19 @@ impl SceneRenderer {
                 }
             }
         }
+        // While a booster pushes the car the scene resolves into the speed blur's image, drawn
+        // into the frame smeared once the pass is over.
+        let blurring = view.blur > 0.01;
+        if blurring {
+            self.speed_blur.prepare(&gpu.device, self.size);
+        }
+        let resolve = if blurring { self.speed_blur.image().unwrap_or(target) } else { target };
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
-                    resolve_target: Some(target),
+                    resolve_target: Some(resolve),
                     ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Discard },
                     depth_slice: None,
                 })],
@@ -1218,6 +1229,14 @@ impl SceneRenderer {
                 pass.set_pipeline(&self.veil_pipeline);
                 pass.draw(0..3, 0..1);
             }
+        }
+        if blurring {
+            // The streaks run toward the point the road runs to: far ahead of the camera.
+            let ahead = view.eye + Vec3::new(forward.x, 0.0, forward.z).normalize_or(forward) * 1000.0;
+            let clip = view_proj * ahead.extend(1.0);
+            let focus = if clip.w > 1e-3 { Vec2::new(0.5 + 0.5 * clip.x / clip.w, 0.5 - 0.5 * clip.y / clip.w) } else { Vec2::new(0.5, 0.45) };
+            let aspect = self.size.0 as f32 / self.size.1.max(1) as f32;
+            self.speed_blur.apply(&gpu.queue, encoder, target, view.blur, focus.clamp(Vec2::splat(0.2), Vec2::splat(0.8)), aspect);
         }
     }
 

@@ -20,9 +20,10 @@
 //!   never yaw the car and body scrapes barely do, so bumps move the body without steering it.
 //!
 //! One tick: steering smoothing; one BVH query for every test of the tick; suspension rays and
-//! forces; grip and contact smoothing; tyre forces along/across the path; drift bleed, turning drag,
-//! aero; yaw controller (or air control); semi-implicit integration; the body (spheres) moves in
-//! substeps and collides; drift angle spring and catch; bookkeeping for the renderer.
+//! forces; grip and contact smoothing; tyre forces along/across the path; booster push; drift
+//! bleed, turning drag, aero; yaw controller (or air control); semi-implicit integration; the body
+//! (spheres) moves in substeps and collides; drift angle spring and catch; bookkeeping for the
+//! renderer.
 
 use glam::{Quat, Vec3};
 use libm::{atan2f, cosf, sinf, sqrtf, tanf};
@@ -511,6 +512,19 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     }
     force += tyre;
     torque += tyre_torque;
+
+    // Boosters: a wheel on a pad starts the boost over; it pushes along the path, past the
+    // engine's top speed, while the wheels are on the ground, fading out.
+    let boost_time = p.boost_time.max(dt);
+    if contacts.iter().any(|c| c.is_some_and(|c| c.hit.surface == Surface::Booster)) {
+        s.boost = boost_time;
+    }
+    if s.boost > 0.0 {
+        if grounded {
+            force += path_fwd * (m * p.boost_accel.max(0.0) * (s.boost / boost_time));
+        }
+        s.boost = (s.boost - dt).max(0.0);
+    }
 
     // Drifting and turning cost speed.
     if grounded && speed_plane > 1.0 {

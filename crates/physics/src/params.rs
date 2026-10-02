@@ -124,6 +124,14 @@ pub struct CarParams {
     /// Braking deceleration, m/s².
     pub brake: f32,
 
+    // --- Boosters
+    /// Touching a booster pad ([`Surface::Booster`]) starts a boost: a push along the car's path
+    /// of this many m/s², on top of the engine and past its top speed, while the wheels touch
+    /// the ground…
+    pub boost_accel: f32,
+    /// …fading linearly to nothing over this many seconds from the last touch of a pad.
+    pub boost_time: f32,
+
     // --- Steering
     /// Maximum wheel angle at standstill, degrees.
     pub steer_low_deg: f32,
@@ -282,6 +290,8 @@ impl CarParams {
         t!("Moteur", "Le frein recule sous (km/h)", self.reverse_engage_kmh, 0.0, 80.0);
 
         t!("Freins", "Décélération (m/s²)", self.brake, 2.0, 120.0);
+        t!("Boosters", "Poussée (m/s²)", self.boost_accel, 0.0, 60.0);
+        t!("Boosters", "Durée (s)", self.boost_time, 0.1, 10.0);
 
         t!("Direction", "Braquage à l'arrêt (°)", self.steer_low_deg, 3.0, 50.0);
         t!("Direction", "Braquage à haute vitesse (°)", self.steer_high_deg, 0.5, 50.0);
@@ -387,7 +397,7 @@ impl CarParams {
 
     pub fn surface(&self, s: Surface) -> &SurfaceGrip {
         match s {
-            Surface::Road | Surface::Wall => &self.road,
+            Surface::Road | Surface::Booster | Surface::Wall => &self.road,
             Surface::Dirt => &self.dirt,
             Surface::Ground => &self.ground,
         }
@@ -514,6 +524,11 @@ pub fn fidele() -> CarParams {
         reverse_engage_kmh: 33.0,
 
         brake: 50.0,
+
+        // A booster pad gives about 55 km/h if the car stays on the ground: a push it feels, not
+        // a launch.
+        boost_accel: 12.0,
+        boost_time: 2.5,
 
         steer_low_deg: 15.6,
         steer_high_deg: 15.6,

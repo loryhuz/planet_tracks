@@ -34,7 +34,8 @@
 //! deck: `"road"` (the default) or `"dirt"`; a road's edges ([`Edge`]) can be picked with
 //! `"sandbags"` (a row of sandbags, the tarp staked) or `"bumpers"` (red and white tubes, the tarp
 //! strapped); a plain road has bumpers where it leaves the ground and sandbags where it stays on
-//! it.
+//! it. `"booster"` paints arrows along a road (any block but the gates and the transitions, its
+//! edges as a plain road's): a car touching its deck ([`Surface::Booster`]) gets a boost.
 //!
 //! The start, the checkpoints and the finish are blocks ([`Gate`]): the route is found by
 //! following exits to entries from the start block to the finish block, and every checkpoint
@@ -135,7 +136,7 @@ pub struct BlockPlacement {
     pub level: i32,
     /// Entry heading, quarter turns to the left from north (+Z).
     pub rotation: u8,
-    /// Deck: `"road"` (default) or `"dirt"`.
+    /// Deck: `"road"` (default), `"sandbags"`, `"bumpers"`, `"booster"` or `"dirt"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
 }
@@ -205,8 +206,8 @@ fn split_number(s: &str) -> (&str, Option<u32>) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockError {
     UnknownId,
-    /// The variant is none of road, sandbags, bumpers and dirt, or the block's deck is fixed
-    /// (transitions).
+    /// The variant is none of road, sandbags, bumpers, booster and dirt, or the block's deck is
+    /// fixed (transitions; no booster on a gate).
     BadVariant,
 }
 
@@ -269,7 +270,7 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
     };
     if let Some((deck, to)) = transition {
         return match variant {
-            None => Ok(Piece { kind: Kind::Transition { to }, deck, gate: None, edge: Edge::Auto }),
+            None => Ok(Piece { kind: Kind::Transition { to }, deck, gate: None, edge: Edge::Auto, boost: false }),
             Some(_) => Err(BlockError::BadVariant),
         };
     }
@@ -280,23 +281,29 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
         _ => None,
     };
     let kind = if gate.is_some() { Kind::Straight { cells: 1 } } else { parse_shape(id).ok_or(BlockError::UnknownId)? };
-    let (deck, edge) = match variant {
-        None | Some("road") => (Surface::Road, Edge::Auto),
-        Some("sandbags") => (Surface::Road, Edge::Sandbags),
-        Some("bumpers") => (Surface::Road, Edge::Bumpers),
-        Some("dirt") => (Surface::Dirt, Edge::Auto),
+    let (deck, edge, boost) = match variant {
+        None | Some("road") => (Surface::Road, Edge::Auto, false),
+        Some("sandbags") => (Surface::Road, Edge::Sandbags, false),
+        Some("bumpers") => (Surface::Road, Edge::Bumpers, false),
+        Some("dirt") => (Surface::Dirt, Edge::Auto, false),
+        // A gate's deck carries its line and word: no arrows on it.
+        Some("booster") if gate.is_none() => (Surface::Road, Edge::Auto, true),
         Some(_) => return Err(BlockError::BadVariant),
     };
-    Ok(Piece { kind, deck, gate, edge })
+    Ok(Piece { kind, deck, gate, edge, boost })
 }
 
 /// The catalogue id and variant of a piece, or `None` when the catalogue has no such block.
 pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
-    let dirt = match (piece.deck, piece.edge) {
-        (Surface::Dirt, _) => Some("dirt".to_string()),
-        (_, Edge::Sandbags) => Some("sandbags".to_string()),
-        (_, Edge::Bumpers) => Some("bumpers".to_string()),
-        (_, Edge::Auto) => None,
+    let dirt = match (piece.deck, piece.edge, piece.boost) {
+        (Surface::Dirt, _, false) => Some("dirt".to_string()),
+        (Surface::Road, Edge::Auto, true) if piece.gate.is_none() && !matches!(piece.kind, Kind::Transition { .. }) => {
+            Some("booster".to_string())
+        }
+        (_, _, true) => return None,
+        (_, Edge::Sandbags, _) => Some("sandbags".to_string()),
+        (_, Edge::Bumpers, _) => Some("bumpers".to_string()),
+        (_, Edge::Auto, _) => None,
     };
     if let Some(g) = piece.gate {
         if piece.kind != (Kind::Straight { cells: 1 }) {

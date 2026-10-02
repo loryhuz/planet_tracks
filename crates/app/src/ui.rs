@@ -119,6 +119,7 @@ pub fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
                     ui.label(RichText::new(name).monospace());
                     let surface = match w.surface {
                         Some(track::Surface::Road) => "route",
+                        Some(track::Surface::Booster) => "boost",
                         Some(track::Surface::Dirt) => "terre",
                         Some(track::Surface::Ground) => "sol",
                         Some(track::Surface::Wall) => "mur",

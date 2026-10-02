@@ -3,6 +3,7 @@
 //! between ticks, with an egui tuning panel.
 
 mod audio;
+mod blur;
 mod camera;
 mod car_model;
 mod debug;
@@ -100,6 +101,8 @@ fn track_mesh_data(mesh: &track::TrackMesh) -> MeshData {
         let color = vertices[mesh.indices[3 * t] as usize].color;
         let kind = match surface {
             track::Surface::Dirt => track::Surface::Ground as u32,
+            // A booster deck is a road with arrows painted on it (its colour says where).
+            track::Surface::Booster => track::Surface::Road as u32,
             // The strip between a road and its border is ground to the car, the road's tarp to
             // the eye.
             track::Surface::Ground if color == track::kit::color::VERGE || color == track::kit::color::VERGE_STRAPPED => {
@@ -304,7 +307,7 @@ impl App {
             let (pos, rot) = game.car_pose(alpha);
             let t = game.telemetry();
             let aspect = g.gpu.config.width as f32 / g.gpu.config.height.max(1) as f32;
-            let _ = game.camera.update(dt, pos, rot, t.speed_kmh, t.airborne, aspect);
+            let _ = game.camera.update(dt, pos, rot, t.speed_kmh, t.boost, t.airborne, aspect);
             std::thread::sleep(std::time::Duration::from_millis(8));
             return;
         }
@@ -413,7 +416,7 @@ impl App {
         let (car_pos, car_rot) = game.car_pose(alpha);
         let t = game.telemetry();
         let aspect = g.gpu.config.width as f32 / g.gpu.config.height.max(1) as f32;
-        let (mut view, proj, mut eye) = game.camera.update(dt, car_pos, car_rot, t.speed_kmh, t.airborne, aspect);
+        let (mut view, proj, mut eye) = game.camera.update(dt, car_pos, car_rot, t.speed_kmh, t.boost, t.airborne, aspect);
         if let Some((yaw, dist, height)) = self.debug.orbit {
             let dir = car_rot * glam::Quat::from_rotation_y(yaw.to_radians()) * glam::Vec3::Z;
             eye = car_pos + dir * dist + glam::Vec3::Y * height;
@@ -451,11 +454,15 @@ impl App {
             for strength in game.impacts.drain(..) {
                 audio.impact(strength);
             }
+            for _ in 0..std::mem::take(&mut game.boosts) {
+                audio.boost();
+            }
             if std::mem::take(&mut game.mute_requested) {
                 audio.toggle_mute();
             }
         } else {
             game.impacts.clear();
+            game.boosts = 0;
             self.menu.take_cues();
             self.hud.take_cues();
         }
@@ -469,7 +476,10 @@ impl App {
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
         match (&sky, self.menu.active) {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
-            _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye }, &items),
+            _ => {
+                let blur = if self.hud.paused() { 0.0 } else { game.camera.blur };
+                g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur }, &items)
+            }
         }
 
         let screen = egui_wgpu::ScreenDescriptor {
@@ -699,22 +709,31 @@ fn headless() {
     }
 }
 
-/// `MARS_AUDIO_WAV=path`: drives profile 1 with the autopilot for 30 s and writes the
-/// synthesized sound to a WAV file (to check the audio without playing it).
+/// `MARS_AUDIO_WAV=path`: drives profile 1 with the autopilot for 30 s (on `MARS_MAP` if set) and
+/// writes the synthesized sound to a WAV file (to check the audio without playing it).
 fn audio_wav(path: &str) {
     let mut game = Game::new();
+    game.session.persist = false;
+    if let Ok(name) = std::env::var("MARS_MAP") {
+        if let Some(i) = game.maps.iter().position(|m| m.name.eq_ignore_ascii_case(&name)) {
+            game.select_map(i);
+        }
+    }
     game.autodrive = Some(debug::Autopilot::default());
     game.select_profile(0);
-    let (mut frames, mut impacts) = (Vec::new(), Vec::new());
+    let (mut frames, mut impacts, mut boosts) = (Vec::new(), Vec::new(), Vec::new());
     for i in 0..3000 {
         game.tick();
         frames.push(game.sound_frame());
         for s in game.impacts.drain(..) {
             impacts.push((i, s));
         }
+        if std::mem::take(&mut game.boosts) > 0 {
+            boosts.push(i);
+        }
     }
     let rate = 44_100u32;
-    let samples = audio::render_offline(&frames, &impacts, rate);
+    let samples = audio::render_offline(&frames, &impacts, &boosts, rate);
     let mut bytes = Vec::with_capacity(44 + samples.len() * 2);
     let data_len = (samples.len() * 2) as u32;
     bytes.extend_from_slice(b"RIFF");
@@ -733,7 +752,7 @@ fn audio_wav(path: &str) {
         bytes.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
     }
     std::fs::write(path, bytes).expect("write wav");
-    println!("{} impacts", impacts.len());
+    println!("{} impacts, boosters at ticks {:?}", impacts.len(), boosts);
 }
 
 fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
@@ -793,7 +812,7 @@ fn engine_demo(path: &str) {
         }
     }
     let rate = 44_100u32;
-    write_wav(std::path::Path::new(path), &audio::render_offline(&frames, &[], rate), rate);
+    write_wav(std::path::Path::new(path), &audio::render_offline(&frames, &[], &[], rate), rate);
 }
 
 fn main() {

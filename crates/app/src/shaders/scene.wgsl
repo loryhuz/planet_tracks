@@ -50,7 +50,8 @@ struct Object {
 // inflatable bumpers, 26 sandbags, 27 straps (`uv` metres along), 28 steel (stakes, buckles:
 // galvanised, or rusty by a reddish vertex colour), 29 the gates' banner (`uv` metres right of
 // its middle, down from its top). A gate block's road deck carries in its colour what is painted
-// on it (track's kit.rs gate_deck_colour).
+// on it (track's kit.rs gate_deck_colour), a booster block's where its arrows go
+// (booster_deck_colour).
 // The track's ground (kind 2) blends from natural ground to dug banks and driven dirt with
 // `dirt` (0, ½, 1), and lays ruts along the track coordinates `uv` (metres along, across).
 struct VsIn {
@@ -167,6 +168,9 @@ const L_RUST: i32 = 11;
 // The gates' lettering (tools/textures/signs.py): five rows, each five times as wide as tall,
 // the ink in alpha: PLANET, TRACKS (side by side on the banner), DÉPART, ARRIVÉE, CHECKPOINT.
 const L_SIGNS: i32 = 12;
+// The booster arrow (tools/textures/booster.py): one chevron filling the layer, pointing up, the
+// paint's colour in RGB and its coverage in alpha.
+const L_BOOSTER: i32 = 13;
 const TILE_TARP: f32 = 1.6;
 const TILE_DIRT: f32 = 4.0;
 const TILE_EARTH: f32 = 2.5;
@@ -207,12 +211,30 @@ const DECK_PANEL: f32 = 12.0;
 // Stencilled colours: the orange edge lines, the black dashes inside them.
 const STENCIL_ORANGE: vec3<f32> = vec3<f32>(0.78, 0.2, 0.025);
 const STENCIL_BLACK: vec3<f32> = vec3<f32>(0.025, 0.024, 0.023);
+// Booster arrows on a booster block's deck: chevrons BOOST_WIDTH m wide and BOOST_ARROW m long,
+// about every BOOST_SPACING m (as many as fit the block evenly), pointing the way to go. A band
+// of light runs forward over their orange every 1 / BOOST_PULSE_RATE s, BOOST_PULSE_LEN m apart.
+const BOOST_WIDTH: f32 = 14.0;
+const BOOST_ARROW: f32 = 12.0;
+const BOOST_SPACING: f32 = 16.0;
+const BOOST_PULSE_RATE: f32 = 1.6;
+const BOOST_PULSE_LEN: f32 = 32.0;
+const BOOST_GLOW: f32 = 0.9;
 // The bumpers' two colours.
 const BUMPER_RED: vec3<f32> = vec3<f32>(0.55, 0.03, 0.022);
 const BUMPER_WHITE: vec3<f32> = vec3<f32>(0.70, 0.68, 0.64);
 // Orange webbing of the straps, and the steel of stakes and buckles.
 const STRAP_ORANGE: vec3<f32> = vec3<f32>(0.62, 0.17, 0.015);
 const STEEL: vec3<f32> = vec3<f32>(0.4, 0.4, 0.42);
+
+// The booster arrow's paint at `t` (0..1 across, and down from its tip), with `gx`, `gy` the
+// screen derivatives of `t`: its colour and coverage; none outside it.
+fn booster_paint(t: vec2<f32>, gx: vec2<f32>, gy: vec2<f32>) -> vec4<f32> {
+    if any(t < vec2<f32>(0.0)) || any(t > vec2<f32>(1.0)) {
+        return vec4<f32>(0.0);
+    }
+    return textureSampleGrad(surf_colour, surf_sampler, t, L_BOOSTER, gx, gy);
+}
 
 // The ink of row `row` of the signs layer at `t` (0..1 across and down the row), with `gx`, `gy`
 // the screen derivatives of `t`; none outside the row.
@@ -674,6 +696,8 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     // How much a surface is bare metal (0..1): it then mirrors the sky and the ground, tinted by
     // its colour, instead of scattering the light.
     var metal = 0.0;
+    // Light a surface gives off itself (the booster arrows' pulse), added after the lighting.
+    var emit = vec3<f32>(0.0);
     if k == 2u || k == 22u || (k == 0u && in.dirt > 0.01) {
         hex_at(xz);
     }
@@ -771,12 +795,15 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let band = 1.0 - smoothstep(0.06, 0.06 + aa, edge);
         tint *= mix(1.0, (1.0 + 0.05 * band) * (1.0 - 0.3 * line), fine);
         a.colour *= tint;
-        // A gate block's deck says what is painted on it (track's kit.rs gate_deck_colour).
+        // A gate block's deck says what is painted on it (track's kit.rs gate_deck_colour), a
+        // booster block's where its arrows go (booster_deck_colour), with the same flags.
         let gate_deck = in.color.r < 0.005;
-        let code = u32(floor(in.color.b * 16.0));
+        let boost_deck = in.color.r > 1.0;
+        let coded = gate_deck || boost_deck;
+        let code = select(u32(floor(in.color.b * 16.0)), u32(floor((in.color.r - 1.0) * 16.0)), boost_deck);
         // Stencilled marks: the kit's edge lines painted orange, black dashes inside them.
         let grain = clamp(lum(a.colour) / 0.45, 0.7, 1.3);
-        let paint = select(smoothstep(0.3, 0.5, lum(in.color)), select(0.0, 1.0, (code & 8u) != 0u), gate_deck);
+        let paint = select(smoothstep(0.3, 0.5, lum(in.color)), select(0.0, 1.0, (code & 8u) != 0u), coded);
         a.colour = mix(a.colour, STENCIL_ORANGE * (0.8 + 0.2 * grain), paint);
         let u = abs(in.uv.y);
         let dash = (smoothstep(KIT_HALF_WIDTH - 1.25 - aa, KIT_HALF_WIDTH - 1.25 + aa, u) - smoothstep(KIT_HALF_WIDTH - 0.95 - aa, KIT_HALF_WIDTH - 0.95 + aa, u))
@@ -784,7 +811,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         a.colour = mix(a.colour, STENCIL_BLACK, 0.9 * dash);
         // The tarp's edges (the kit tells them apart by the blue of the vertex colour): strapped
         // down under bumpers, or pinned by stakes in front of a row of sandbags.
-        let strapped = select(in.color.b - in.color.r > 0.02, (code & 4u) != 0u, gate_deck);
+        let strapped = select(in.color.b - in.color.r > 0.02, (code & 4u) != 0u, coded);
         var fixings = 0.0;
         if strapped {
             // Eyelets every 0.9 m, and every 4 m a strap across the edge to the bumper's own
@@ -840,6 +867,28 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             let ink = sign_ink(row, t, gx, gy);
             a.colour = mix(a.colour, STENCIL_BLACK, 0.92 * ink * worn);
             fixings = max(fixings, ink);
+        }
+        if boost_deck {
+            // The arrows, `y` metres along the block's deck from its start; in each slot of the
+            // deck one chevron, its tip forward.
+            let y = in.uv.x - in.color.g * 8192.0;
+            let deck_len = in.color.b * 1024.0;
+            let count = max(round(deck_len / BOOST_SPACING), 1.0);
+            let spacing = deck_len / count;
+            let slot = clamp(floor(y / spacing), 0.0, count - 1.0);
+            let from_tail = y - slot * spacing - 0.5 * (spacing - BOOST_ARROW);
+            let t = vec2<f32>((0.5 * BOOST_WIDTH - in.uv.y) / BOOST_WIDTH, 1.0 - from_tail / BOOST_ARROW);
+            let gx = vec2<f32>(-uv_dx.y / BOOST_WIDTH, -uv_dx.x / BOOST_ARROW);
+            let gy = vec2<f32>(-uv_dy.y / BOOST_WIDTH, -uv_dy.x / BOOST_ARROW);
+            let arrow = booster_paint(t, gx, gy);
+            let worn = 0.94 + 0.06 * value_noise(xz * 2.3);
+            a.colour = mix(a.colour, arrow.rgb * (0.85 + 0.15 * grain), arrow.a * worn);
+            fixings = max(fixings, arrow.a);
+            // The pulse: a band of light running forward over the orange, the arrows glowing a
+            // little between bands.
+            let orange = arrow.a * smoothstep(0.08, 0.3, arrow.r - arrow.b);
+            let phase = fract(frame.storm_b.y * BOOST_PULSE_RATE - y / BOOST_PULSE_LEN);
+            emit = arrow.rgb * (BOOST_GLOW * orange * worn * (0.15 + pow(phase, 8.0)));
         }
         // Rubber laid along the racing lines.
         let rub = rubber(in.uv);
@@ -1028,7 +1077,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     let sh = select(sun, mix(sun, 1.0, 0.35), cloth);
     let hemi = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, n.y * 0.5 + 0.5);
     let storm = storm_ground(in.world);
-    var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi);
+    var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi) + emit;
 
     let to_eye = frame.camera_pos.xyz - in.world;
     let dist = length(to_eye);

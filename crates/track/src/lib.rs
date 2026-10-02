@@ -35,6 +35,9 @@ pub enum Surface {
     Ground = 2,
     /// Barriers, curbs and the sides of platforms.
     Wall = 3,
+    /// The deck of a road with a booster painted on it: it drives as a road, and a car touching
+    /// it gets a boost (see the physics' `boost_accel`).
+    Booster = 4,
 }
 
 /// Triangle soup, one triangle per three indices.
@@ -140,11 +143,12 @@ pub struct Track {
 
 /// The first playable map: « Jezero », loaded from `maps/jezero.json` (see [`demo`]).
 /// Maps shipped with the game, embedded so it needs no data path: (name, JSON).
-pub const BUILTIN_MAPS: [(&str, &str); 4] = [
+pub const BUILTIN_MAPS: [(&str, &str); 5] = [
     (demo::NAME, demo::JSON),
     ("Olympus", include_str!("../maps/olympus.json")),
     ("Ares Vallis", include_str!("../maps/ares.json")),
     ("Noctis", include_str!("../maps/noctis.json")),
+    ("Marineris", include_str!("../maps/marineris.json")),
 ];
 
 /// Every shipped map, parsed. Panics on a broken file (they are checked by the tests).

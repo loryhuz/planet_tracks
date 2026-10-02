@@ -13,6 +13,7 @@ pub struct MeshBuilder {
 fn color(s: Surface) -> [f32; 3] {
     match s {
         Surface::Road => [0.3, 0.3, 0.32],
+        Surface::Booster => [0.8, 0.4, 0.1],
         Surface::Dirt => [0.55, 0.28, 0.14],
         Surface::Ground => [0.45, 0.2, 0.1],
         Surface::Wall => [0.7, 0.7, 0.7],

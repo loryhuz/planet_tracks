@@ -447,8 +447,9 @@ impl Menu {
             p.rect_stroke(rect.expand(3.0), 15.0, Stroke::new(2.0, fade(col::LIVERY, a)), StrokeKind::Outside);
         }
         let half = (rect.width() - 8.0) / 2.0;
-        let built = format!("{}/{SLOTS}", self.tracks.len().min(SLOTS));
-        for (i, (series, label, count)) in [(Series::Easy, "FACILE", built.as_str()), (Series::Hard, "DUR", "0/5")].into_iter().enumerate() {
+        let built = |s: Series| format!("{}/{SLOTS}", self.tracks.iter().filter(|t| t.series == s).count().min(SLOTS));
+        let (easy, hard) = (built(Series::Easy), built(Series::Hard));
+        for (i, (series, label, count)) in [(Series::Easy, "FACILE", easy.as_str()), (Series::Hard, "DUR", hard.as_str())].into_iter().enumerate() {
             let tr = Rect::from_min_size(rect.min + vec2(4.0 + i as f32 * half, 4.0), vec2(half, rect.height() - 8.0));
             let resp = if blocked { None } else { Some(self.hit(ui, tr, Id::new(("menu series", i)), true)) };
             if resp.as_ref().is_some_and(|r| r.clicked()) {
@@ -469,13 +470,6 @@ impl Menu {
             let tc = if on || hovered { col::DUST } else { col::DUST_3 };
             paint::text(p, pos2(x, tr.center().y - 1.0), Align2::LEFT_CENTER, label, font, fade(tc, a));
             paint::text(p, pos2(x + lw + 8.0, tr.center().y), Align2::LEFT_CENTER, count, Font::data(11.0), fade(col::DUST_3, a));
-        }
-    }
-
-    fn slot_index(&self, i: usize) -> Option<usize> {
-        match self.series {
-            Series::Easy => (i < self.tracks.len() && i < SLOTS).then_some(i),
-            Series::Hard => None,
         }
     }
 
@@ -537,10 +531,9 @@ impl Menu {
                 paint::text(p, pos2(inner.left(), rec_y), Align2::LEFT_CENTER, &rec, Font::data(13.0), fade(col::DUST_2, a));
             }
             None => {
-                let hard = self.series == Series::Hard;
                 paint::icon_at(p, pos2(inner.center().x, (ty + name_y) / 2.0), 24.0, Icon::Lock, fade(col::DUST_3, a));
-                paint::text(p, pos2(inner.left(), name_y), Align2::LEFT_CENTER, if hard { "VERROUILLÉ" } else { "À VENIR" }, Font::race(24.0), fade(col::DUST_2, a));
-                paint::text(p, pos2(inner.left(), rec_y), Align2::LEFT_CENTER, if hard { "Série Facile" } else { "En construction" }, Font::data(11.0), fade(col::DUST_3, a));
+                paint::text(p, pos2(inner.left(), name_y), Align2::LEFT_CENTER, "À VENIR", Font::race(24.0), fade(col::DUST_2, a));
+                paint::text(p, pos2(inner.left(), rec_y), Align2::LEFT_CENTER, "En construction", Font::data(11.0), fade(col::DUST_3, a));
             }
         }
     }
@@ -588,10 +581,9 @@ impl Menu {
         let cta = Rect::from_min_size(pos2(x, r.bottom() - 44.0 - 60.0 + ddy), vec2(w, 60.0));
         let slide = 30.0 * (1.0 - e);
         let Some(ti) = self.slot_index(self.sel) else {
-            let hard = self.series == Series::Hard;
             let text = self.locked_text();
             paint::text_shadowed(p, pos2(x + slide, cta.top() - 30.0), Align2::LEFT_BOTTOM, text, Font::body(17.0), fade(col::TEXT, a));
-            paint::text_shadowed(p, pos2(x - 4.0 + slide, cta.top() - 58.0), Align2::LEFT_BOTTOM, if hard { "VERROUILLÉ" } else { "À VENIR" }, Font::race(96.0).weight(900.0), fade(col::DUST, a));
+            paint::text_shadowed(p, pos2(x - 4.0 + slide, cta.top() - 58.0), Align2::LEFT_BOTTOM, "À VENIR", Font::race(96.0).weight(900.0), fade(col::DUST, a));
             if self.cta(ui, p, cta, "run", "COURIR", true, Some("Entrée"), da, now) {
                 self.launch(now);
             }

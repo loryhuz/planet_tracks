@@ -1,6 +1,6 @@
 //! Vehicle sound: the combustion engine from two recordings (engine_sound.rs) and the Martian
-//! ambience from a third, plus synthesized wind, tyre squeal at the grip limit, gravel on dirt and
-//! thumps on impacts. The game writes a few values per frame; the audio thread reads them through
+//! ambience from a third, the whoosh of a booster pad from a fourth, plus synthesized wind, tyre
+//! squeal at the grip limit, gravel on dirt and thumps on impacts. The game writes a few values per frame; the audio thread reads them through
 //! atomics and smooths them per sample. The menu's cues and ambiences (ui_sound.rs) play on the
 //! same stream, while the car and the race ambience are silent.
 
@@ -44,6 +44,8 @@ struct Shared {
     airborne: AtomicBool,
     /// Incremented for each impact; the thread plays one thump per increment.
     impacts: AtomicU32,
+    /// Incremented for each booster pad touched; the thread plays the whoosh from its start.
+    boosts: AtomicU32,
     impact_strength: AtomicU32,
     muted: AtomicBool,
     /// The car is heard (a race is on); off in the menu.
@@ -114,6 +116,11 @@ impl Audio {
         self.shared.impacts.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// The wheels have touched a booster pad.
+    pub fn boost(&self) {
+        self.shared.boosts.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn toggle_mute(&self) -> bool {
         let m = !self.shared.muted.load(Ordering::Relaxed);
         self.shared.muted.store(m, Ordering::Relaxed);
@@ -138,8 +145,9 @@ impl Audio {
     }
 }
 
-/// Renders the synth offline: one SoundFrame per 10 ms tick, impacts as (tick, strength).
-pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], rate: u32) -> Vec<f32> {
+/// Renders the synth offline: one SoundFrame per 10 ms tick, impacts as (tick, strength), the
+/// ticks a booster pad was touched.
+pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], boosts: &[usize], rate: u32) -> Vec<f32> {
     let shared = Arc::new(Shared::default());
     shared.race.store(true, Ordering::Relaxed);
     let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None));
@@ -152,6 +160,9 @@ pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], rate: u32
             if t == i {
                 a.impact(strength);
             }
+        }
+        if boosts.contains(&i) {
+            a.boost();
         }
         synth.fill(&mut out[i * per_tick..(i + 1) * per_tick], 1);
     }
@@ -190,6 +201,9 @@ impl BandPass {
 }
 
 const AMBIENCE_WAV: &[u8] = include_bytes!("../assets/audio/ambience_mars.wav");
+const BOOSTER_WAV: &[u8] = include_bytes!("../assets/audio/booster.wav");
+/// Level of the booster's whoosh in the mix.
+const BOOSTER_GAIN: f32 = 0.55;
 
 struct Synth {
     rate: f32,
@@ -206,6 +220,8 @@ struct Synth {
     engine: crate::engine_sound::EngineVoice,
     seen_gear: u32,
     ambience: crate::sample::Looper,
+    booster: crate::sample::OneShot,
+    seen_boosts: u32,
     // oscillators and filters
     wobble: f32,
     wind_lp: LowPass,
@@ -243,6 +259,8 @@ impl Synth {
             engine: crate::engine_sound::EngineVoice::new(rate),
             seen_gear: 0,
             ambience: crate::sample::Looper::new(AMBIENCE_WAV, rate),
+            booster: crate::sample::OneShot::new(BOOSTER_WAV, rate),
+            seen_boosts: 0,
             wobble: 0.0,
             wind_lp: LowPass::default(),
             squeal_bp: BandPass::default(),
@@ -292,6 +310,11 @@ impl Synth {
             self.seen_impacts = impacts;
             self.thump = self.thump.max(load(&s.impact_strength));
             self.thump_phase = 0.0;
+        }
+        let boosts = s.boosts.load(Ordering::Relaxed);
+        if boosts != self.seen_boosts {
+            self.seen_boosts = boosts;
+            self.booster.trigger();
         }
         let rate = self.rate;
         let k = 1.0 - (-1.0 / (0.03 * rate)).exp();
@@ -356,11 +379,13 @@ impl Synth {
             let mix = a * (self.hp_y + raw - self.hp_x);
             self.hp_x = raw;
             self.hp_y = mix;
-            // The ambience is the only stereo sound.
+            // The ambience and the booster's whoosh are the stereo sounds.
             let (al, ar) = self.ambience.next(1.0);
+            let (bl, br) = self.booster.next();
             // The menu has ambiences of its own.
             let amb = 0.35 * self.master * self.race;
-            let (l, r) = ((mix + al * amb).tanh(), (mix + ar * amb).tanh());
+            let whoosh = BOOSTER_GAIN * self.master * self.race;
+            let (l, r) = ((mix + al * amb + bl * whoosh).tanh(), (mix + ar * amb + br * whoosh).tanh());
             match frame {
                 [mono] => *mono = 0.5 * (l + r),
                 [left, right, rest @ ..] => {

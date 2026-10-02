@@ -53,11 +53,15 @@ dans un fichier `.chain`).
 | *(aucune)* ou `road` | bâche | **automatique** : boudins si le bloc quitte le sol (niveau d'entrée ou de sortie au-dessus de 0, rampe, réception), sacs de sable s'il reste au sol |
 | `sandbags` | bâche, plantée de sardines | **A** : une rangée de sacs de sable de chaque côté |
 | `bumpers` | bâche, sanglée | **B** : des boudins rouge et blanc de chaque côté |
+| `booster` | bâche, peinte de flèches de booster | **automatique**, comme une route sans variante |
 | `dirt` | terre | aucun : un couloir creusé dans le sol |
 
 - `to_dirt` et `to_road` n'acceptent pas de variante : leur moitié route prend les bords
   automatiques. Ces bords s'effacent sur les 6 derniers mètres avant la terre et repoussent après.
-- Les portiques (`start`, `checkpoint`, `finish`) acceptent les variantes comme une ligne droite.
+- Les portiques (`start`, `checkpoint`, `finish`) acceptent les variantes comme une ligne droite,
+  sauf `booster` (leur bâche porte déjà leur ligne et leur mot).
+- `booster` s'applique à tous les autres blocs route : ligne droite, virage, pente, rampe,
+  réception… (voir « Les boosters »).
 
 Exemples :
 
@@ -72,7 +76,34 @@ turn2_left dirt
 ```
 
 Olympus utilise les deux variantes : départ en sacs de sable, fin technique en boudins
-(`crates/track/maps/olympus.chain`, version 4).
+(`crates/track/maps/olympus.chain`, version 4). Marineris, le premier circuit de la série Dur,
+place six boosters (`crates/track/maps/marineris.chain`).
+
+## Les boosters
+
+Un bloc `booster` est le même bloc, avec des flèches peintes sur sa bâche, comme les turbos de
+Trackmania :
+
+- des chevrons orange bordés de noir, au pochoir, de 14 m de large et 12 m de long, à peu près
+  tous les 16 m (autant qu'il en tient régulièrement sur le tablier du bloc), la pointe vers
+  l'avant ; usés par les roues, poussiéreux comme le reste de la bâche ;
+- une bande de lumière court sur leur orange de l'arrière vers l'avant (1,6 fois par seconde),
+  et ils luisent faiblement entre deux passages ;
+- la flèche vient d'une image générée avec Higgsfield (GPT Image 2.5,
+  `art/textures/src/booster.png`) : `tools/textures/booster.py` en mesure le contour, le
+  redessine en polygones exacts et symétriques, et n'en garde que la peinture (couleur et usure),
+  la trame de la bâche venant de la route elle-même.
+
+Pour la voiture, le tablier d'un booster est une route (même adhérence) de surface `Booster` :
+
+- dès qu'une roue le touche, le boost repart à plein : une poussée de 12 m/s² le long de la
+  trajectoire, qui décroît linéairement jusqu'à rien 2,5 s après le dernier contact
+  (`boost_accel`, `boost_time` des réglages, groupe « Boosters ») ;
+- elle ne pousse que les roues au sol, et au-delà de la vitesse max du moteur (300 km/h) ;
+- un booster seul donne environ 45 à 55 km/h ; à la caméra, la vue s'élargit un peu pendant
+  le boost, et l'image file vers les bords au moment où l'on touche les flèches (un flou de
+  vitesse radial, parti en une seconde environ ; le HUD reste net), et un souffle part (un son
+  ElevenLabs, `art/audio/src/booster.wav`, préparé par `tools/audio/prepare.py`).
 
 ## Comment le jeu construit une route
 
@@ -110,10 +141,12 @@ Olympus utilise les deux variantes : départ en sacs de sable, fin technique en 
 - **Pilotis** (rouge vif, en tubes de plastique) :
   - à partir de 2,6 m sous la dalle, une poutre en treillis court sous chaque côté du tablier
     (1,8 m de haut, panneaux de 4 m), reliée à l'autre par des traverses ;
-  - des **piles** descendent jusqu'au sol, en moyenne tous les 24 m, à 8 m près, irrégulièrement.
-    Chaque pile a deux poteaux croisillonnés sous chaque poutre, posés sur un tas de gros sacs
-    de sable croisés, chacun de travers et de teinte propre, et les deux jambes sont
-    contreventées entre elles ;
+  - des **piles** descendent jusqu'au sol, en moyenne tous les 24 m, à 8 m près, irrégulièrement
+    (une sur deux seulement là où le treillis passe à plus de 20 m du sol : les tréteaux d'un
+    grand huit). Chaque pile a deux poteaux croisillonnés sous chaque poutre, posés sur un tas de
+    gros sacs de sable croisés, chacun de travers et de teinte propre, et les deux jambes sont
+    contreventées entre elles, en 8 étages de croisillons au plus (plus hauts sur une pile
+    haute) ;
   - plus près du sol, la dalle repose tous les 8 à 24 m sur des piles de sacs, avec un poteau
     dessus quand l'espace dépasse 1,3 m ;
   - des **sangles orange** partent des bords de la dalle vers des sardines plantées dans le sol,
@@ -172,6 +205,8 @@ Textures cuites par `tools/textures/bake.py` à partir de `art/textures/src/` :
 - `webbing` (couche 9) : la sangle orange ;
 - `signs` (couche 12) : les inscriptions des portiques, dessinées par `tools/textures/signs.py`
   (« PLANET TRACKS », « DÉPART », « ARRIVÉE », « CHECKPOINT ») ;
+- `booster` (couche 13) : la flèche des boosters, tirée par `tools/textures/booster.py` d'une
+  image Higgsfield (`/usr/bin/python3 tools/textures/booster.py`) ;
 - `galvanized` (couche 10) et `rust` (couche 11) : l'acier galvanisé des piquets et des boucles,
   avec ses cristaux de zinc, et l'acier rouillé de quelques piquets. L'acier est rendu comme du
   métal nu : il reflète le ciel au-dessus de l'horizon et le sol plus sombre en dessous, chaque

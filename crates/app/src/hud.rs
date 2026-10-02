@@ -23,7 +23,7 @@ use physics::Input;
 use crate::game::Game;
 use crate::input::Nav;
 use crate::menu::Layout;
-use crate::menu::catalog::{MEDALS, TrackInfo};
+use crate::menu::catalog::{MEDALS, Series, TrackInfo};
 use crate::menu::paint::{self, Font, Icon, MEDAL_COLOURS, col, fade};
 use crate::race::{COUNTDOWN_TICKS, format_delta, format_time};
 use crate::ui::Fps;
@@ -448,14 +448,34 @@ impl Hud {
         (0..3).rev().map(|k| (k, targets[k])).find(|(_, m)| best.is_none_or(|b| b > *m))
     }
 
+    /// The series of the map being raced, as the menu lists it ("FACILE" or "DUR"), its slot in
+    /// that series (from 1), and whether it is the hard one.
+    fn series(&self, game: &Game) -> (&'static str, usize, bool) {
+        let Some((_, t)) = self.track(game) else { return ("FACILE", 1, false) };
+        let slot = self.tracks.iter().filter(|o| o.series == t.series).position(|o| o.map == t.map).unwrap_or(0) + 1;
+        let hard = t.series == Series::Hard;
+        (if hard { "DUR" } else { "FACILE" }, slot, hard)
+    }
+
+    /// The series' flag: green for the easy one, dark edged in white for the hard one (the
+    /// menu's colours).
+    fn series_flag(p: &Painter, flag: Rect, rounding: f32, hard: bool, a: f32) {
+        if hard {
+            p.rect_filled(flag, rounding, fade(Color32::from_rgb(20, 14, 15), a));
+            p.rect_stroke(flag, rounding, Stroke::new(1.5, fade(col::HARD_EDGE, a)), StrokeKind::Inside);
+        } else {
+            p.rect_filled(flag, rounding, fade(col::EASY, a));
+        }
+    }
+
     /// The series and slot, then the map's name.
     fn map_label(&self, p: &Painter, at: Pos2, game: &Game, a: f32, size: f32) {
-        let slot = self.track(game).map_or(1, |(i, _)| i + 1);
+        let (series, slot, hard) = self.series(game);
         let y = at.y + 7.0;
         let flag = Rect::from_center_size(pos2(at.x + 5.0, y), vec2(10.0, 10.0));
         p.rect_filled(flag.translate(vec2(0.0, 1.5)), 2.0, fade(Color32::BLACK, 0.3 * a));
-        p.rect_filled(flag, 2.0, fade(col::EASY, a));
-        shadowed(p, pos2(flag.right() + 7.0, y), Align2::LEFT_CENTER, &format!("FACILE · {slot:02}"), tag_font(), col::DUST_2, a);
+        Self::series_flag(p, flag, 2.0, hard, a);
+        shadowed(p, pos2(flag.right() + 7.0, y), Align2::LEFT_CENTER, &format!("{series} · {slot:02}"), tag_font(), col::DUST_2, a);
         let name = game.map_name().to_uppercase();
         shadowed(p, pos2(at.x - 1.0, at.y + 16.0), Align2::LEFT_TOP, &name, Font::heading(size).weight(800.0), col::DUST, a);
     }
@@ -648,10 +668,10 @@ impl Hud {
         let iw = w - 2.0 * pad;
         let mut y = rect.top() + 26.0;
         // Circuit and profile.
-        let slot = self.track(game).map_or(1, |(i, _)| i + 1);
+        let (series, slot, hard) = self.series(game);
         let flag = Rect::from_min_size(pos2(x, y + 3.0), vec2(12.0, 12.0));
-        p.rect_filled(flag, 3.0, fade(col::EASY, k));
-        paint::text(p, pos2(flag.right() + 8.0, flag.center().y), Align2::LEFT_CENTER, &format!("FACILE · {slot:02} · {}", game.map_name().to_uppercase()), Font::label(13.0, 0.16).weight(700.0), fade(col::DUST_2, k));
+        Self::series_flag(p, flag, 3.0, hard, k);
+        paint::text(p, pos2(flag.right() + 8.0, flag.center().y), Align2::LEFT_CENTER, &format!("{series} · {slot:02} · {}", game.map_name().to_uppercase()), Font::label(13.0, 0.16).weight(700.0), fade(col::DUST_2, k));
         if wide {
             paint::text(p, pos2(x + iw, flag.center().y), Align2::RIGHT_CENTER, &format!("PROFIL {}", game.session.profile().params.name.to_uppercase()), Font::label(11.0, 0.16), fade(col::DUST_3, k));
         }

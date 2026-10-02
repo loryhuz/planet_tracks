@@ -21,7 +21,6 @@ pub enum Action {
     Fullscreen,
     Mute,
     NextMap,
-    Textures,
     /// Touch screens: the casual mode on or off.
     Casual,
     /// Leave the race for the menu.
@@ -95,7 +94,6 @@ impl Controls {
                     KeyCode::KeyF => Some(Action::Fullscreen),
                     KeyCode::KeyM => Some(Action::Mute),
                     KeyCode::KeyN => Some(Action::NextMap),
-                    KeyCode::KeyT => Some(Action::Textures),
                     KeyCode::PageDown => Some(Action::NextProfile),
                     KeyCode::PageUp => Some(Action::PrevProfile),
                     KeyCode::Escape => Some(Action::Menu),

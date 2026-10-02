@@ -20,9 +20,11 @@ const SHADOW_SIZE: u32 = 2048;
 const SHADOW_EXTENT: f32 = 70.0;
 const OBJECT_STRIDE: u64 = 256;
 const MAX_OBJECTS: u64 = 128;
-/// The sandstorm's front starts this far beyond the circuit and closes in to `STORM_STOP`, metres.
-const STORM_START: f32 = 6000.0;
-const STORM_STOP: f32 = 2600.0;
+/// The sandstorm's front starts this far beyond the circuit and closes in to `STORM_STOP`, metres:
+/// close enough to tower over the scenery from the start, never into the circuit's air
+/// (scene.wgsl thickens the dust over the last 900 m before the wall).
+const STORM_START: f32 = 2400.0;
+const STORM_STOP: f32 = 1100.0;
 /// Time constant of the approach, seconds (it covers 63 % of the way in that time).
 const STORM_APPROACH: f32 = 200.0;
 /// The storm stands ahead of the start, turned this far away from the sun (degrees), so the sun
@@ -270,8 +272,6 @@ pub struct SceneRenderer {
     format: wgpu::TextureFormat,
     meshes: Vec<GpuMesh>,
     sun_dir: Vec3,
-    /// Surfaces drawn with their textures (off: the earlier procedural look).
-    pub textures: bool,
 }
 
 impl SceneRenderer {
@@ -755,7 +755,6 @@ impl SceneRenderer {
             format,
             meshes: Vec::new(),
             sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
-            textures: true,
         }
     }
 
@@ -872,7 +871,7 @@ impl SceneRenderer {
             sky_horizon: four(sky_horizon, 1.0),
             ground_bounce: four(srgb(170, 100, 70), 0.5),
             fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, if self.textures { 1.0 } else { 0.0 }, 0.0, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, 0.0, 0.0, 0.0],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
         };

@@ -13,7 +13,7 @@ struct Frame {
     ground_bounce: vec4<f32>,
     // x: density per metre, y: start distance
     fog: vec4<f32>,
-    // x: shadow map texel size in uv, y: 1 with surface textures, 0 the procedural look
+    // x: shadow map texel size in uv
     misc: vec4<f32>,
     // xy: circuit centre (x, z), zw: unit direction from the centre to the storm (x, z)
     storm_a: vec4<f32>,
@@ -105,51 +105,6 @@ fn grid(coord: vec2<f32>, spacing: f32) -> f32 {
     return line * fade;
 }
 
-// Small round stones scattered on a plane, 0..1: at most one per cell of `1 / scale` metres, in
-// `density` of the cells. `aa` is the screen footprint of a metre (anti-aliasing).
-fn stones(p: vec2<f32>, scale: f32, density: f32, aa: f32) -> f32 {
-    let q = p * scale;
-    let c = floor(q);
-    let pick = hash2(c + vec2<f32>(3.7, 9.1));
-    let at = 0.25 + 0.5 * vec2<f32>(hash2(c + vec2<f32>(17.1, 2.3)), hash2(c + vec2<f32>(5.9, 31.7)));
-    let r = 0.12 + 0.16 * hash2(c + vec2<f32>(11.3, 7.7));
-    let w = max(aa * scale, 1e-4);
-    let stone = 1.0 - smoothstep(r - w, r + w, length(fract(q) - at));
-    // Stones smaller than a pixel fade out instead of shimmering.
-    return select(0.0, stone, pick < density) * (1.0 - smoothstep(0.15, 0.4, w));
-}
-
-// The track's ground without the surface textures (the earlier look, kept to compare): the
-// vertex colour shaded with noise, procedural pebbles on the natural ground, layered banks,
-// driven dirt streaked along the track with ruts and clods.
-fn procedural_ground(in: VsOut, xz: vec2<f32>, aa: f32, g_fine: f32, g_coarse: f32, n_low: f32, n_high: f32, dug: f32, wear: f32) -> vec3<f32> {
-    var base = in.color * (0.88 + 0.24 * n_low + 0.06 * n_high);
-    // The building grid shows on the natural ground only.
-    base *= 1.0 - (0.14 * g_fine + 0.32 * g_coarse) * (1.0 - dug);
-    // Natural ground: rough, strewn with pebbles, pale dust between.
-    let pebbles = stones(xz, 2.2, 0.22, aa) + 0.6 * stones(xz + vec2<f32>(0.37, 0.71), 5.0, 0.18, aa);
-    let dust = smoothstep(0.5, 0.8, value_noise(xz * 0.9 + vec2<f32>(7.3, 1.9)));
-    let natural = base * (1.0 + 0.06 * dust) * (1.0 - 0.3 * min(pebbles, 1.0));
-    // Dug banks: fresh, redder earth in faint layers.
-    let layers = 1.0 + 0.08 * sin(in.world.y * 2.6 + 3.0 * n_high);
-    let bank = base * vec3<f32>(0.8, 0.62, 0.55) * layers;
-    return mix(mix(natural, bank, dug), procedural_driven(base, in.uv, xz, aa), wear);
-}
-
-// Driven dirt of the procedural look, over ground of colour `base`: compacted and darker,
-// streaked along the track (`uv` the track coordinates), darker in the ruts, loose lighter earth
-// between them, a few clods.
-fn procedural_driven(base: vec3<f32>, uv: vec2<f32>, xz: vec2<f32>, aa: f32) -> vec3<f32> {
-    let r = ruts(uv);
-    let streak = value_noise(vec2<f32>(uv.x * 0.09, uv.y * 1.4));
-    let fine = value_noise(vec2<f32>(uv.x * 0.6, uv.y * 5.0));
-    var driven = base * vec3<f32>(0.68, 0.52, 0.45);
-    driven *= 0.92 + 0.14 * streak + 0.06 * fine;
-    driven *= 1.0 - 0.2 * r;
-    driven *= 1.0 + 0.1 * (1.0 - r) * smoothstep(0.45, 0.7, streak);
-    return mix(driven, driven * vec3<f32>(0.78, 0.7, 0.68), stones(xz, 3.1, 0.12, aa) * 0.6);
-}
-
 // How much of a road the earth of the dirt track it leads to covers, 0..1, from the road
 // vertex's `dirt` (0 far from the track, 1 where it meets it, main.rs road_spill) and the track
 // coordinates `uv`: patches first, then all of it, the front reaching further along some lines
@@ -213,8 +168,6 @@ const RELIEF_FAR: f32 = 50.0;
 
 // Colours the vertex colours are measured against (track/src/kit.rs, terrain.rs, scenery.rs).
 const KIT_GROUND: vec3<f32> = vec3<f32>(0.55, 0.22, 0.10);
-// The colour terrain.rs blends the ground toward next to the swept blocks.
-const KIT_GRADED: vec3<f32> = vec3<f32>(0.56, 0.26, 0.135);
 const KIT_STEEP: vec3<f32> = vec3<f32>(0.27, 0.115, 0.065);
 const KIT_LIP: vec3<f32> = vec3<f32>(0.68, 0.68, 0.66);
 const KIT_EARTH_FACE: vec3<f32> = vec3<f32>(0.40, 0.16, 0.075);
@@ -477,12 +430,12 @@ const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
 
 // The storm's main wall, as in storm.wgsl: an arc of this radius, this wide, about this high.
 const STORM_ARC_RADIUS: f32 = 7000.0;
-const STORM_HALF_ANGLE: f32 = 0.85;
+const STORM_HALF_ANGLE: f32 = 0.45;
 const STORM_HEIGHT: f32 = 1400.0;
 
 // The sandstorm over the ground in front of it: x, how much of the sun its wall hides there
 // (the sun stands behind it); y, how thick its dust lies there (it thickens over the last
-// 2.5 km before the wall).
+// 900 m before the wall, short of the circuit where the storm stops).
 fn storm_ground(p: vec3<f32>) -> vec2<f32> {
     let d = frame.storm_a.zw;
     let centre = frame.storm_a.xy + d * (frame.storm_b.x + STORM_ARC_RADIUS);
@@ -500,7 +453,7 @@ fn storm_ground(p: vec3<f32>) -> vec2<f32> {
     let closing = -dot(sun.xz / sun_h, away);
     let climb = p.y - frame.storm_b.z + max(gap, 0.0) / max(closing, 1e-3) * sun.y / sun_h;
     let hidden = select(0.0, 1.0 - smoothstep(0.5, 1.0, climb / STORM_HEIGHT), closing > 0.0 || gap < 0.0);
-    let dust = 1.0 - smoothstep(0.0, 2500.0, gap);
+    let dust = 1.0 - smoothstep(0.0, 900.0, gap);
     let present = select(0.0, 1.0, dot(d, d) > 0.5);
     return vec2<f32>(hidden, dust) * side * present;
 }
@@ -592,35 +545,16 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     let kerb_aa = fwidth(in.uv.x) / 4.0;
     let across_dx = dpdx(in.uv.y);
     let across_dy = dpdy(in.uv.y);
-    // The screen footprint of a metre (the procedural look's pebbles).
-    let aa = length(fwidth(xz));
 
     var base = in.color;
     var n = normalize(in.normal);
     let eye_dist = length(frame.camera_pos.xyz - in.world);
-    // Surface textures, or the earlier procedural look (a setting, to compare them).
-    let textured = frame.misc.y > 0.5;
     // How much relief the textures give: full near the camera, none (and not read) far away.
     let bump = 1.0 - smoothstep(RELIEF_NEAR, RELIEF_FAR, eye_dist);
-    if textured && (k == 2u || k == 22u || (k == 0u && in.dirt > 0.01)) {
+    if k == 2u || k == 22u || (k == 0u && in.dirt > 0.01) {
         hex_at(xz);
     }
-    if terrain && k == 2u && !textured {
-        base = procedural_ground(in, xz, aa, g_fine, g_coarse, n_low, n_high, dug, wear);
-        n = rut_relief(n, n, dpx, dpy, dhx, dhy, (1.0 - smoothstep(30.0, 90.0, eye_dist)) * dug);
-    } else if terrain && k == 0u && !textured {
-        base *= 1.0 - 0.12 * g_fine;
-        // Earth carried onto the road before a dirt track: a dusting first, then clumps with a
-        // ragged edge, then the dirt floor's own surface (the ground graded next to the road,
-        // terrain.rs), so the two meet without a line.
-        if in.dirt > 0.01 {
-            let cover = spill_cover(in.dirt, xz, in.uv, 0.0);
-            let ground = mix(KIT_GROUND, KIT_GRADED, 0.5) * (0.88 + 0.24 * n_low + 0.06 * n_high);
-            let earth = procedural_driven(ground, in.uv, xz, aa);
-            let clumps = smoothstep(0.42, 0.58, cover + (value_noise(xz * 1.9) - 0.5) * 0.35 + (n_high - 0.5) * 0.15);
-            base = mix(mix(base, earth * 1.1, 0.45 * smoothstep(0.0, 0.5, cover)), earth, clumps);
-        }
-    } else if terrain && k == 2u {
+    if terrain && k == 2u {
         let ng = n;
         // The terrain's own colour variations (broad tints, graded pads, crater ejecta), measured
         // against the flat colour terrain.rs starts from.
@@ -654,7 +588,8 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             g = over(g, driven_dirt(xz, in.uv, dpx, dpy, bump), wear);
         }
         // Rock on steep slopes and cliffs (not on the dug banks), in level strata, a larger tile
-        // of them taking over with distance.
+        // of them taking over with distance, and in broad patches a larger one still, so a long
+        // cliff close to the track does not show one tile repeating along it.
         let rocky = smoothstep(0.9, 0.72, ng.y + (n_high - 0.5) * 0.1) * max(1.0 - 2.0 * in.dirt, 0.0);
         if rocky > 0.01 {
             let far_t = smoothstep(30.0, 120.0, eye_dist);
@@ -663,7 +598,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
                 rock = surf_triplanar(L_ROCK, TILE_ROCK, in.world, ng, dpx, dpy, bump);
             }
             if far_t > 0.01 {
-                let far = surf_triplanar(L_ROCK, TILE_ROCK * 5.3, in.world + vec3<f32>(37.0, 11.0, 53.0), ng, dpx, dpy, 0.0);
+                var far = surf_triplanar(L_ROCK, TILE_ROCK * 5.3, in.world + vec3<f32>(37.0, 11.0, 53.0), ng, dpx, dpy, 0.0);
+                let w = in.world;
+                let broad = smoothstep(0.38, 0.62, value_noise(vec2<f32>(w.x * 0.006 + w.z * 0.004, w.y * 0.014 - w.x * 0.002 + w.z * 0.005)));
+                if broad > 0.01 {
+                    let wide = surf_triplanar(L_ROCK, TILE_ROCK * 12.7, w + vec3<f32>(-91.0, 23.0, 17.0), ng, dpx, dpy, 0.0);
+                    far = Surf(mix(far.colour, wide.colour, broad), far.bump, mix(far.height, wide.height, broad));
+                }
                 rock = Surf(mix(rock.colour, far.colour, far_t), rock.bump * (1.0 - far_t), mix(rock.height, far.height, far_t));
             }
             g = over(g, rock, rocky);
@@ -706,7 +647,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         base = a.colour * mix(1.0 - 0.12 * g_fine, 0.94 + 0.12 * n_low, cover);
         // (No rut relief here: it needs screen derivatives on every road pixel.)
         n = normalize(n + a.bump);
-    } else if k == 20u && textured {
+    } else if k == 20u {
         // Concrete: barriers along the route, and the sides of the platforms.
         let s = surf_triplanar(L_CONCRETE, TILE_CONCRETE, in.world, n, dpx, dpy, 0.8 * bump);
         let grain = clamp(s.colour / vec3<f32>(0.50, 0.48, 0.45), vec3<f32>(0.6), vec3<f32>(1.3));
@@ -748,11 +689,11 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         }
         base = mix(c, ROAD_DUST * (0.9 + 0.2 * patches), 0.75 * dust);
         n = normalize(n + s.bump);
-    } else if k == 21u && textured {
+    } else if k == 21u {
         let s = surf_triplanar(L_EARTH, TILE_EARTH, in.world, n, dpx, dpy, bump);
         base = s.colour * clamp(lum(in.color) / lum(KIT_EARTH_FACE), 0.6, 1.4);
         n = normalize(n + s.bump);
-    } else if k == 22u && textured {
+    } else if k == 22u {
         let s = surf_triplanar(L_ROCK, TILE_ROCK * 0.5, in.world, n, dpx, dpy, bump);
         // Dust settled on the upward faces (as scenery.rs shades them).
         let up = 0.65 * smoothstep(0.55, 0.95, n.y);

@@ -981,14 +981,18 @@ fn cap(b: &mut MeshBuilder, sec: &Section, facing_forward: bool, strips: core::o
 }
 
 /// Ground the swept part `range` of a piece stands on, as discs along its centreline: `(centre,
-/// radius)` in the horizontal plane, at most 4 m apart. A disc reaches the farthest skirt foot or
-/// gate post of its section, so everything the piece puts on the terrain lies inside the union of
-/// the capsules joining consecutive discs (a jump gap included: the route flies over it and the
-/// caps of the ramp and landing come down to the terrain there).
-pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32)> {
+/// radius, low)` in the horizontal plane, at most 4 m apart, with `low` the height of the lower
+/// deck edge there. A disc reaches the farthest skirt foot or gate post of its section, so
+/// everything the piece puts on the terrain lies inside the union of the capsules joining
+/// consecutive discs (a jump gap included: the route flies over it and the caps of the ramp and
+/// landing come down to the terrain there). A jump ramp and its landing report a `low` of 0:
+/// nothing may rise under them, or into their gap.
+pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32, f32)> {
     let (s0, s1) = range;
     let n = libm::ceilf((s1 - s0) / 4.0).max(1.0) as usize;
     let gate = if p.piece.gate.is_some() { gate_post_u(p.piece.deck) + GATE_POST_HALF } else { 0.0 };
+    let jump = matches!(p.piece.kind, Kind::JumpRamp { .. } | Kind::Landing { .. });
+    let hw = half_width(p.piece.deck);
     (0..=n)
         .map(|k| {
             let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
@@ -996,7 +1000,8 @@ pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32)> {
             let c = Vec2::new(f.horiz.x, f.horiz.z);
             let reach = |q: Vec3| Vec2::new(q.x, q.z).distance(c);
             let r = reach(sec.pts[0]).max(reach(sec.pts[STRIPS])).max(gate).max(GATE_POST_U + GATE_POST_HALF);
-            (c, r)
+            let low = if jump { 0.0 } else { f.deck_point(-hw).y.min(f.deck_point(hw).y).max(0.0) };
+            (c, r, low)
         })
         .collect()
 }

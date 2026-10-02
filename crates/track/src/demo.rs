@@ -1,8 +1,11 @@
 //! The demo map, « Jezero »: about 2.1 km, three checkpoints, built only from kit pieces and
-//! stored in `maps/jezero.json` (blocks, terrain settings, scenery).
+//! stored in `maps/jezero.json` (blocks, terrain settings, landforms, scenery). Buttes, mesas and
+//! an escarpment stand along the route (see [`crate::landform`]), the start on top of one of
+//! them.
 //!
 //! Route (compass as seen from above with north = +Z, east = −X):
-//! 1. start block, then a 2-cell right and a 3-cell left sweeper at ground level;
+//! 1. start block 16 m up on a butte, a 2-cell plunge to the ground (26° at its steepest), then
+//!    a 2-cell right and a 3-cell left sweeper;
 //! 2. a 2-level climb over 4 cells onto a platform 16 m up;
 //! 3. elevated S-bends: 2-cell right banked 18°, 1-cell left hairpin, 3-cell right sweeper;
 //! 4. checkpoint 1, which is also the run-up, a 4° jump ramp, an 8 m gap and a 7-cell landing
@@ -12,9 +15,11 @@
 //! 6. a 3-cell right sweeper, a 1-level climb, 2-cell right, checkpoint 3 on the 8 m platform,
 //!    2-cell left, 1-level descent, then a 1-cell right, 2-cell left, 2-cell right S to the finish.
 //!
-//! 2077 m of centreline: 37 s at a 200 km/h average. Crests: the 4-cell climb has a 333 m crest
+//! 2141 m of centreline: 38.5 s at a 200 km/h average. Crests: the 4-cell climb has a 333 m crest
 //! radius and the 3-cell slopes 374 m, so the car stays on the ground over them up to
-//! √(g·R): 206/218 km/h at 9.81 m/s², 412/437 km/h at 40 m/s² (the reference). The whoops
+//! √(g·R): 206/218 km/h at 9.81 m/s², 412/437 km/h at 40 m/s² (the reference). The opening
+//! plunge (83 m) is taken from a standing start: up to 207 km/h at 40 m/s², and the car only
+//! hops off its crest above 103 km/h at 9.81. The whoops
 //! (0.6 m, every 32 m, 86 m crest radius) make it hop above 105 km/h at 9.81 and 212 km/h at 40,
 //! which is their purpose.
 //!
@@ -45,7 +50,8 @@ pub const NAME: &str = "Jezero";
 /// The map file, embedded so the game needs no data path.
 pub const JSON: &str = include_str!("../maps/jezero.json");
 
-/// The demo map. The start block sits in cell (13, −10) so the map is centred on the origin.
+/// The demo map. The start block sits in cell (13, −12), two levels up, so the map is centred
+/// on the origin.
 pub fn map() -> Map {
     Map::load(JSON).unwrap_or_else(|e| panic!("maps/jezero.json: {e}"))
 }

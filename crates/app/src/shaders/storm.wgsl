@@ -27,7 +27,10 @@ struct Frame {
 const COLUMNS: u32 = 128u;
 const ROWS: u32 = 10u;
 // The front is an arc of this radius, bulging toward the circuit (scene.wgsl shades the ground
-// under it with the same radius, height and the main wall's half angle).
+// under it with the same radius, height and the main wall's half angle). Seen from the circuit, a
+// curtain shows its edge at the tangent point and its back beyond it: with the front stopping
+// 1.1 km short of the circuit (gfx.rs), the half angles stop each arc well before that (main
+// wall tangent at 30°, the one behind at 46°).
 const ARC_RADIUS: f32 = 7000.0;
 const WALL_HEIGHT: f32 = 1400.0;
 // Plumes rise this far above the envelope at most (share of its height).
@@ -57,9 +60,9 @@ struct Layer {
 
 fn layer(i: u32) -> Layer {
     if i == 0u {
-        return Layer(1400.0, 1.35 * WALL_HEIGHT, 0.95, 650.0, 0.9, 17.0, 21.0, 6.0);
+        return Layer(1400.0, 1.35 * WALL_HEIGHT, 0.62, 650.0, 0.9, 17.0, 21.0, 6.0);
     }
-    return Layer(0.0, WALL_HEIGHT, 0.85, 400.0, 1.0, 3.0, 35.0, 9.0);
+    return Layer(0.0, WALL_HEIGHT, 0.45, 400.0, 1.0, 3.0, 35.0, 9.0);
 }
 
 fn pcg2d(v_in: vec2<u32>) -> vec2<u32> {
@@ -130,8 +133,11 @@ fn arc_radius(l: Layer) -> f32 {
 fn envelope(s: f32, l: Layer) -> f32 {
     let u = clamp(s / (arc_radius(l) * l.half_angle), -1.0, 1.0);
     let taper = sqrt(1.0 - u * u);
+    // The ends trail off low instead of stopping as a cliff of dust (seen from close by, an end
+    // stands in plain view).
+    let trail = 0.2 + 0.8 * (1.0 - smoothstep(0.6, 1.0, abs(u)));
     let towers = 0.85 + 0.5 * noised(vec2<f32>(s / 2600.0, l.seed)).x + 0.3 * noised(vec2<f32>(s / 900.0, l.seed + 3.7)).x;
-    return l.height * (0.35 + 0.65 * taper) * towers;
+    return l.height * (0.35 + 0.65 * taper) * trail * towers;
 }
 
 struct VsOut {
@@ -233,7 +239,7 @@ fn fs_storm(in: VsOut) -> @location(0) vec4<f32> {
     let det = px.x * py.y - px.y * py.x;
     let grad = select(vec2<f32>(dx * py.y - dy * px.y, dy * px.x - dx * py.x) / det, vec2<f32>(0.0), abs(det) < 1e-6);
 
-    let fade = 1.0 - smoothstep(0.72, 1.0, abs(in.u));
+    let fade = 1.0 - smoothstep(0.55, 1.0, abs(in.u));
     let alpha = smoothstep(0.0, 0.45, density) * l.alpha * fade;
 
     // Lighting: smoke facing the sun (its density falls off toward the sun) is lit; inside and

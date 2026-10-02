@@ -335,6 +335,10 @@ impl App {
             eye = debug::route_point(&game.track.route, s - back) + glam::Vec3::Y * height;
             view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
         }
+        if let Some((from, at)) = self.debug.eye {
+            eye = from;
+            view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
+        }
         let mut items = vec![gfx::DrawItem {
             mesh: g.track_mesh,
             model: glam::Mat4::IDENTITY,
@@ -363,7 +367,6 @@ impl App {
         g.scene.write_dust(&g.gpu.queue, &game.dust.vertices(right, up));
         let clear = std::mem::take(&mut game.marks.cleared);
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
-        g.scene.textures = game.session.textures;
         match (&sky, self.menu.active) {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
             _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items),
@@ -460,6 +463,10 @@ impl ApplicationHandler for App {
             window.set_prefers_home_indicator_hidden(true);
             window.set_prefers_status_bar_hidden(true);
         }
+        #[cfg(target_os = "macos")]
+        if !self.debug.runs_hidden() {
+            bring_to_front();
+        }
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_mesh_data(&self.game.track.mesh));
@@ -534,6 +541,22 @@ impl ApplicationHandler for App {
             g.window.request_redraw();
         }
     }
+}
+
+/// Brings the game in front of the other apps. Launched from a terminal (`cargo run`), the window
+/// otherwise opens behind the terminal's app: since macOS 14 an app may not take the front by
+/// itself, and the activation winit asks for is declined. System Events still does it (the first
+/// time, macOS asks to let the terminal control System Events).
+#[cfg(target_os = "macos")]
+fn bring_to_front() {
+    let script = format!("tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true", std::process::id());
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .args(["-e", &script])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    });
 }
 
 /// The window's logical size: 1600 × 900, or `MARS_WINDOW=WxH` (a portrait size shows the phone
@@ -720,10 +743,6 @@ fn main() {
     }
     if game.controls.touch.active {
         game.camera.mode = camera::WIDE;
-    }
-    // Surface textures on (1) or off (0) for this run, whatever the session says.
-    if let Ok(v) = std::env::var("MARS_TEXTURES") {
-        game.session.textures = v != "0";
     }
     if debug.autodrive {
         game.autodrive = Some(debug::Autopilot::default());

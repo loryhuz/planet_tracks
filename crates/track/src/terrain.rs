@@ -17,7 +17,10 @@
 //! - dune fields (`dunes`) start about 40 m from the blocks: transverse dunes with a gentle
 //!   windward side and a lee under 15°;
 //! - mesas and buttes (`mesas`), craters (`craters`) and a ring of hills (`horizon`) only stand
-//!   hundreds of metres away, as a backdrop.
+//!   hundreds of metres away, as a backdrop;
+//! - the map's own landforms ([`crate::landform`]) stand where its author put them, close to
+//!   the track if they like: they are added last, cut around the blocks and filled up under
+//!   elevated decks, so the pads stay flat at the level of the deck beside them.
 //!
 //! Every blend is a smoothstep, so the ground has no crease where it meets the pad.
 //!
@@ -41,6 +44,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirt::{Corridors, DIRT_BANK, REACH};
 use crate::kit::{TERRAIN_Y, color, smoothstep};
+use crate::landform::{self, Landform};
 use crate::noise::{Rng, fbm, perlin};
 use crate::{Surface, TrackMesh};
 
@@ -108,21 +112,29 @@ impl Default for TerrainSettings {
     }
 }
 
-/// Ground a block stands on: the points within `r` of the segment `a`–`b` (horizontal plane).
+/// Ground a block stands on: the points within `r` of the segment `a`–`b` (horizontal plane),
+/// with the height of the deck's lower edge at `a` and `b` (0 for ground-level decks, see
+/// [`crate::kit`]).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Capsule {
     pub a: Vec2,
     pub b: Vec2,
     pub r: f32,
+    pub low: (f32, f32),
 }
 
 impl Capsule {
     /// Distance from `p` to the capsule (0 inside).
     fn distance(&self, p: Vec2) -> f32 {
+        self.distance_and_low(p).0
+    }
+
+    /// Distance from `p` to the capsule (0 inside) and the deck's lower edge abreast of `p`.
+    pub(crate) fn distance_and_low(&self, p: Vec2) -> (f32, f32) {
         let ab = self.b - self.a;
         let len2 = ab.length_squared();
         let t = if len2 > 0.0 { ((p - self.a).dot(ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
-        ((p - (self.a + ab * t)).length() - self.r).max(0.0)
+        (((p - (self.a + ab * t)).length() - self.r).max(0.0), self.low.0 + (self.low.1 - self.low.0) * t)
     }
 }
 
@@ -355,14 +367,16 @@ pub struct Terrain {
     field: DistanceField,
     pad: DistanceField,
     dirt: Corridors,
+    /// The map's own landforms, close to the track.
+    landforms: Vec<landform::Placed>,
     mesas: Vec<Mesa>,
     craters: Vec<Crater>,
 }
 
 impl Terrain {
-    /// The terrain around swept blocks standing on `caps` and dirt corridors `dirt`, centred on
-    /// `centre` (a grid line).
-    pub(crate) fn new(settings: &TerrainSettings, centre: Vec3, caps: Vec<Capsule>, dirt: Corridors) -> Self {
+    /// The terrain around swept blocks standing on `caps` and dirt corridors `dirt`, with the
+    /// map's `landforms`, centred on `centre` (a grid line).
+    pub(crate) fn new(settings: &TerrainSettings, centre: Vec3, caps: Vec<Capsule>, dirt: Corridors, landforms: &[Landform]) -> Self {
         let roots = (libm::ceilf(settings.size.max(256.0) / (ROOT as f32 * UNIT)) as i32).max(1);
         let half = 0.5 * roots as f32 * ROOT as f32 * UNIT;
         let centre = Vec2::new(centre.x, centre.z);
@@ -370,6 +384,7 @@ impl Terrain {
         let mut caps = caps;
         caps.extend(dirt.capsules());
         let field = DistanceField::new(&caps);
+        let landforms = landforms.iter().map(|l| l.place(&caps)).collect();
         let mut t = Self {
             settings: settings.clone(),
             origin: centre - Vec2::splat(half),
@@ -379,6 +394,7 @@ impl Terrain {
             field,
             pad,
             dirt,
+            landforms,
             mesas: Vec::new(),
             craters: Vec::new(),
         };
@@ -408,6 +424,7 @@ impl Terrain {
                 let fits = d >= 220.0 + 2.3 * r
                     && d <= 1600.0
                     && mesas.iter().all(|m| m.c.distance(c) >= 1.6 * (m.r + r) + 60.0)
+                    && self.clear_of_landforms(c, 2.3 * r)
                     && (c - self.centre).abs().max_element() < half - 2.3 * r;
                 if fits {
                     // The cliff band is at least 24 m wide so the mesh can follow it.
@@ -427,6 +444,7 @@ impl Terrain {
                 let c = self.centre + Vec2::new(libm::cosf(a), libm::sinf(a)) * dist;
                 let fits = self.exact_distance(c) >= 150.0 + 2.7 * r
                     && mesas.iter().all(|m| m.c.distance(c) >= m.reach() + 2.7 * r)
+                    && self.clear_of_landforms(c, 2.7 * r)
                     && craters.iter().all(|k| k.c.distance(c) >= 2.0 * (k.r + r))
                     && (c - self.centre).abs().max_element() < half - 2.7 * r;
                 if fits {
@@ -437,6 +455,30 @@ impl Terrain {
         }
         self.mesas = mesas;
         self.craters = craters;
+    }
+
+    /// Whether a feature reaching `r` metres around `c` keeps off the map's landforms.
+    fn clear_of_landforms(&self, c: Vec2, r: f32) -> bool {
+        (0..16).all(|i| {
+            let a = i as f32 * core::f32::consts::TAU / 16.0;
+            [0.0, 0.5, 1.0].iter().all(|&k| !self.landforms.iter().any(|l| l.covers(c + Vec2::new(libm::cosf(a), libm::sinf(a)) * (k * r))))
+        })
+    }
+
+    /// Height the map's landforms add at a point, metres (0 off them).
+    pub fn landform(&self, x: f32, z: f32) -> f32 {
+        self.landforms_at(Vec2::new(x, z)).0
+    }
+
+    /// Height and rockiness of the map's landforms at `p`: the highest one wins.
+    fn landforms_at(&self, p: Vec2) -> (f32, f32) {
+        let (mut h, mut rock) = (0.0f32, 0.0f32);
+        for l in &self.landforms {
+            let (lh, lr) = l.sample(p);
+            h = h.max(lh);
+            rock = rock.max(lr);
+        }
+        (h, rock)
     }
 
     /// Exact horizontal distance to the nearest block footprint (slow: every capsule).
@@ -492,9 +534,19 @@ impl Terrain {
         out
     }
 
-    /// The plain without dirt corridors, `d` metres from the nearest footprint: height, albedo
-    /// and rock.
+    /// The plain without dirt corridors, `d` metres from the nearest footprint, with the map's
+    /// landforms: height, albedo and rock.
     fn natural(&self, p: Vec2, d: f32) -> (f32, f32, f32) {
+        let (h, albedo, rock) = self.plain(p, d);
+        if self.landforms.is_empty() {
+            return (h, albedo, rock);
+        }
+        let (lh, lr) = self.landforms_at(p);
+        (h + lh, albedo, rock.max(lr))
+    }
+
+    /// The plain without dirt corridors or landforms.
+    fn plain(&self, p: Vec2, d: f32) -> (f32, f32, f32) {
         let s = &self.settings;
         let (x, z) = (p.x, p.y);
         if d <= PAD {
@@ -618,6 +670,11 @@ impl Terrain {
                 best = best.min((k.r / 5.0).clamp(4.0, 16.0));
             }
         }
+        for l in &self.landforms {
+            if l.covers(c) || (0..4).any(|i| l.covers(c + Vec2::new([1.0, -1.0, 1.0, -1.0][i], [1.0, 1.0, -1.0, -1.0][i]) * (0.7072 * half_diag))) {
+                best = best.min(l.leaf_size());
+            }
+        }
         best
     }
 
@@ -634,7 +691,8 @@ impl Terrain {
         }
         let dc = self.field.at(c);
         let d_min = (dc - half_diag).max(0.0);
-        if dc + half_diag < PAD {
+        // The pads are flat, except where a landform comes up under an elevated deck.
+        if dc + half_diag < PAD && self.feature_size(c, half_diag) == f32::MAX {
             return false;
         }
         if size > Self::target_size(d_min) || size > self.feature_size(c, half_diag) {

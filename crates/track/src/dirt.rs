@@ -35,7 +35,7 @@ use core::f32::consts::{FRAC_PI_2, PI, TAU};
 use glam::Vec2;
 
 use crate::Surface;
-use crate::kit::{DIRT_HALF_WIDTH, Frame, Kind, Placed, half_width, smootherstep, smoothstep, turn_radius};
+use crate::kit::{DIRT_HALF_WIDTH, DIRT_WANDER_Y, Frame, Kind, Placed, half_width, smootherstep, smoothstep, turn_radius};
 use crate::noise::{fbm, hash2};
 use crate::terrain::Capsule;
 
@@ -423,17 +423,17 @@ impl Corridors {
         let mut out = Vec::new();
         for c in &self.cuts {
             let n = (libm::ceilf((c.range.1 - c.range.0) / 4.0) as usize).max(1);
-            let discs: Vec<(Vec2, f32)> = (0..=n)
+            let discs: Vec<(Vec2, f32, f32)> = (0..=n)
                 .map(|k| {
                     let s = c.range.0 + (c.range.1 - c.range.0) * k as f32 / n as f32;
                     let f = c.placed.frame(s);
                     let [wl, wr] = c.widths_at(s);
                     let centre = Vec2::new(f.horiz.x, f.horiz.z) + Vec2::new(f.left.x, f.left.z) * (0.5 * (wl - wr));
-                    (centre, 0.5 * (wl + wr))
+                    (centre, 0.5 * (wl + wr), (f.centre().y - DIRT_WANDER_Y).max(0.0))
                 })
                 .collect();
             for w in discs.windows(2) {
-                out.push(Capsule { a: w[0].0, b: w[1].0, r: w[0].1.max(w[1].1) });
+                out.push(Capsule { a: w[0].0, b: w[1].0, r: w[0].1.max(w[1].1), low: (w[0].2, w[1].2) });
             }
         }
         out

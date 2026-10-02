@@ -5,9 +5,11 @@
 //! shortens and lengthens between its mounts, and the tie rod follows the steering.
 //!
 //! On top of the physics, [`Look`] adds what a massless raycast suspension lacks: a wheel that
-//! leaves the ground drops with some inertia (the physics puts it at full travel at once), and
-//! the body dives under braking and squats under power (the presets have no pitch transfer).
-//! Both are render-only and never feed back into the simulation.
+//! leaves the ground drops with some inertia (the physics puts it at full travel at once), the
+//! body dives under braking and squats under power (the presets have no pitch transfer), and the
+//! tyres deflect under their load (the physics' wheel is a rigid disc touching the ground at one
+//! point: the renderer sinks it into the ground and the vertex shader flattens the rubber there).
+//! All are render-only and never feed back into the simulation.
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 use physics::{CarParams, CarState};
@@ -161,6 +163,15 @@ const PITCH_DIVE_MAX: f32 = 0.045;
 const PITCH_SQUAT_MAX: f32 = 0.03;
 const PITCH_HZ: f32 = 1.4;
 const PITCH_ZETA: f32 = 0.5;
+/// Tyre deflection, as a share of the wheel radius, under the static load (2.2 cm on the
+/// 0.45 m wheels) and its limits while the tyre touches the ground; how fast it follows the
+/// load (s).
+const SQUASH_REST: f32 = 0.05;
+const SQUASH_MIN: f32 = 0.015;
+const SQUASH_MAX: f32 = 0.11;
+const SQUASH_TIME: f32 = 0.03;
+/// How fast the shade a tyre casts round it on the ground comes and goes with its contact (s).
+const TOUCH_TIME: f32 = 0.08;
 
 /// Render-side suspension state of one car, advanced every physics tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -171,6 +182,12 @@ pub struct Look {
     /// Body pitch drawn on top of the physics' (radians, positive = nose down).
     pub pitch: f32,
     pitch_rate: f32,
+    /// How far each tyre is pressed into the ground, m: the wheel is drawn that much lower.
+    pub squash: [f32; 4],
+    /// Where each tyre last touched the ground (point, normal, world), and how much it touches
+    /// it now, 0..1, eased (the shade it casts round it).
+    pub ground: [(Vec3, Vec3); 4],
+    pub touch: [f32; 4],
 }
 
 impl Look {
@@ -187,10 +204,14 @@ impl Look {
         let w = std::f32::consts::TAU * DROOP_HZ;
         for i in 0..4 {
             let wheel = &state.wheels[i];
+            let squash = if wheel.contact { (SQUASH_REST * wheel.load).clamp(SQUASH_MIN, SQUASH_MAX) * params.wheel_radius } else { 0.0 };
+            self.squash[i] += (squash - self.squash[i]) * (1.0 - (-dt / SQUASH_TIME).exp());
+            self.touch[i] += (if wheel.contact { 1.0 } else { 0.0 } - self.touch[i]) * (1.0 - (-dt / TOUCH_TIME).exp());
             if wheel.contact {
                 // On the ground the physics knows where the wheel is.
                 self.speed[i] = (wheel.suspension - self.travel[i]) / dt;
                 self.travel[i] = wheel.suspension;
+                self.ground[i] = (wheel.contact_point, wheel.contact_normal);
             } else {
                 let a = w * w * (travel - self.travel[i]) - 2.0 * DROOP_ZETA * w * self.speed[i];
                 self.speed[i] += a * dt;
@@ -213,6 +234,8 @@ impl Look {
         let mut out = *next;
         for i in 0..4 {
             out.travel[i] = self.travel[i] + (next.travel[i] - self.travel[i]) * t;
+            out.squash[i] = self.squash[i] + (next.squash[i] - self.squash[i]) * t;
+            out.touch[i] = self.touch[i] + (next.touch[i] - self.touch[i]) * t;
         }
         out.pitch = self.pitch + (next.pitch - self.pitch) * t;
         out
@@ -598,5 +621,41 @@ mod tests {
         }
         look.step(&state, &params, 0.01);
         assert_eq!(look.travel[0], 0.05);
+    }
+
+    #[test]
+    fn a_tyre_is_pressed_in_by_its_load_and_comes_back_round_in_the_air() {
+        let params = physics::presets().remove(0);
+        let world = physics::World::new(&physics::testing::flat(50.0, track::Surface::Road));
+        let car = physics::Car::new(params.clone(), &world, track::Pose { position: Vec3::new(0.0, 0.5, 0.0), yaw: 0.0 });
+        let mut state = car.state.clone();
+        let mut look = Look::new(&state);
+        let settle = |look: &mut Look, state: &CarState| {
+            for _ in 0..50 {
+                look.step(state, &params, 0.01);
+            }
+        };
+        for (w, load) in state.wheels.iter_mut().zip([1.0, 2.0, 0.0, 5.0]) {
+            w.contact = true;
+            w.load = load;
+            w.contact_point = Vec3::new(0.3, -0.2, 0.1);
+            w.contact_normal = Vec3::Y;
+        }
+        settle(&mut look, &state);
+        let r = params.wheel_radius;
+        // 2.2 cm under the static load, more under more, a little at least, never more than 5 cm.
+        for (squash, want) in look.squash.iter().zip([SQUASH_REST, 2.0 * SQUASH_REST, SQUASH_MIN, SQUASH_MAX]) {
+            assert!((squash - want * r).abs() < 1e-4, "{squash} vs {}", want * r);
+        }
+        assert!(look.touch.iter().all(|&t| t > 0.99));
+        for w in &mut state.wheels {
+            w.contact = false;
+            w.load = 0.0;
+        }
+        settle(&mut look, &state);
+        assert!(look.squash.iter().all(|&s| s < 1e-4), "{:?}", look.squash);
+        assert!(look.touch.iter().all(|&t| t < 0.01), "{:?}", look.touch);
+        // The shade still knows where the ground was.
+        assert_eq!(look.ground[0], (Vec3::new(0.3, -0.2, 0.1), Vec3::Y));
     }
 }

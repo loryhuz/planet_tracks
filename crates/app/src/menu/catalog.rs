@@ -39,7 +39,7 @@ pub const PLANETS: [PlanetInfo; 3] = [
         open: true,
         name: "MARS",
         year: "2036",
-        lore: "Les humains ont colonisé Mars et relié leurs bases par des routes. Depuis, ils y font la course, sur bitume et sur dirt.",
+        lore: "Les humains ont colonisé Mars et relié leurs bases par des routes. Depuis, ils y font la course.",
         stats: [("TRANSMISSION", Stat::Text("4×4")), ("ADHÉRENCE", Stat::Pips(4)), ("GLISSE", Stat::Pips(3))],
         kind: PlanetKind::Mars,
     },
@@ -47,7 +47,7 @@ pub const PLANETS: [PlanetInfo; 3] = [
         open: false,
         name: "???",
         year: "20??",
-        lore: "Une deuxième planète se prépare, avec son propre véhicule et sa propre conduite.",
+        lore: "Une deuxième planète se prépare, avec son propre véhicule.",
         stats: [("VÉHICULE", Stat::Text("?")), ("ADHÉRENCE", Stat::Pips(0)), ("GLISSE", Stat::Pips(0))],
         kind: PlanetKind::Ice,
     },
@@ -55,7 +55,7 @@ pub const PLANETS: [PlanetInfo; 3] = [
         open: false,
         name: "???",
         year: "20??",
-        lore: "Plus loin dans le système, une troisième piste attend ses premiers pilotes.",
+        lore: "Plus loin dans le système, une troisième piste attend.",
         stats: [("VÉHICULE", Stat::Text("?")), ("ADHÉRENCE", Stat::Pips(0)), ("GLISSE", Stat::Pips(0))],
         kind: PlanetKind::Gas,
     },
@@ -74,29 +74,28 @@ pub struct TrackInfo {
     pub name: String,
     /// Length of the route, metres.
     pub length: f32,
-    pub checkpoints: usize,
-    pub jumps: usize,
     /// Share of the route on dirt, 0..1.
     pub dirt: f32,
     /// The route seen from above in a unit square (x to the east, y to the south), and whether
     /// each point is on dirt.
     pub route: Vec<(Vec2, bool)>,
-    pub desc: &'static str,
+    /// Share of the medal speeds this circuit allows (tight ones are slower).
+    pub pace: f32,
 }
 
 impl TrackInfo {
     /// Target time of each medal, in ticks (centiseconds).
     pub fn medal_ticks(&self) -> [u32; 3] {
-        MEDALS.map(|(_, kmh)| (self.length / (kmh / 3.6) * 100.0).round() as u32)
+        MEDALS.map(|(_, kmh)| (self.length / (kmh * self.pace / 3.6) * 100.0).round() as u32)
     }
 }
 
-fn description(name: &str) -> &'static str {
+/// Share of the medal speeds a circuit allows: Noctis, all hairpins, is driven well under 200 km/h
+/// on average (a clean braking lap is about 28 s, 185 km/h), so its gold is 29.6 s.
+fn pace(name: &str) -> f32 {
     match name.to_lowercase().as_str() {
-        "jezero" => "Montée sur une plateforme à 16 m, S relevés, saut de 8 m, puis des bosses et un virage en U relevé sur le dirt.",
-        "olympus" => "Le plus court : virages relevés, quatre montées, un saut et un passage dirt avec des bosses.",
-        "ares vallis" => "Tout en dirt, au fond de la vallée : lignes droites, deux séries de bosses, un saut et un virage en U relevé.",
-        _ => "Un circuit de la colonie, entre bitume et dirt.",
+        "noctis" => 0.87,
+        _ => 1.0,
     }
 }
 
@@ -127,10 +126,8 @@ fn info(index: usize, map: &track::Map) -> Option<TrackInfo> {
         map: index,
         name: map.name.clone(),
         length: layout.length(),
-        checkpoints: layout.checkpoint_pieces().len(),
-        jumps: layout.pieces.iter().filter(|p| matches!(p.piece.kind, Kind::JumpRamp { .. })).count(),
         dirt,
         route,
-        desc: description(&map.name),
+        pace: pace(&map.name),
     })
 }

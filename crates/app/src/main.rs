@@ -21,6 +21,7 @@ mod session;
 mod surfaces;
 mod ui;
 mod ui_sound;
+mod video;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -178,7 +179,7 @@ impl App {
         let game = &mut self.game;
 
         let now = Instant::now();
-        let dt = (now - self.last_frame).as_secs_f32().min(0.25);
+        let dt = self.debug.film_dt().unwrap_or((now - self.last_frame).as_secs_f32().min(0.25));
         self.last_frame = now;
 
         game.controls.poll();
@@ -208,11 +209,19 @@ impl App {
             g.window.set_fullscreen(if full { None } else { Some(Fullscreen::Borderless(None)) });
         }
 
+        // Footage shows the car alone.
+        if self.debug.film.is_some() {
+            game.ghost = None;
+        }
         // The race waits while the menu or the HUD's settings are up.
         let paused = self.menu.active || self.hud.paused();
         self.accumulator = if paused { 0.0 } else { self.accumulator + dt };
         let mut ticks = 0;
         while self.accumulator >= physics::DT && ticks < 25 {
+            if self.debug.holds(game.run.tick) {
+                self.accumulator = 0.0;
+                break;
+            }
             game.tick();
             self.accumulator -= physics::DT;
             ticks += 1;
@@ -224,7 +233,7 @@ impl App {
 
         // Acquire the frame before running the UI, so egui's texture updates are never dropped.
         // A due screenshot renders off screen, so it works even when the window is hidden.
-        let shot_path = self.debug.shot_due();
+        let shot_path = self.debug.shot_due(game.run.tick);
         let benching = self.debug.benching();
         let surface_texture = match g.gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
@@ -282,17 +291,19 @@ impl App {
             raw.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen));
         }
         let fps = &self.fps;
+        let no_hud = self.debug.no_hud;
         let menu = &mut self.menu;
         let hud = &mut self.hud;
         let bests: Vec<Option<u32>> =
             game.maps.iter().map(|m| game.session.profile().best(&session::map_key(m)).map(|b| b.ticks)).collect();
         let muted = self.audio.as_ref().is_some_and(|a| a.muted());
+        let video_time = g.menu_gfx.video_time();
         let mut sky = None;
         let mut full = self.egui_ctx.run_ui(raw, |ui| {
             if menu.shows() {
-                sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted }).clone());
+                sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted, video_time }).clone());
             }
-            if !menu.shows() {
+            if !menu.shows() && !no_hud {
                 hud.ui(ui, game, fps, muted);
                 if game.panel_open {
                     let t = game.telemetry();
@@ -301,6 +312,13 @@ impl App {
             }
         });
         g.egui_state.handle_platform_output(&g.window, full.platform_output);
+        // The menu's footage plays while the menu is up: the 16:9 film in a wide window, the
+        // upright one on a phone held upright.
+        let footage = self.menu.active.then(|| match Layout::for_size(size.width as f32 / scale, size.height as f32 / scale) {
+            Layout::Wide => menu_gfx::Footage::Wide,
+            Layout::Tall => menu_gfx::Footage::Tall,
+        });
+        g.menu_gfx.update_video(&g.gpu, footage, dt);
         let prims = self.egui_ctx.tessellate(full.shapes, full.pixels_per_point);
         for request in self.menu.take_requests() {
             match request {
@@ -374,6 +392,9 @@ impl App {
         }
         let right = view.row(0).truncate();
         let up = view.row(1).truncate();
+        if self.debug.film.is_some() {
+            g.scene.clock = Some(game.run.tick as f32 * physics::DT);
+        }
         g.scene.write_dust(&g.gpu.queue, &game.dust.vertices(right, up));
         let clear = std::mem::take(&mut game.marks.cleared);
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());

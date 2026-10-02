@@ -1,6 +1,10 @@
 //! Self-test mode driven by environment variables, used to check the game without a player:
 //!
 //! - `MARS_SHOTS=dir` and `MARS_SHOT_TIMES=1.5,4,8`: screenshots (BMP) at those seconds;
+//! - `MARS_SHOT_TICKS=600,1500`: screenshots at those physics ticks instead (with `MARS_SHOTS`):
+//!   the simulation waits there while the camera settles, so runs with other settings or builds
+//!   show exactly the same moments; the run quits after the last one;
+//! - `MARS_NO_HUD=1`: no HUD or panel (clean screenshots);
 //! - `MARS_AUTODRIVE=1`: hold the throttle and steer gently (a technical check, not a driver);
 //! - `MARS_PROFILE=n`: start with profile n (1-based);
 //! - `MARS_EXIT_AFTER=seconds`: quit;
@@ -15,7 +19,11 @@
 //!   the HUD);
 //! - `MARS_BENCH=from,to`: between those seconds every frame renders off screen (so a hidden
 //!   window is measured too, without the display's frame cap) and waits for the GPU; the GPU time
-//!   of those frames is printed at the end.
+//!   of those frames is printed at the end;
+//! - `MARS_FILM=dir`: films the race (footage for the menu): every frame advances the game by
+//!   exactly 1/`MARS_FILM_FPS` s (30 by default), whatever the time it takes to render, and
+//!   frames from `MARS_FILM_FROM` to `MARS_FILM_FROM` + `MARS_FILM_SECONDS` seconds of race
+//!   (0 and 10 by default) are saved as `frame-00001.bmp`…; the run quits after the last one.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -27,7 +35,11 @@ pub struct Debug {
     start: Instant,
     shots_dir: Option<PathBuf>,
     shot_times: Vec<f32>,
+    shot_ticks: Vec<u32>,
     next_shot: usize,
+    /// When the simulation reached the tick of the next screenshot (seconds).
+    held_since: Option<f32>,
+    pub no_hud: bool,
     pub autodrive: bool,
     pub profile: Option<usize>,
     exit_after: Option<f32>,
@@ -35,6 +47,16 @@ pub struct Debug {
     pub view: Option<(f32, f32, f32)>,
     pub eye: Option<(Vec3, Vec3)>,
     bench: Option<Bench>,
+    pub film: Option<Film>,
+}
+
+pub struct Film {
+    dir: PathBuf,
+    pub fps: f32,
+    /// Race seconds of the first and the last frame filmed.
+    from: f32,
+    to: f32,
+    frames: u32,
 }
 
 struct Bench {
@@ -53,11 +75,18 @@ impl Debug {
             .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
             .unwrap_or_default();
         shot_times.sort_by(|a, b| a.total_cmp(b));
+        let mut shot_ticks: Vec<u32> = var("MARS_SHOT_TICKS")
+            .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+            .unwrap_or_default();
+        shot_ticks.sort();
         Self {
             start: Instant::now(),
             shots_dir: var("MARS_SHOTS").map(PathBuf::from),
             shot_times,
+            shot_ticks,
             next_shot: 0,
+            held_since: None,
+            no_hud: var("MARS_NO_HUD").is_some(),
             autodrive: var("MARS_AUTODRIVE").is_some(),
             profile: var("MARS_PROFILE").and_then(|p| p.parse::<usize>().ok()).map(|p| p.saturating_sub(1)),
             exit_after: var("MARS_EXIT_AFTER").and_then(|s| s.parse().ok()),
@@ -77,7 +106,17 @@ impl Debug {
                 let v: Vec<f32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
                 (v.len() == 2).then(|| Bench { from: v[0], to: v[1], gpu_ms: Vec::new(), size: (0, 0), reported: false })
             }),
+            film: var("MARS_FILM").map(|dir| {
+                let num = |k: &str, default: f32| var(k).and_then(|s| s.parse().ok()).unwrap_or(default);
+                let from = num("MARS_FILM_FROM", 0.0);
+                Film { dir: PathBuf::from(dir), fps: num("MARS_FILM_FPS", 30.0), from, to: from + num("MARS_FILM_SECONDS", 10.0), frames: 0 }
+            }),
         }
+    }
+
+    /// Filming: the fixed time step of every frame.
+    pub fn film_dt(&self) -> Option<f32> {
+        self.film.as_ref().map(|f| 1.0 / f.fps)
     }
 
     /// Whether this frame is measured.
@@ -128,23 +167,54 @@ impl Debug {
     /// A screenshot or benchmark run: everything it needs renders off screen, so its window stays
     /// hidden and never takes the focus from whatever the player is doing meanwhile.
     pub fn runs_hidden(&self) -> bool {
-        self.shots_dir.is_some() || self.bench.is_some()
+        self.shots_dir.is_some() || self.bench.is_some() || self.film.is_some()
     }
 
-    /// Path of the screenshot to take this frame, if one is due.
-    pub fn shot_due(&mut self) -> Option<PathBuf> {
-        let dir = self.shots_dir.as_ref()?;
-        let t = *self.shot_times.get(self.next_shot)?;
-        if self.elapsed() < t {
-            return None;
+    /// Whether the simulation stays at `tick` (the next screenshot is taken there).
+    pub fn holds(&self, tick: u32) -> bool {
+        self.shots_dir.is_some() && self.shot_ticks.get(self.next_shot).is_some_and(|&t| tick >= t)
+    }
+
+    /// Path of the screenshot to take this frame, if one is due (`tick`: the simulation's).
+    pub fn shot_due(&mut self, tick: u32) -> Option<PathBuf> {
+        if let Some(f) = &mut self.film {
+            let t = tick as f32 * physics::DT;
+            if t < f.from || t > f.to {
+                return None;
+            }
+            f.frames += 1;
+            let _ = std::fs::create_dir_all(&f.dir);
+            return Some(f.dir.join(format!("frame-{:05}.bmp", f.frames)));
         }
+        let dir = self.shots_dir.as_ref()?;
+        let name = if self.shot_ticks.is_empty() {
+            let t = *self.shot_times.get(self.next_shot)?;
+            if self.elapsed() < t {
+                return None;
+            }
+            format!("shot-{:02}-{:.1}s.bmp", self.next_shot + 1, t)
+        } else {
+            let t = *self.shot_ticks.get(self.next_shot)?;
+            if tick < t {
+                return None;
+            }
+            // The chase camera eases toward the stopped car; it has settled after a second and a half.
+            let now = self.elapsed();
+            if now - *self.held_since.get_or_insert(now) < 1.5 {
+                return None;
+            }
+            self.held_since = None;
+            format!("shot-{:02}-tick{t}.bmp", self.next_shot + 1)
+        };
         self.next_shot += 1;
         let _ = std::fs::create_dir_all(dir);
-        Some(dir.join(format!("shot-{:02}-{:.1}s.bmp", self.next_shot, t)))
+        Some(dir.join(name))
     }
 
     pub fn should_exit(&self) -> bool {
-        self.exit_after.is_some_and(|t| self.elapsed() >= t)
+        let shots_done = self.shots_dir.is_some() && !self.shot_ticks.is_empty() && self.next_shot >= self.shot_ticks.len();
+        let filmed = self.film.as_ref().is_some_and(|f| f.frames > 0 && f.frames as f32 >= (f.to - f.from) * f.fps);
+        shots_done || filmed || self.exit_after.is_some_and(|t| self.elapsed() >= t)
     }
 
 }

@@ -1,8 +1,8 @@
-//! The game's menu, as validated in the mock-ups: a title screen over a small universe of
-//! planets, the planet carousel (Mars 2036, two planets still to come), the game modes, then the
-//! solo circuits in series. Two layouts share the same screens: wide (computer, landscape) drawn
-//! in a 1280 × 720 design space, tall (phone, portrait) in 390 × 844; egui's zoom maps that space
-//! to the window. The background (sky and planets) is drawn by `menu_gfx`; this module says where.
+//! The game's menu, over a film of the game (`menu_gfx`'s footage): a title screen (the logo and
+//! its tagline), the planets one at a time (Mars 2036, two planets still to come), then Mars's
+//! circuits as tiles in series. Two layouts share the same screens: wide (computer, landscape)
+//! drawn in a 1280 × 720 design space, tall (phone, portrait) in 390 × 844; egui's zoom maps that
+//! space to the window. The background is drawn by `menu_gfx`; this module says what it shows.
 //!
 //! The menu keeps its own state and tells the app what to do through [`Request`]s, and what to
 //! play through [`Cue`]s.
@@ -11,7 +11,7 @@ pub(crate) mod catalog;
 pub(crate) mod paint;
 mod screens;
 
-use egui::{Id, Pos2, Rect, Response, Sense};
+use egui::{Id, Rect, Response, Sense};
 
 use crate::input::Nav;
 use crate::menu_gfx::SkyScene;
@@ -34,13 +34,14 @@ pub struct MenuInput<'a> {
     /// Best time per map (ticks), for the current profile.
     pub bests: &'a [Option<u32>],
     pub muted: bool,
+    /// Seconds into the background footage's loop, once it plays.
+    pub video_time: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Screen {
     Title,
     Planets,
-    Modes,
     Solo,
 }
 
@@ -68,24 +69,7 @@ struct Loading {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shake {
     Cta,
-    Multi,
-    Row(usize),
-}
-
-/// A value easing from `from` to `to` since `start`.
-#[derive(Clone, Copy)]
-struct Tween {
-    from: f32,
-    to: f32,
-    start: f64,
-    duration: f32,
-}
-
-impl Tween {
-    fn at(&self, now: f64) -> f32 {
-        let k = ((now - self.start) as f32 / self.duration).clamp(0.0, 1.0);
-        self.from + (self.to - self.from) * paint::bezier(0.2, 0.85, 0.2, 1.0, k)
-    }
+    Tile(usize),
 }
 
 /// The two layouts.
@@ -109,7 +93,19 @@ impl Layout {
         };
         z.clamp(0.5, 4.0)
     }
+
+    /// Circuit tiles per row.
+    fn columns(self) -> usize {
+        match self {
+            Layout::Wide => 3,
+            Layout::Tall => 2,
+        }
+    }
 }
+
+/// Cuts of the background footage, seconds into its loop (`tools/video/menu_montage.sh`): the
+/// title screen flashes on each.
+const CUTS: [f32; 8] = [0.0, 2.6, 4.8, 7.2, 9.4, 11.6, 13.8, 16.0];
 
 pub struct Menu {
     /// The menu is on screen (otherwise the race is).
@@ -119,20 +115,24 @@ pub struct Menu {
     /// Set when the menu opens from a race: the screen's time starts on the next frame.
     reopened: bool,
     tracks: Vec<TrackInfo>,
+    // Title.
+    /// The footage's cut on screen, and when the last one flashed.
+    cut: Option<usize>,
+    flash: f64,
     // Planets.
     planet: usize,
-    carousel: Tween,
+    /// Horizontal drag in progress on the planet screen, points.
     drag: Option<f32>,
     /// The info block's change of planet: shown index, previous index, start, direction.
     info: (usize, usize, f64, f32),
     rot: f32,
     last: f64,
-    // Modes.
-    mode: usize,
     // Solo.
     series: Series,
     sel: usize,
     sel_at: f64,
+    /// Keyboard and pad: the series switch has the focus instead of the tiles.
+    on_series: bool,
     /// Tall layout: the circuit sheet, opened (true) or closing (false) since a time.
     sheet: Option<(bool, f64)>,
     // Transitions and feedback.
@@ -141,9 +141,6 @@ pub struct Menu {
     outro: Option<(f64, usize)>,
     toast: Option<(String, f64)>,
     shake: Option<(Shake, f64)>,
-    online: u32,
-    online_at: f64,
-    seed: u32,
     nav: Vec<Nav>,
     cues: Vec<Cue>,
     requests: Vec<Request>,
@@ -163,25 +160,23 @@ impl Menu {
             entered: 0.0,
             reopened: false,
             tracks: catalog::tracks(maps),
+            cut: None,
+            flash: -10.0,
             planet: 0,
-            carousel: Tween { from: 0.0, to: 0.0, start: 0.0, duration: 0.55 },
             drag: None,
             info: (0, 0, -10.0, 1.0),
             rot: 0.0,
             last: 0.0,
-            mode: 0,
             series: Series::Easy,
             sel: 0,
             sel_at: 0.0,
+            on_series: false,
             sheet: None,
             wipe: None,
             loading: None,
             outro: None,
             toast: None,
             shake: None,
-            online: 1284,
-            online_at: 0.0,
-            seed: 0x2036_0b0d,
             nav: Vec::new(),
             cues: Vec::new(),
             requests: Vec::new(),
@@ -207,7 +202,7 @@ impl Menu {
         match self.screen {
             Screen::Title => Ambience::Title,
             Screen::Planets => Ambience::Space,
-            Screen::Modes | Screen::Solo => Ambience::Base,
+            Screen::Solo => Ambience::Base,
         }
     }
 
@@ -223,18 +218,17 @@ impl Menu {
         std::mem::take(&mut self.requests)
     }
 
-    /// Opens on a given screen (`title`, `planets`, `modes`, `solo`), for checks.
+    /// Opens on a given screen (`title`, `planets`, `solo`), for checks.
     pub fn open_on(&mut self, screen: &str) {
         self.active = true;
         self.screen = match screen {
             "planets" => Screen::Planets,
-            "modes" => Screen::Modes,
-            "solo" => Screen::Solo,
+            "solo" | "circuits" => Screen::Solo,
             _ => Screen::Title,
         };
     }
 
-    /// Back from a race: the circuit list, on the circuit just driven.
+    /// Back from a race: the circuits, on the circuit just driven.
     pub fn open_from_race(&mut self, map: usize) {
         self.active = true;
         self.screen = Screen::Solo;
@@ -243,16 +237,10 @@ impl Menu {
         self.loading = None;
         self.outro = None;
         self.sheet = None;
+        self.on_series = false;
         self.series = Series::Easy;
         self.sel = self.tracks.iter().position(|t| t.map == map).unwrap_or(0);
         self.cues.push(Cue::Back);
-    }
-
-    fn rand(&mut self) -> f32 {
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 17;
-        self.seed ^= self.seed << 5;
-        self.seed as f32 / u32::MAX as f32
     }
 
     /// The circuit in slot `i` of the current series, if built.
@@ -274,17 +262,13 @@ impl Menu {
     }
 
     fn back(&mut self, now: f64) {
-        match self.screen {
-            Screen::Solo => {
-                self.cues.push(Cue::Back);
-                self.go(Screen::Modes, now);
-            }
-            Screen::Modes => {
-                self.cues.push(Cue::Back);
-                self.go(Screen::Planets, now);
-            }
-            _ => {}
-        }
+        let to = match self.screen {
+            Screen::Solo => Screen::Planets,
+            Screen::Planets => Screen::Title,
+            Screen::Title => return,
+        };
+        self.cues.push(Cue::Back);
+        self.go(to, now);
     }
 
     fn start(&mut self, now: f64) {
@@ -310,8 +294,6 @@ impl Menu {
         }
         let n = n as usize;
         let dir = if n > self.planet { 1.0 } else { -1.0 };
-        let from = self.carousel.at(now);
-        self.carousel = Tween { from, to: n as f32, start: now, duration: 0.55 };
         self.info = (n, self.planet, now, dir);
         self.planet = n;
         self.cues.push(Cue::Swipe(dir));
@@ -323,26 +305,9 @@ impl Menu {
     fn choose_planet(&mut self, now: f64) {
         if PLANETS[self.planet].open {
             self.cues.push(Cue::Confirm);
-            self.go(Screen::Modes, now);
-        } else {
-            self.deny(Shake::Cta, "Cette planète arrive bientôt.", now);
-        }
-    }
-
-    fn set_mode(&mut self, m: usize) {
-        if m < 2 && m != self.mode {
-            self.mode = m;
-            self.cues.push(Cue::Select);
-        }
-    }
-
-    fn choose_mode(&mut self, m: usize, now: f64) {
-        self.mode = m;
-        if m == 0 {
-            self.cues.push(Cue::Confirm);
             self.go(Screen::Solo, now);
         } else {
-            self.deny(Shake::Multi, "Le multijoueur arrive bientôt.", now);
+            self.deny(Shake::Cta, "Cette planète arrive bientôt.", now);
         }
     }
 
@@ -377,7 +342,7 @@ impl Menu {
         self.set_sel(i, now, false);
         if self.slot(i).is_none() {
             let text = self.locked_text();
-            self.deny(Shake::Row(i), text, now);
+            self.deny(Shake::Tile(i), text, now);
             return;
         }
         self.cues.push(Cue::Confirm);
@@ -398,11 +363,56 @@ impl Menu {
         }
         if self.slot(self.sel).is_none() {
             let text = self.locked_text();
-            self.deny(Shake::Row(self.sel), text, now);
+            self.deny(Shake::Tile(self.sel), text, now);
             return;
         }
         self.cues.push(Cue::Launch);
         self.loading = Some(Loading { start: now, track: self.sel, built: false, ready: false });
+    }
+
+    /// Keyboard and pad on the circuits: the arrows move through the tiles, up from the first
+    /// row reaches the series switch (left and right change the series there, down comes back).
+    fn solo_nav(&mut self, nav: Nav, layout: Layout, now: f64) {
+        let sheet_open = matches!(self.sheet, Some((true, _)));
+        if sheet_open {
+            match nav {
+                Nav::Confirm => self.launch(now),
+                Nav::Back => self.close_sheet(now),
+                _ => {}
+            }
+            return;
+        }
+        if self.on_series {
+            match nav {
+                Nav::Left => self.set_series(Series::Easy, now),
+                Nav::Right => self.set_series(Series::Hard, now),
+                Nav::Down | Nav::Confirm => {
+                    self.on_series = false;
+                    self.cues.push(Cue::Select);
+                }
+                Nav::Back => self.back(now),
+                _ => {}
+            }
+            return;
+        }
+        let cols = layout.columns();
+        let (row, col) = (self.sel / cols, self.sel % cols);
+        match nav {
+            Nav::Left if col > 0 => self.set_sel(self.sel - 1, now, true),
+            Nav::Right if col + 1 < cols && self.sel + 1 < SLOTS => self.set_sel(self.sel + 1, now, true),
+            Nav::Up if row == 0 => {
+                self.on_series = true;
+                self.cues.push(Cue::Select);
+            }
+            Nav::Up => self.set_sel(self.sel - cols, now, true),
+            Nav::Down if self.sel + cols < SLOTS => self.set_sel(self.sel + cols, now, true),
+            Nav::Confirm => match layout {
+                Layout::Tall => self.open_sheet(self.sel, now),
+                Layout::Wide => self.launch(now),
+            },
+            Nav::Back => self.back(now),
+            _ => {}
+        }
     }
 
     fn handle_nav(&mut self, nav: Nav, layout: Layout, now: f64) {
@@ -415,36 +425,14 @@ impl Menu {
                 Nav::Left => self.set_planet(self.planet as isize - 1, now),
                 Nav::Right => self.set_planet(self.planet as isize + 1, now),
                 Nav::Confirm => self.choose_planet(now),
+                Nav::Back => self.back(now),
                 _ => {}
             },
-            Screen::Modes => match (nav, layout) {
-                (Nav::Left, Layout::Wide) | (Nav::Up, Layout::Tall) => self.set_mode(0),
-                (Nav::Right, Layout::Wide) | (Nav::Down, Layout::Tall) => self.set_mode(1),
-                (Nav::Confirm, _) => self.choose_mode(self.mode, now),
-                (Nav::Back, _) => self.back(now),
-                _ => {}
-            },
-            Screen::Solo => {
-                let sheet_open = matches!(self.sheet, Some((true, _)));
-                match nav {
-                    Nav::Up if !sheet_open => self.set_sel(self.sel.saturating_sub(1), now, true),
-                    Nav::Down if !sheet_open => self.set_sel((self.sel + 1).min(SLOTS - 1), now, true),
-                    Nav::Left if !sheet_open => self.set_series(Series::Easy, now),
-                    Nav::Right if !sheet_open => self.set_series(Series::Hard, now),
-                    Nav::Confirm => match layout {
-                        Layout::Tall if !sheet_open => self.open_sheet(self.sel, now),
-                        _ => self.launch(now),
-                    },
-                    Nav::Back if sheet_open => self.close_sheet(now),
-                    Nav::Back => self.back(now),
-                    _ => {}
-                }
-            }
+            Screen::Solo => self.solo_nav(nav, layout, now),
         }
     }
 
-    /// Timers: the screen change half-way through the wipe, the loading steps, the fake online
-    /// count.
+    /// Timers: the screen change half-way through the wipe, the loading steps.
     fn advance(&mut self, now: f64) {
         if let Some(w) = &mut self.wipe {
             let t = now - w.start;
@@ -453,6 +441,7 @@ impl Menu {
                 self.screen = w.to;
                 self.entered = now;
                 self.sel_at = now;
+                self.on_series = false;
             }
             if t >= 0.72 {
                 self.wipe = None;
@@ -479,11 +468,6 @@ impl Menu {
         }
         if self.outro.is_some_and(|(t0, _)| now - t0 > 0.4) {
             self.outro = None;
-        }
-        if now - self.online_at > 3.0 {
-            self.online_at = now;
-            let step = (self.rand() * 18.0 - 6.0).round() as i32;
-            self.online = (self.online as i32 + step).clamp(1100, 1600) as u32;
         }
         if self.toast.as_ref().is_some_and(|(_, t)| now - t > 2.7) {
             self.toast = None;
@@ -557,24 +541,24 @@ impl Menu {
             return &self.sky;
         }
         self.rot -= 0.07 * dt;
-        let target = match self.screen {
-            Screen::Title => 0.0,
-            Screen::Planets => self.planet as f32 * 0.8,
-            s => s.order() as f32 * 1.6 + self.planet as f32 * 0.8,
-        };
+        let target = self.screen.order() as f32 * 1.6 + self.planet as f32 * 0.8;
         self.parallax += (target - self.parallax) * (dt * 3.0).min(1.0);
         self.sky.parallax = self.parallax;
+        // The footage's cuts.
+        if let Some(t) = input.video_time {
+            let cut = CUTS.iter().rposition(|&c| t >= c).unwrap_or(0);
+            if self.cut.is_some_and(|c| c != cut) {
+                self.flash = now;
+            }
+            self.cut = Some(cut);
+        }
 
         let covered = self.loading.as_ref().is_some_and(|l| now - l.start > 0.3);
         if !covered {
             match self.screen {
                 Screen::Title => self.title(ui, screen_rect, layout, now),
                 Screen::Planets => self.planets(ui, screen_rect, layout, now, input.muted),
-                Screen::Modes => self.modes(ui, screen_rect, layout, now, input.muted),
                 Screen::Solo => self.solo(ui, screen_rect, layout, now, input.muted, input.bests),
-            }
-            if layout == Layout::Wide && self.screen != Screen::Title {
-                self.hints(ui, screen_rect, now);
             }
         }
         self.toast_ui(ui, screen_rect, layout, now);
@@ -623,11 +607,4 @@ fn script_from_env() -> Vec<(f64, Nav)> {
             Some((t.trim().parse().ok()?, nav))
         })
         .collect()
-}
-
-/// Where a pin of the Mars globe lands, if on the visible side: screen position and visibility.
-fn pin(center: Pos2, radius: f32, rot: f32, lat_deg: f32, lon_deg: f32) -> Option<(Pos2, f32)> {
-    let (lat, lon) = (lat_deg.to_radians(), lon_deg.to_radians() - rot);
-    let (x, y, z) = (lat.cos() * lon.sin(), lat.sin(), lat.cos() * lon.cos());
-    (z > 0.12).then(|| (Pos2::new(center.x + x * radius * 0.985, center.y - y * radius * 0.985), ((z - 0.12) / 0.28).clamp(0.0, 1.0)))
 }

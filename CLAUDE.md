@@ -30,13 +30,23 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 - `crates/track` — block kit, maps, triangle meshes with a surface per triangle.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
-- `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title, planets, modes, solo circuits),
-  in a wide layout (1280 × 720 design space) and a tall phone one (390 × 844), fitted to the
-  window with egui's zoom. Its background (night sky, procedural planets) is `menu_gfx.rs` with
-  `shaders/menu.wgsl`, its sounds `ui_sound.rs`, its typefaces (Saira, Saira Stencil One,
-  Martian Mono, from Google Fonts under the OFL) `crates/app/assets/fonts/`. Self-tests: `MARS_MENU=title|planets|modes|solo`
-  opens it on a screen, `MARS_MENU_NAV=1.5:right,3:confirm` moves through it, `MARS_WINDOW=390x844`
-  shows the phone layout; race self-tests (`MARS_MAP`, `MARS_AUTODRIVE`…) skip it.
+- `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title with the tagline, one planet at
+  a time, then the planet's circuits as tiles; no Solo/Multi choice, multiplayer will get one
+  entry before the planets), in a wide layout (1280 × 720 design space) and a tall phone one
+  (390 × 844), fitted to the window with egui's zoom. Its background is `menu_gfx.rs` with
+  `shaders/menu.wgsl`: a film of the game in a loop (`crates/app/assets/video/menu-wide.mp4`,
+  1920 × 1080, and `menu-tall.mp4`, 1080 × 2338, HEVC, decoded by AVFoundation in `video.rs` on
+  macOS and iOS; elsewhere, or without the files, the night sky stays), the static and
+  silhouette of a planet still to come. The loops are large generated files, kept out of git and
+  found on disk (beside the executable, in the bundle's resources, or in the source tree): make
+  them, and refilm them after changing the circuits' look, with `tools/video/menu_montage.sh`
+  (its cuts are `CUTS` in `menu/mod.rs`; `--encode` re-encodes without refilming). A release
+  must bundle them: `docs/release.md`. Its sounds are `ui_sound.rs`, its typefaces (Saira and Saira Italic, Saira
+  Stencil One, Martian Mono, from Google Fonts under the OFL) `crates/app/assets/fonts/`.
+  Self-tests: `MARS_MENU=title|planets|solo` opens it on a screen, `MARS_MENU_NAV=1.5:right,3:confirm`
+  moves through it, `MARS_WINDOW=390x844` shows the phone layout; add `MARS_BENCH=0,<seconds>`
+  to a screenshot run so every frame renders (otherwise a hidden window only draws the shot,
+  before the film's first frame); race self-tests (`MARS_MAP`, `MARS_AUTODRIVE`…) skip it.
 - `crates/app/src/hud.rs` — the race HUD, light like Trackmania's (map name, record and time to
   beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
   countdown and the finish card in the menu's style; wide and tall like the menu. On phones the

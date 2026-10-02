@@ -1,6 +1,8 @@
-// Menu background: the Martian night sky (gradient, horizon glow, stars, drifting dust) and the
-// planets, each a sphere whose surface is computed per pixel from 3D noise on the unit sphere
-// (no texture, so it stays sharp at any size). Writes sRGB values straight to the gamma target.
+// Menu background: the game's footage, framed to cover the screen, or the Martian night sky
+// (gradient, horizon glow, stars, drifting dust) where it does not play; the static of a planet
+// still to come; then the planets, each a sphere whose surface is computed per pixel from 3D
+// noise on the unit sphere (no texture, so it stays sharp at any size). Writes sRGB values
+// straight to the gamma target.
 
 struct Planet {
     // centre x, y (px), radius (px), rotation (radians)
@@ -22,12 +24,18 @@ struct Sky {
     glow: vec4<f32>,
     // parallax, planet count
     misc: vec4<f32>,
+    // footage opacity, darkening, footage width and height (px)
+    video: vec4<f32>,
+    // static colour, strength
+    noise: vec4<f32>,
     planets: array<Planet, 6>,
     // unit vector, angular radius
     craters: array<vec4<f32>, 64>,
 };
 
 @group(0) @binding(0) var<uniform> sky: Sky;
+@group(0) @binding(1) var video_tex: texture_2d<f32>;
+@group(0) @binding(2) var video_smp: sampler;
 
 const D2R: f32 = 0.017453292;
 const SKY_TOP: vec3<f32> = vec3<f32>(13.0, 9.0, 11.0) / 255.0;
@@ -299,7 +307,26 @@ fn sky_colour(px: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fs_menu(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let px = frag.xy;
+    let size = sky.size.xy;
     var c = sky_colour(px);
+    // The footage, scaled to cover the screen and centred.
+    if sky.video.x > 0.0 {
+        let vs = sky.video.zw;
+        let k = max(size.x / vs.x, size.y / vs.y);
+        let uv = ((px - size * 0.5) / k + vs * 0.5) / vs;
+        c = mix(c, textureSampleLevel(video_tex, video_smp, uv, 0.0).rgb, sky.video.x);
+    }
+    // Static, coarse and tinted, with a brighter band rolling down.
+    if sky.noise.w > 0.0 {
+        let cell = max(size.x, size.y) / 170.0;
+        let id = floor(px / cell);
+        let t = sky.size.z;
+        let roll = fract(t * 0.35) * size.y;
+        let band = select(1.0, 1.6, abs(px.y - roll) < cell * 4.0);
+        let h = hash3(vec3<i32>(i32(id.x), i32(id.y), i32(floor(t * 24.0)))) * 0.75 * band;
+        c = mix(c, sky.noise.rgb * h, sky.noise.w);
+    }
+    c *= 1.0 - sky.video.y;
     let n = i32(sky.misc.y + 0.5);
     for (var i = 0; i < n; i++) {
         c = draw_planet(sky.planets[i], px, c);

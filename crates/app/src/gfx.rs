@@ -244,6 +244,8 @@ pub struct SceneRenderer {
     storm: Option<StormSite>,
     /// `MARS_STORM_TIME`: seconds of approach skipped, to see the storm at its closest.
     storm_skip: f32,
+    /// Seconds since the track was set, when the clock is not the wall's (filming).
+    pub clock: Option<f32>,
     shadow_pipeline: wgpu::RenderPipeline,
     frame_buffer: wgpu::Buffer,
     frame_layout: wgpu::BindGroupLayout,
@@ -727,6 +729,7 @@ impl SceneRenderer {
             storm_pipeline,
             storm: None,
             storm_skip: std::env::var("MARS_STORM_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.0),
+            clock: None,
             shadow_pipeline,
             frame_buffer,
             frame_layout,
@@ -866,7 +869,7 @@ impl SceneRenderer {
             storm_b: [0.0; 4],
         };
         if let Some(s) = &self.storm {
-            let t = s.since.elapsed().as_secs_f32() + self.storm_skip;
+            let t = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32()) + self.storm_skip;
             let left = (-t / STORM_APPROACH).exp();
             let front = s.reach + STORM_STOP + (STORM_START - STORM_STOP) * left;
             frame.storm_a = [s.centre.x, s.centre.z, s.dir.x, s.dir.y];

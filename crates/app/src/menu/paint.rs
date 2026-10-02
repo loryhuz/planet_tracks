@@ -17,7 +17,6 @@ pub mod col {
     pub const PANEL: Color32 = Color32::from_rgb(29, 20, 22);
     pub const PANEL_2: Color32 = Color32::from_rgb(40, 27, 28);
     pub const LINE: Color32 = Color32::from_rgb(59, 43, 42);
-    pub const GLASS: Color32 = Color32::from_rgba_premultiplied(12, 12, 11, 13);
     pub const SCRIM: Color32 = Color32::from_rgba_premultiplied(5, 3, 4, 158);
     pub const DUST: Color32 = Color32::from_rgb(244, 232, 220);
     pub const DUST_2: Color32 = Color32::from_rgb(191, 169, 155);
@@ -29,7 +28,6 @@ pub mod col {
     pub const ROAD: Color32 = Color32::from_rgb(239, 227, 214);
     pub const DIRT: Color32 = Color32::from_rgb(194, 122, 72);
     pub const EASY: Color32 = Color32::from_rgb(37, 196, 109);
-    pub const HARD: Color32 = Color32::from_rgb(4, 4, 4);
     pub const HARD_EDGE: Color32 = Color32::from_rgb(236, 226, 216);
     pub const GOLD: Color32 = Color32::from_rgb(243, 195, 79);
     pub const SILVER: Color32 = Color32::from_rgb(205, 213, 219);
@@ -37,6 +35,13 @@ pub mod col {
     pub const PL_MARS: Color32 = Color32::from_rgb(216, 112, 63);
     pub const PL_GAS: Color32 = Color32::from_rgb(227, 171, 97);
     pub const PL_ICE: Color32 = Color32::from_rgb(158, 209, 242);
+    /// Running text over the footage, a little brighter than `DUST_2`.
+    pub const TEXT: Color32 = Color32::from_rgb(234, 220, 207);
+    /// Dark glass over the footage, and its edge.
+    pub const GLASS_DARK: Color32 = Color32::from_rgba_premultiplied(8, 6, 7, 194);
+    pub const EDGE: Color32 = Color32::from_rgba_premultiplied(24, 23, 22, 26);
+    /// A chosen tile: the dark glass warmed by the livery.
+    pub const GLASS_WARM: Color32 = Color32::from_rgba_premultiplied(31, 15, 9, 219);
 }
 
 pub const MEDAL_COLOURS: [Color32; 3] = [col::GOLD, col::SILVER, col::BRONZE];
@@ -54,16 +59,19 @@ pub fn lerp_colour(a: Color32, b: Color32, t: f32) -> Color32 {
 
 /// The menu's typefaces (Google Fonts, OFL, in `assets/fonts`): Saira Stencil One for the
 /// title and planet names, Saira (its condensed width) for labels and headings, Saira for running
-/// text, Martian Mono for numbers.
+/// text, Saira Italic condensed for the racing headings (circuit names, the tagline), Martian Mono
+/// for numbers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     Display,
     Condensed,
     Text,
+    Race,
     Mono,
 }
 
 const SAIRA: &[u8] = include_bytes!("../../assets/fonts/Saira.ttf");
+const SAIRA_ITALIC: &[u8] = include_bytes!("../../assets/fonts/SairaItalic.ttf");
 const STENCIL: &[u8] = include_bytes!("../../assets/fonts/SairaStencilOne-Regular.ttf");
 const MARTIAN: &[u8] = include_bytes!("../../assets/fonts/MartianMono.ttf");
 
@@ -71,7 +79,7 @@ const MARTIAN: &[u8] = include_bytes!("../../assets/fonts/MartianMono.ttf");
 pub fn fonts() -> egui::FontDefinitions {
     let mut defs = egui::FontDefinitions::default();
     let fallback = defs.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    for (name, bytes) in [("Saira", SAIRA), ("SairaStencilOne", STENCIL), ("MartianMono", MARTIAN)] {
+    for (name, bytes) in [("Saira", SAIRA), ("SairaItalic", SAIRA_ITALIC), ("SairaStencilOne", STENCIL), ("MartianMono", MARTIAN)] {
         defs.font_data.insert(name.into(), Arc::new(egui::FontData::from_static(bytes)));
         let mut list = vec![name.to_string()];
         list.extend(fallback.iter().cloned());
@@ -107,6 +115,10 @@ impl Font {
     pub const fn display(size: f32) -> Self {
         Self { size, spacing: 0.02, face: Face::Display, weight: 400.0 }
     }
+    /// Racing headings: italic, condensed, heavy.
+    pub const fn race(size: f32) -> Self {
+        Self { size, spacing: 0.005, face: Face::Race, weight: 800.0 }
+    }
     /// Numbers, times, counters.
     pub const fn data(size: f32) -> Self {
         Self { size, spacing: 0.0, face: Face::Mono, weight: 400.0 }
@@ -120,6 +132,7 @@ impl Font {
         let family = match self.face {
             Face::Display => "SairaStencilOne",
             Face::Condensed | Face::Text => "Saira",
+            Face::Race => "SairaItalic",
             Face::Mono => "MartianMono",
         };
         FontId::new(self.size, FontFamily::Name(family.into()))
@@ -129,6 +142,7 @@ impl Font {
         let coords = match self.face {
             Face::Display => VariationCoords::default(),
             Face::Condensed => VariationCoords::new([(b"wdth", 75.0), (b"wght", self.weight)]),
+            Face::Race => VariationCoords::new([(b"wdth", 72.0), (b"wght", self.weight)]),
             Face::Text | Face::Mono => VariationCoords::new([(b"wdth", 100.0), (b"wght", self.weight)]),
         };
         TextFormat { font_id: self.id(), extra_letter_spacing: self.spacing * self.size, color, coords, ..Default::default() }
@@ -219,25 +233,6 @@ pub fn glow(p: &Painter, rect: Rect, radius: f32, colour: Color32, strength: f32
     }
 }
 
-/// A rounded label: `fill` (or none) with a `stroke`, text centred.
-#[allow(clippy::too_many_arguments)]
-pub fn pill(p: &Painter, center: Pos2, s: &str, font: Font, text_colour: Color32, fill: Option<Color32>, stroke: Color32, height: f32, icon: Option<Icon>) -> Rect {
-    let ts = text_size(p, s, font);
-    let icon_w = if icon.is_some() { font.size * 1.1 + 6.0 } else { 0.0 };
-    let rect = Rect::from_center_size(center, vec2(ts.x + icon_w + height * 0.95, height));
-    if let Some(f) = fill {
-        p.rect_filled(rect, height * 0.5, f);
-    }
-    p.rect_stroke(rect, height * 0.5, Stroke::new(1.0, stroke), StrokeKind::Inside);
-    let mut x = rect.left() + height * 0.47;
-    if let Some(i) = icon {
-        icon_at(p, pos2(x + font.size * 0.55, center.y), font.size * 1.1, i, text_colour);
-        x += icon_w;
-    }
-    text(p, pos2(x, center.y), Align2::LEFT_CENTER, s, font, text_colour);
-    rect
-}
-
 /// A key as drawn in the hints: `Entrée`, `←`.
 pub fn keycap(p: &Painter, left_center: Pos2, s: &str, fill: Color32, border: Option<Color32>, colour: Color32) -> Rect {
     let font = Font::data(11.0);
@@ -259,7 +254,6 @@ pub enum Icon {
     Lock,
     SoundOn,
     SoundOff,
-    Close,
 }
 
 /// A line icon about `size` points across, centred on `c`.
@@ -304,10 +298,6 @@ pub fn icon_at(p: &Painter, c: Pos2, size: f32, icon: Icon, colour: Color32) {
                 p.line_segment([pt(17.0, 9.5), pt(22.0, 14.5)], stroke);
                 p.line_segment([pt(22.0, 9.5), pt(17.0, 14.5)], stroke);
             }
-        }
-        Icon::Close => {
-            p.line_segment([pt(6.0, 6.0), pt(18.0, 18.0)], stroke);
-            p.line_segment([pt(18.0, 6.0), pt(6.0, 18.0)], stroke);
         }
     }
 }
@@ -368,15 +358,6 @@ pub fn shine(p: &Painter, rect: Rect, now: f64) {
     clip.add(Shape::mesh(mesh));
 }
 
-/// A rounded rectangle drawn in dashes.
-pub fn dashed_rect(p: &Painter, rect: Rect, colour: Color32) {
-    let r = rect.shrink(0.75);
-    let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-    for w in corners.windows(2) {
-        p.extend(Shape::dashed_line(&[w[0], w[1]], Stroke::new(1.5, colour), 4.0, 3.0));
-    }
-}
-
 /// A circuit's plan inside `rect`: the route in road and dirt colours, drawn up to `progress`
 /// (0..1) of its length, with the start and the chequered finish.
 pub fn route(p: &Painter, rect: Rect, info: &TrackInfo, width: f32, progress: f32, shadow: bool, alpha: f32) {
@@ -431,21 +412,36 @@ pub fn route(p: &Painter, rect: Rect, info: &TrackInfo, width: f32, progress: f3
     p.circle_filled(pts[0].0, width * 0.95, fade(col::HUB, alpha));
 }
 
-/// The faint grid of the block kit behind a plan.
-pub fn grid(p: &Painter, rect: Rect, alpha: f32) {
-    let c = fade(Color32::from_rgba_premultiplied(12, 12, 11, 14), alpha);
-    let step = rect.width() * 0.092;
-    let n = (rect.width() / step) as i32 / 2 + 1;
-    for i in -n..=n {
-        let x = rect.center().x + i as f32 * step;
-        let y = rect.center().y + i as f32 * step;
-        if x > rect.left() && x < rect.right() {
-            p.vline(x, rect.y_range(), Stroke::new(1.0, c));
-        }
-        if y > rect.top() && y < rect.bottom() {
-            p.hline(rect.x_range(), y, Stroke::new(1.0, c));
+/// A shade of `colour` across `rect`, its opacity going through `stops` (position 0..1 along
+/// the rectangle, opacity 0..1): top to bottom if `vertical`, else left to right.
+pub fn gradient(p: &Painter, rect: Rect, vertical: bool, stops: &[(f32, f32)], colour: Color32) {
+    let mut mesh = Mesh::default();
+    for (i, &(at, a)) in stops.iter().enumerate() {
+        let c = fade(colour, a);
+        let (p0, p1) = if vertical {
+            let y = rect.top() + at * rect.height();
+            (pos2(rect.left(), y), pos2(rect.right(), y))
+        } else {
+            let x = rect.left() + at * rect.width();
+            (pos2(x, rect.top()), pos2(x, rect.bottom()))
+        };
+        mesh.vertices.push(Vertex { pos: p0, uv: egui::epaint::WHITE_UV, color: c });
+        mesh.vertices.push(Vertex { pos: p1, uv: egui::epaint::WHITE_UV, color: c });
+        if i > 0 {
+            let b = (i as u32) * 2;
+            mesh.indices.extend_from_slice(&[b - 2, b - 1, b, b - 1, b + 1, b]);
         }
     }
+    p.add(Shape::mesh(mesh));
+}
+
+/// One line of text with a soft dark shadow under it, for text straight over the footage.
+pub fn text_shadowed(p: &Painter, pos: Pos2, anchor: Align2, s: &str, font: Font, color: Color32) -> Rect {
+    let a = color.a() as f32 / 255.0;
+    for (dx, dy, k) in [(0.0, 2.0, 0.35), (0.0, 4.0, 0.2), (1.5, 3.0, 0.15), (-1.5, 3.0, 0.15)] {
+        text(p, pos + vec2(dx, dy) * (font.size / 40.0).max(0.6), anchor, s, font, Color32::from_black_alpha((255.0 * k * a) as u8));
+    }
+    text(p, pos, anchor, s, font, color)
 }
 
 /// CSS-style cubic Bézier easing (control points `(x1, y1)` and `(x2, y2)`), at `x` in 0..1.

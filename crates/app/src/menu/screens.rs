@@ -1,28 +1,37 @@
 //! The menu's screens, in both layouts: positions follow the validated mock-ups (1280 × 720 for
-//! the wide layout, 390 × 844 for the tall one), anchored to the window's edges.
+//! the wide layout, 390 × 844 for the tall one), anchored to the window's edges, over the game's
+//! footage (darkened by shades where text sits on it).
 
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 use egui::{Align2, Color32, CornerRadius, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
-use super::catalog::{MEDALS, PLANETS, SLOTS, Series, Stat, TIPS};
+use super::catalog::{MEDALS, PLANETS, SLOTS, Series, Stat, TIPS, TrackInfo};
 use super::paint::{self, Font, Icon, col, fade};
-use super::{Layout, Menu, Request, Screen, Shake, pin};
+use super::{Layout, Menu, Request, Shake};
 use crate::menu_gfx::{PlanetDraw, PlanetKind};
 use crate::race::format_time;
 use crate::ui_sound::Cue;
 
-/// Places shown on the Mars globe: the three circuits' namesakes (latitude, longitude, degrees).
-const PINS: [(&str, f32, f32); 3] = [("JEZERO", 18.4, 77.5), ("OLYMPUS", 18.65, -133.8), ("ARES VALLIS", 10.3, -25.8)];
-
 const MARS_RIM: [f32; 3] = [212.0 / 255.0, 135.0 / 255.0, 86.0 / 255.0];
 const ICE_RIM: [f32; 3] = [120.0 / 255.0, 170.0 / 255.0, 220.0 / 255.0];
 const GAS_RIM: [f32; 3] = [210.0 / 255.0, 160.0 / 255.0, 100.0 / 255.0];
-const HALO_WARM: [f32; 3] = [1.0, 110.0 / 255.0, 50.0 / 255.0];
-const HALO_COLD: [f32; 3] = [140.0 / 255.0, 170.0 / 255.0, 210.0 / 255.0];
+
+/// A record not set yet.
+const NO_TIME: &str = "--:--.--";
+
+/// The faint fill and edge of the planet's handling box, over the footage.
+const STATS_FILL: Color32 = Color32::from_rgba_premultiplied(6, 4, 5, 140);
+const STATS_EDGE: Color32 = Color32::from_rgba_premultiplied(34, 32, 31, 36);
+/// The round arrows on either side of the planet screen.
+const ARROW_FILL: Color32 = Color32::from_rgba_premultiplied(6, 4, 5, 140);
+const ARROW_EDGE: Color32 = Color32::from_rgba_premultiplied(59, 56, 53, 61);
+/// The chosen series in its switch, and a medal's box.
+const SERIES_ON: Color32 = Color32::from_rgba_premultiplied(22, 21, 20, 23);
+const MEDAL_EDGE: Color32 = Color32::from_rgba_premultiplied(29, 28, 26, 31);
 
 enum BarLeft {
-    Title(&'static str),
+    None,
     Back(&'static str),
 }
 
@@ -56,9 +65,13 @@ fn ringed_radius(size: f32) -> f32 {
     size / 2.25 / 2.0
 }
 
-/// Back and forth over `period` seconds, `amp` points.
-fn bob(now: f64, period: f32, amp: f32) -> f32 {
-    amp * (0.5 - 0.5 * (PI * now as f32 / period).cos())
+/// The colour of a planet's static while its images do not exist yet (sRGB 0..1).
+fn static_tint(kind: PlanetKind) -> [f32; 3] {
+    match kind {
+        PlanetKind::Mars => [1.0, 0.55, 0.35],
+        PlanetKind::Ice => [0.55, 0.75, 0.92],
+        PlanetKind::Gas => [0.9, 0.69, 0.41],
+    }
 }
 
 /// The colours of "PLANET": Mars, the gas giant, the ice world, sliding slowly.
@@ -71,10 +84,6 @@ fn title_colour(i: usize, n: usize, now: f64) -> Color32 {
     paint::lerp_colour(stops[k], stops[k + 1], g - k as f32)
 }
 
-fn thousands(n: u32) -> String {
-    if n >= 1000 { format!("{}\u{202F}{:03}", n / 1000, n % 1000) } else { n.to_string() }
-}
-
 fn km(m: f32) -> String {
     format!("{:.2}", m / 1000.0).replace('.', ",")
 }
@@ -83,49 +92,34 @@ fn pointer_moved(ui: &Ui) -> bool {
     ui.input(|i| i.pointer.delta() != Vec2::ZERO)
 }
 
-impl Menu {
-    #[allow(clippy::too_many_arguments)]
-    fn mars_pins(&self, p: &Painter, center: Pos2, radius: f32, rot: f32, alpha: f32, scale: f32, now: f64) {
-        for (i, (name, lat, lon)) in PINS.iter().enumerate() {
-            let Some((at, vis)) = pin(center, radius, rot, *lat, *lon) else { continue };
-            let a = vis * alpha;
-            let ph = ((now / 1.7 + i as f64 * 0.37) % 1.0) as f32;
-            p.circle_stroke(at, (3.0 + ph * 9.0) * scale, Stroke::new(1.2, fade(col::HUB, a * (1.0 - ph))));
-            p.circle_filled(at, 2.4 * scale, fade(col::HUB, a));
-            let left = at.x > center.x + 0.35 * radius;
-            let (anchor, x) = if left { (Align2::RIGHT_CENTER, at.x - 8.0 * scale) } else { (Align2::LEFT_CENTER, at.x + 8.0 * scale) };
-            paint::text(p, pos2(x, at.y), anchor, name, Font::data(9.0 * scale), fade(col::DUST, a * 0.9));
-        }
-    }
+/// Small spaced capitals in the mono face: units, labels on the footage.
+fn mono_caps(size: f32) -> Font {
+    Font { spacing: 0.14, ..Font::data(size) }
+}
 
-    /// The top bar: a title or a back button on the left, the sound switch on the right.
+impl Menu {
+    /// The top bar: a back button on the left (or nothing), the sound switch on the right.
     /// Returns whether back was pressed.
     fn top_bar(&mut self, ui: &mut Ui, p: &Painter, r: Rect, layout: Layout, muted: bool, left: BarLeft) -> bool {
         let wide = layout == Layout::Wide;
         let (pad, btn, cy) = if wide { (36.0, 44.0, r.top() + 36.0) } else { (14.0, 40.0, r.top() + 34.0) };
         let mut back = false;
-        match left {
-            BarLeft::Title(s) => {
-                let x = r.left() + pad + if wide { 0.0 } else { 6.0 };
-                paint::text(p, pos2(x, cy), Align2::LEFT_CENTER, s, Font::label(if wide { 15.0 } else { 14.0 }, 0.2), col::DUST_2);
+        if let BarLeft::Back(s) = left {
+            let font = Font::label(if wide { 16.0 } else { 15.0 }, 0.1);
+            let ts = paint::text_size(p, s, font);
+            let rect = Rect::from_min_size(pos2(r.left() + pad - 8.0, cy - 22.0), vec2(ts.x + 46.0, 44.0));
+            let resp = self.hit(ui, rect, Id::new(("menu back", s)), true);
+            let c = if resp.hovered() { col::DUST } else { col::DUST_2 };
+            if resp.hovered() {
+                p.rect_filled(rect, 12.0, col::GLASS_DARK);
             }
-            BarLeft::Back(s) => {
-                let font = Font::label(if wide { 16.0 } else { 15.0 }, 0.1);
-                let ts = paint::text_size(p, s, font);
-                let rect = Rect::from_min_size(pos2(r.left() + pad - 8.0, cy - 22.0), vec2(ts.x + 46.0, 44.0));
-                let resp = self.hit(ui, rect, Id::new(("menu back", s)), true);
-                let c = if resp.hovered() { col::DUST } else { col::DUST_2 };
-                if resp.hovered() {
-                    p.rect_filled(rect, 12.0, col::GLASS);
-                }
-                paint::icon_at(p, pos2(rect.left() + 18.0, cy), 22.0, Icon::ChevronLeft, c);
-                paint::text(p, pos2(rect.left() + 32.0, cy), Align2::LEFT_CENTER, s, font, c);
-                back = resp.clicked();
-            }
+            paint::icon_at(p, pos2(rect.left() + 18.0, cy), 22.0, Icon::ChevronLeft, c);
+            paint::text_shadowed(p, pos2(rect.left() + 32.0, cy), Align2::LEFT_CENTER, s, font, c);
+            back = resp.clicked();
         }
         let sr = Rect::from_min_size(pos2(r.right() - pad - btn, cy - btn / 2.0), vec2(btn, btn));
         let resp = self.hit(ui, sr, Id::new("menu sound"), true);
-        paint::panel(p, sr, 12.0, col::GLASS, Some((1.0, col::LINE)));
+        paint::panel(p, sr, 12.0, col::GLASS_DARK, Some((1.0, col::EDGE)));
         let c = if resp.hovered() { col::DUST } else { col::DUST_2 };
         paint::icon_at(p, sr.center(), 20.0, if muted { Icon::SoundOff } else { Icon::SoundOn }, c);
         if resp.clicked() {
@@ -142,6 +136,7 @@ impl Menu {
         let radius = if rect.height() > 58.0 { 15.0 } else { 14.0 };
         let font = Font::label(if rect.height() > 58.0 { 20.0 } else { 19.0 }, 0.14).weight(800.0);
         if locked {
+            p.rect_filled(rect, radius, fade(col::GLASS_DARK, alpha));
             p.rect_stroke(rect, radius, Stroke::new(1.5, fade(col::LINE, alpha)), StrokeKind::Inside);
             let ts = paint::text_size(p, label, font);
             let x = rect.center().x - (ts.x + 26.0) / 2.0;
@@ -169,179 +164,106 @@ impl Menu {
         resp.clicked()
     }
 
+    /// A white flash over everything when the footage cuts to another shot.
+    fn cut_flash(&self, p: &Painter, r: Rect, now: f64) {
+        let t = (now - self.flash) as f32 / 0.24;
+        if (0.0..1.0).contains(&t) {
+            p.rect_filled(r, 0.0, Color32::from_white_alpha((0.4 * (1.0 - t) * 255.0) as u8));
+        }
+    }
+
     // ------------------------------------------------------------------ title
 
+    /// The logo and its tagline over the footage, and the prompt to start.
     pub(super) fn title(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64) {
         let p = ui.painter().clone();
         if ui.interact(r, Id::new("menu title"), Sense::click()).clicked() {
             self.start(now);
         }
-        let show = (now as f32 / 1.4).clamp(0.0, 1.0);
-        let rot = self.rot;
+        self.sky.video = 1.0;
+        self.sky.glow = [r.center().x, r.top() + 1.15 * r.height(), 1.1 * r.width(), 0.6 * r.height()];
+        let show = (now as f32 / 1.2).clamp(0.0, 1.0);
+        let wide = layout == Layout::Wide;
         let (w, h) = (r.width(), r.height());
-        if layout == Layout::Wide {
-            let mars_c = r.min + vec2(w - 270.0, h - 250.0);
-            let gas_c = r.min + vec2(w - 510.0, 125.0 + bob(now, 9.0, 8.0));
-            let ice_c = r.min + vec2(w - 680.0, h - 110.0 + bob(now, 6.5, -7.0));
-            self.sky.glow = [r.left() + 0.7 * w, r.top() + 1.15 * h, 0.9 * w, 0.6 * h];
-            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(330.0), rot * 0.9 + 2.0, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, 34.0, rot * 1.4 + 0.4, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, 310.0, rot * 0.6 - 0.9, 0.0, show, r, (HALO_WARM, 0.22, 1.94)));
-            self.mars_pins(&p, mars_c, 310.0, rot * 0.6 - 0.9, show, 1.35, now);
-
-            let font = Font::display(124.0);
-            let at = r.min + vec2(96.0, 140.0);
-            let line = 124.0 * 0.86;
-            paint::letters(&p, at, "PLANET", font, |i, n| fade(title_colour(i, n, now), show));
-            paint::text(&p, at + vec2(0.0, line), Align2::LEFT_TOP, "TRACKS", font, fade(col::DUST, show));
-            paint::para(&p, at + vec2(4.0, 2.0 * line + 58.0), 340.0, "À chaque planète son style de conduite particulier", Font::body(22.0), 1.4, fade(col::DUST_2, show));
-
-            let pulse = 0.35 + 0.65 * (0.5 + 0.5 * (std::f32::consts::TAU * now as f32 / 1.8).cos());
-            let sub = paint::text(&p, pos2(r.left() + 96.0, r.bottom() - 88.0), Align2::LEFT_BOTTOM, "Clavier, souris ou manette · son activé", Font::data(12.0), fade(col::DUST_3, show));
-            paint::text(&p, pos2(r.left() + 96.0, sub.top() - 10.0), Align2::LEFT_BOTTOM, "APPUIE SUR UNE TOUCHE", Font::label(20.0, 0.3), fade(col::DUST, show * pulse));
+        if wide {
+            paint::gradient(&p, r, true, &[(0.0, 0.88), (0.45, 0.62), (0.62, 0.0)], col::VOID);
+            paint::gradient(&p, r, true, &[(0.74, 0.0), (1.0, 0.8)], col::VOID);
         } else {
-            let s = (w * 1.5).max(h * 0.62);
-            let vis = (s * 0.4).min(h * 0.3);
-            let top = r.top() + (h * 0.16).max(96.0);
-            let mars_c = pos2(r.center().x, r.bottom() - vis + s / 2.0);
-            self.sky.glow = [r.center().x, r.top() + 1.12 * h, 1.3 * w, 0.55 * h];
-            let gb = (w * 0.62).min(250.0);
-            let gas_c = pos2(r.left() + w * 0.9, r.top() + (top - r.top()) * 0.55 + bob(now, 8.5, 7.0));
-
-            let size = (w * 0.17).clamp(52.0, 68.0);
-            let font = Font::display(size);
-            let line = size * 0.86;
-            let word = paint::text_size(&p, "PLANET", font).x;
-            paint::letters(&p, pos2(r.center().x - word / 2.0, top), "PLANET", font, |i, n| fade(title_colour(i, n, now), show));
-            paint::text(&p, pos2(r.center().x, top + line), Align2::CENTER_TOP, "TRACKS", font, fade(col::DUST, show));
-            let tag_w = 240.0f32.min(w - 60.0);
-            let tag = "À chaque planète son style de conduite particulier";
-            let tag_rect = paint::para_centered(&p, pos2(r.center().x, top + 2.0 * line + 30.0), tag_w, tag, Font::body(15.0), 1.4, fade(col::DUST_2, show));
-
-            let pulse = 0.35 + 0.65 * (0.5 + 0.5 * (std::f32::consts::TAU * now as f32 / 1.8).cos());
-            let sub = paint::text(&p, pos2(r.center().x, r.bottom() - vis - 34.0), Align2::CENTER_BOTTOM, "Son activé · casque conseillé", Font::data(10.5), fade(col::DUST_3, show));
-            let press = paint::text(&p, pos2(r.center().x, sub.top() - 8.0), Align2::CENTER_BOTTOM, "TOUCHER POUR DÉMARRER", Font::label(17.0, 0.3), fade(col::DUST, show * pulse));
-
-            let (y0, y1) = (tag_rect.bottom(), press.top() - 12.0);
-            let is = ((y1 - y0) * 0.5).clamp(36.0, 84.0);
-            let ice_c = pos2(r.left() + w * 0.15, (y0 + y1) / 2.0 + bob(now, 6.0, -6.0));
-            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(gb), rot * 0.9 + 2.0, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, is / 2.0, rot * 1.4 + 0.4, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, s / 2.0, rot * 0.6 - 0.9, 0.0, show, r, (HALO_WARM, 0.22, 1.3)));
-            self.mars_pins(&p, mars_c, s / 2.0, rot * 0.6 - 0.9, show, 1.15, now);
+            paint::gradient(&p, r, true, &[(0.0, 0.92), (0.36, 0.72), (0.48, 0.0)], col::VOID);
+            paint::gradient(&p, r, true, &[(0.64, 0.0), (0.78, 0.82), (1.0, 0.96)], col::VOID);
         }
+        let (size, top) = if wide { (118.0, r.top() + h * 0.06) } else { ((w * 0.215).min(84.0), r.top() + h * 0.12) };
+        let font = Font::display(size);
+        let line = size * 0.86;
+        let word = paint::text_size(&p, "PLANET", font).x;
+        paint::letters(&p, pos2(r.center().x - word / 2.0, top), "PLANET", font, |i, n| fade(title_colour(i, n, now), show));
+        let tracks = paint::text(&p, pos2(r.center().x, top + line), Align2::CENTER_TOP, "TRACKS", font, fade(col::DUST, show));
+        let tag = "Chaque planète son propre style de conduite";
+        if wide {
+            paint::text_shadowed(&p, pos2(r.center().x, tracks.bottom() + 6.0), Align2::CENTER_TOP, tag, Font::race(32.0).weight(700.0), fade(col::DUST, show));
+        } else {
+            let f = Font::race(23.0).weight(700.0);
+            let tw = (w - 80.0).min(300.0);
+            let y = tracks.bottom() + 4.0;
+            paint::para_centered(&p, pos2(r.center().x, y + 2.0), tw, tag, f, 1.15, fade(Color32::from_black_alpha(130), show));
+            paint::para_centered(&p, pos2(r.center().x, y), tw, tag, f, 1.15, fade(col::DUST, show));
+        }
+        let pulse = 0.35 + 0.65 * (0.5 + 0.5 * (TAU * now as f32 / 1.6).cos());
+        let (label, font, y) = if wide { ("APPUIE SUR UNE TOUCHE", Font::label(19.0, 0.32), r.bottom() - 62.0) } else { ("TOUCHE L'ÉCRAN", Font::label(16.0, 0.3), r.bottom() - 84.0) };
+        paint::text_shadowed(&p, pos2(r.center().x, y), Align2::CENTER_CENTER, label, font, fade(col::DUST, show * pulse));
+        self.cut_flash(&p, r, now);
     }
 
     // ------------------------------------------------------------------ planets
 
+    /// One planet at a time: its footage behind (the static of one still to come), its card, the
+    /// arrows on the edges of the screen and the dots of the three planets; a swipe changes it too.
     pub(super) fn planets(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64, muted: bool) {
         let p = ui.painter().clone();
         let wide = layout == Layout::Wide;
-        self.top_bar(ui, &p, r, layout, muted, BarLeft::Title("CHOISIS TA PLANÈTE"));
-        let (car, info) = if wide {
-            (
-                Rect::from_min_max(pos2(r.left() + 520.0, r.top() + 72.0), pos2(r.right(), r.bottom() - 56.0)),
-                Rect::from_min_max(pos2(r.left() + 80.0, r.top() + 72.0), pos2(r.left() + 500.0, r.bottom() - 56.0)),
-            )
+        let (w, h) = (r.width(), r.height());
+        let pl = &PLANETS[self.planet];
+        self.sky.glow = [r.center().x, r.top() + 1.15 * h, 1.1 * w, 0.6 * h];
+        if pl.open {
+            self.sky.video = 1.0;
         } else {
-            let h = self.info_height(&p, r.width() - 40.0, layout) + 14.0 + 56.0;
-            let top = r.bottom() - 20.0 - h;
-            (
-                Rect::from_min_max(pos2(r.left(), r.top() + 60.0), pos2(r.right(), top - 26.0)),
-                Rect::from_min_max(pos2(r.left() + 20.0, top), pos2(r.right() - 20.0, r.bottom() - 20.0)),
-            )
-        };
-        self.sky.glow = if wide { [r.left() + 0.7 * r.width(), r.top() + 1.15 * r.height(), 0.9 * r.width(), 0.6 * r.height()] } else { [r.center().x, r.top() + 1.12 * r.height(), 1.3 * r.width(), 0.55 * r.height()] };
+            let t = static_tint(pl.kind);
+            self.sky.noise = [t[0], t[1], t[2], 0.6];
+            let (c, radius) = match (wide, pl.kind) {
+                (true, PlanetKind::Gas) => (pos2(r.right() - 345.0, r.center().y), ringed_radius(510.0)),
+                (true, _) => (pos2(r.right() - 370.0, r.center().y), 220.0),
+                (false, PlanetKind::Gas) => (pos2(r.center().x, r.top() + h * 0.59), ringed_radius(334.0)),
+                (false, _) => (pos2(r.center().x, r.top() + h * 0.59), 135.0),
+            };
+            let rot = self.rot * 0.6 + self.planet as f32 * 1.7;
+            self.sky.planets.push(planet(pl.kind, c, radius, rot, 0.35, 0.65, r, ([0.0; 3], 0.0, 0.0)));
+        }
 
-        // Carousel: drag, or click a neighbour.
-        let slide_w = car.width() * if wide { 0.62 } else { 0.76 };
-        let last = PLANETS.len() - 1;
-        let resp = ui.interact(car, Id::new("menu carousel"), Sense::click_and_drag());
-        if resp.dragged() {
-            self.drag = Some(self.drag.unwrap_or(0.0) + resp.drag_delta().x);
+        // A horizontal swipe anywhere turns to the next or previous planet (the buttons, laid
+        // over this area afterwards, keep their clicks).
+        let swipe = ui.interact(r, Id::new("menu planet swipe"), Sense::click_and_drag());
+        if swipe.dragged() {
+            self.drag = Some(self.drag.unwrap_or(0.0) + swipe.drag_delta().x);
         }
-        let drag_eff = |d: f32, planet: usize| if (planet == 0 && d > 0.0) || (planet == last && d < 0.0) { d * 0.35 } else { d };
-        if resp.drag_stopped() {
-            if let Some(d) = self.drag.take() {
-                let d = drag_eff(d, self.planet);
-                let v = ui.input(|i| i.pointer.velocity().x);
-                let here = self.planet as f32 - d / slide_w;
-                self.carousel = super::Tween { from: here, to: self.planet as f32, start: now, duration: 0.55 };
-                if d < -slide_w * 0.2 || v < -500.0 {
-                    self.set_planet(self.planet as isize + 1, now);
-                } else if d > slide_w * 0.2 || v > 500.0 {
-                    self.set_planet(self.planet as isize - 1, now);
-                }
-            }
-        } else if resp.clicked()
-            && let Some(x) = resp.interact_pointer_pos().map(|q| q.x)
+        if swipe.drag_stopped()
+            && let Some(d) = self.drag.take()
         {
-            if x < car.center().x - slide_w / 2.0 {
-                self.set_planet(self.planet as isize - 1, now);
-            } else if x > car.center().x + slide_w / 2.0 {
+            let v = ui.input(|i| i.pointer.velocity().x);
+            if d < -60.0 || v < -500.0 {
                 self.set_planet(self.planet as isize + 1, now);
+            } else if d > 60.0 || v > 500.0 {
+                self.set_planet(self.planet as isize - 1, now);
             }
         }
-        let pos = match self.drag {
-            Some(d) => self.planet as f32 - drag_eff(d, self.planet) / slide_w,
-            None => self.carousel.at(now),
-        };
-        let size = (slide_w * if wide { 0.92 } else { 0.9 }).min(car.height() * if wide { 0.84 } else { 0.86 });
-        let clip_p = p.with_clip_rect(car);
-        for (k, info_k) in PLANETS.iter().enumerate() {
-            let d = k as f32 - pos;
-            if d.abs() > 1.6 {
-                continue;
-            }
-            let scale = 1.0 - d.abs().min(1.2) * 0.36;
-            let alpha = 1.0 - d.abs().min(1.0) * 0.45;
-            let c = pos2(car.center().x + d * slide_w, car.center().y);
-            let dim = if info_k.open { 0.0 } else { 1.0 };
-            let rot = if info_k.open { self.rot } else { self.rot * 0.6 + k as f32 * 1.7 };
-            let (radius, box_) = match info_k.kind {
-                PlanetKind::Gas => (ringed_radius(size * 1.3) * scale, size * 1.3 * scale),
-                _ => (size / 2.0 * scale, size * scale),
-            };
-            let halo = if info_k.open { (HALO_WARM, 0.22, 1.32) } else { (HALO_COLD, 0.08, 1.32) };
-            self.sky.planets.push(planet(info_k.kind, c, radius, rot, dim, alpha, car, halo));
-            if info_k.open {
-                if d.abs() < 0.6 {
-                    self.mars_pins(&clip_p, c, radius, rot, 1.0 - d.abs() / 0.6, if wide { 1.25 } else { 1.0 }, now);
-                }
-            } else {
-                let cy = c.y + if info_k.kind == PlanetKind::Gas { radius * 1.25 } else { box_ * 0.26 } - 4.0;
-                let font = Font::label(if wide { 13.0 } else { 12.0 }, 0.2);
-                paint::pill(&clip_p, pos2(c.x, cy), "BIENTÔT", font, fade(col::DUST_2, alpha), Some(fade(col::VOID, alpha * 0.7)), fade(col::LINE, alpha), if wide { 32.0 } else { 28.0 }, Some(Icon::Lock));
-            }
+
+        if wide {
+            paint::gradient(&p, r, false, &[(0.0, 0.92), (0.34, 0.75), (0.6, 0.0)], col::VOID);
+            paint::gradient(&p, r, true, &[(0.75, 0.0), (1.0, 0.6)], col::VOID);
+        } else {
+            paint::gradient(&p, r, true, &[(0.0, 0.92), (0.38, 0.8), (0.52, 0.0)], col::VOID);
+            paint::gradient(&p, r, true, &[(0.68, 0.0), (0.82, 0.6), (1.0, 0.92)], col::VOID);
         }
-        // Arrows and dots.
-        let ab = if wide { 52.0 } else { 42.0 };
-        for (dir, x) in [(-1isize, car.left() + if wide { 18.0 } else { 10.0 } + ab / 2.0), (1, car.right() - if wide { 28.0 } else { 10.0 } - ab / 2.0)] {
-            let rect = Rect::from_center_size(pos2(x, car.center().y), vec2(ab, ab));
-            let enabled = if dir < 0 { self.planet > 0 } else { self.planet < last };
-            let a = if enabled { 1.0 } else { 0.2 };
-            let hovered = enabled && {
-                let resp = self.hit(ui, rect, Id::new(("menu arrow", dir)), true);
-                if resp.clicked() {
-                    self.set_planet(self.planet as isize + dir, now);
-                }
-                resp.hovered()
-            };
-            p.circle_filled(rect.center(), ab / 2.0, fade(col::GLASS, a));
-            p.circle_stroke(rect.center(), ab / 2.0 - 0.5, Stroke::new(1.0, fade(col::LINE, a)));
-            let c = if hovered { col::DUST } else { col::DUST_2 };
-            paint::icon_at(&p, rect.center(), 22.0, if dir < 0 { Icon::ChevronLeft } else { Icon::ChevronRight }, fade(c, a));
-        }
-        let (dw, don, gap) = if wide { (26.0, 40.0, 9.0) } else { (22.0, 34.0, 8.0) };
-        let total: f32 = (0..PLANETS.len()).map(|k| if k == self.planet { don } else { dw }).sum::<f32>() + gap * (PLANETS.len() - 1) as f32;
-        let mut x = car.center().x - total / 2.0;
-        let y = if wide { car.bottom() - 16.0 } else { car.bottom() + 13.0 };
-        for (k, info_k) in PLANETS.iter().enumerate() {
-            let wk = if k == self.planet { don } else { dw };
-            let c = if k != self.planet { col::LINE } else if info_k.open { col::LIVERY } else { col::DUST_3 };
-            p.rect_filled(Rect::from_min_size(pos2(x, y - 2.0), vec2(wk, 4.0)), 2.0, c);
-            x += wk + gap;
-        }
+        self.top_bar(ui, &p, r, layout, muted, BarLeft::None);
 
         // The planet's card, crossfading on a change.
         let (shown, prev, t0, dir) = self.info;
@@ -353,396 +275,188 @@ impl Menu {
             (shown, e, dir * 22.0 * (1.0 - e))
         };
         let (ea, edy) = self.enter(0, now);
-        let block_h = self.info_height(&p, info.width(), layout);
-        let cta_h = if wide { 60.0 } else { 56.0 };
-        let top = if wide { info.center().y - (block_h + 22.0 + cta_h) / 2.0 } else { info.top() };
-        self.info_block(&p, pos2(info.left() + dx, top + edy), info.width(), layout, k, a * ea, now);
         let (ca, cdy) = self.enter(1, now);
-        let cta_top = if wide { top + block_h + 22.0 } else { info.bottom() - cta_h };
-        let open = PLANETS[self.planet].open;
-        let cta = Rect::from_min_size(pos2(info.left() + self.shake_x(Shake::Cta, now), cta_top + cdy), vec2(info.width(), cta_h));
+        let open = pl.open;
         let label = if open { "PILOTER SUR MARS" } else { "BIENTÔT DISPONIBLE" };
+        let cta = if wide {
+            let (x, width) = (r.left() + 110.0, 460.0);
+            let block = self.info_height(&p, width, layout);
+            let top = r.center().y - (block + 34.0 + 64.0) / 2.0;
+            self.info_block(&p, pos2(x + dx, top + edy), width, layout, k, a * ea);
+            Rect::from_min_size(pos2(x + self.shake_x(Shake::Cta, now), top + block + 34.0 + cdy), vec2(width, 64.0))
+        } else {
+            self.info_block(&p, pos2(r.left() + 22.0 + dx, r.top() + 96.0 + edy), w - 44.0, layout, k, a * ea);
+            Rect::from_min_size(pos2(r.left() + 18.0 + self.shake_x(Shake::Cta, now), r.bottom() - 100.0 + cdy), vec2(w - 36.0, 62.0))
+        };
         if self.cta(ui, &p, cta, "planet", label, !open, wide.then_some("Entrée"), ca, now) {
             self.choose_planet(now);
         }
+
+        // Arrows on the edges and the dots.
+        let last = PLANETS.len() - 1;
+        let (ab, ay, xl, xr) = if wide { (52.0, r.center().y, r.left() + 50.0, r.right() - 50.0) } else { (44.0, r.top() + h * 0.56, r.left() + 32.0, r.right() - 32.0) };
+        for (dir, x) in [(-1isize, xl), (1, xr)] {
+            let rect = Rect::from_center_size(pos2(x, ay), vec2(ab, ab));
+            let enabled = if dir < 0 { self.planet > 0 } else { self.planet < last };
+            let a = ca * if enabled { 1.0 } else { 0.28 };
+            let hovered = enabled && {
+                let resp = self.hit(ui, rect, Id::new(("menu arrow", dir)), true);
+                if resp.clicked() {
+                    self.set_planet(self.planet as isize + dir, now);
+                }
+                resp.hovered()
+            };
+            p.circle_filled(rect.center(), ab / 2.0, fade(ARROW_FILL, a));
+            p.circle_stroke(rect.center(), ab / 2.0 - 0.5, Stroke::new(1.0, fade(ARROW_EDGE, a)));
+            let c = if hovered { col::LIVERY } else { col::DUST };
+            paint::icon_at(&p, rect.center(), if wide { 24.0 } else { 21.0 }, if dir < 0 { Icon::ChevronLeft } else { Icon::ChevronRight }, fade(c, a));
+        }
+        let (dw, don, gap) = if wide { (26.0, 40.0, 9.0) } else { (22.0, 34.0, 8.0) };
+        let total: f32 = (0..PLANETS.len()).map(|i| if i == self.planet { don } else { dw }).sum::<f32>() + gap * last as f32;
+        let mut x = r.center().x - total / 2.0;
+        let y = if wide { r.bottom() - 30.0 } else { r.bottom() - 128.0 };
+        for (i, info) in PLANETS.iter().enumerate() {
+            let wi = if i == self.planet { don } else { dw };
+            let c = if i != self.planet { Color32::from_rgba_premultiplied(61, 58, 55, 64) } else if info.open { col::LIVERY } else { col::DUST_2 };
+            p.rect_filled(Rect::from_min_size(pos2(x, y - 2.0), vec2(wi, 4.0)), 2.0, fade(c, ca));
+            x += wi + gap;
+        }
     }
 
+    fn info_sizes(layout: Layout, width: f32) -> (f32, f32, f32, f32, f32) {
+        // Name, lore size, lore line height, handling box height, gap.
+        match layout {
+            Layout::Wide => (150.0, 18.0, 1.5, 64.0, 14.0),
+            Layout::Tall => ((width * 0.27).min(92.0), 15.0, 1.45, 52.0, 12.0),
+        }
+    }
+
+    /// Height of the planet's card (the tallest of the planets', so the button stays put).
     fn info_height(&self, p: &Painter, width: f32, layout: Layout) -> f32 {
-        let wide = layout == Layout::Wide;
-        let (name, lore_size, lore_line, stats, gap) = if wide { (104.0, 17.0, 1.5, 66.0, 14.0) } else { ((width * 0.17).clamp(52.0, 66.0), 15.0, 1.45, 52.0, 12.0) };
-        let lore_w = if wide { width.min(400.0) } else { width };
+        let (name, lore_size, lore_line, stats, gap) = Self::info_sizes(layout, width);
         let lore = PLANETS
             .iter()
-            .map(|pl| paint::para_height(p, lore_w, pl.lore, Font::body(lore_size), lore_line))
-            .fold(lore_size * lore_line * 3.0, f32::max);
-        26.0 + gap + name * 0.92 + gap + lore + gap + stats + gap + 20.0
+            .map(|pl| paint::para_height(p, width, pl.lore, Font::body(lore_size), lore_line))
+            .fold(lore_size * lore_line * 2.0, f32::max);
+        name * 0.92 + gap + lore + gap + stats
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn info_block(&self, p: &Painter, at: Pos2, width: f32, layout: Layout, k: usize, a: f32, now: f64) {
+    /// The planet's name and year, its story and how its vehicle handles.
+    fn info_block(&self, p: &Painter, at: Pos2, width: f32, layout: Layout, k: usize, a: f32) {
         let wide = layout == Layout::Wide;
         let pl = &PLANETS[k];
-        let gap = if wide { 14.0 } else { 12.0 };
+        let (size, lore_size, lore_line, sh, gap) = Self::info_sizes(layout, width);
         let mut y = at.y;
-        // Eyebrow and status.
-        paint::text(p, pos2(at.x, y + 13.0), Align2::LEFT_CENTER, &format!("PLANÈTE {} / {}", k + 1, PLANETS.len()), Font::label(if wide { 13.0 } else { 12.0 }, 0.22), fade(col::DUST_3, a));
-        let status = if pl.open { "DISPONIBLE" } else { "BIENTÔT" };
-        let font = Font::label(if wide { 12.0 } else { 11.0 }, 0.18);
-        let ts = paint::text_size(p, status, font);
-        let ph = if wide { 26.0 } else { 24.0 };
-        let (tc, sc) = if pl.open { (col::HUB, Color32::from_rgba_premultiplied(38, 99, 115, 115)) } else { (col::DUST_3, col::LINE) };
-        paint::pill(p, pos2(at.x + width - (ts.x + ph * 0.95) / 2.0, y + 13.0), status, font, fade(tc, a), None, fade(sc, a), ph, None);
-        y += 26.0 + gap;
-        // Name and year.
-        let size = if wide { 104.0 } else { (width * 0.17).clamp(52.0, 66.0) };
         let font = Font::display(size);
         let name_c = if pl.open { col::DUST } else { col::DUST_3 };
         let nr = paint::text(p, pos2(at.x - size * 0.03, y - size * 0.3), Align2::LEFT_TOP, pl.name, font, fade(name_c, a));
         let year_c = if pl.open { col::LIVERY } else { col::DUST_3 };
-        let ys = if wide { 24.0 } else { 18.0 };
-        paint::text(p, pos2(nr.right() + 12.0, y + size * 0.86), Align2::LEFT_BOTTOM, pl.year, Font::data(ys).weight(600.0), fade(year_c, a));
+        paint::text(p, pos2(nr.right() + 12.0, y + size * 0.86), Align2::LEFT_BOTTOM, pl.year, Font::race(if wide { 46.0 } else { 32.0 }), fade(year_c, a));
         y += size * 0.92 + gap;
-        // Story.
-        let (ls, ll) = if wide { (17.0, 1.5) } else { (15.0, 1.45) };
-        let lore_w = if wide { width.min(400.0) } else { width };
-        let lr = paint::para(p, pos2(at.x, y), lore_w, pl.lore, Font::body(ls), ll, fade(col::DUST_2, a));
-        y += lr.height().max(ls * ll * 3.0) + gap;
+        let lr = paint::para(p, pos2(at.x, y), width, pl.lore, Font::body(lore_size), lore_line, fade(col::TEXT, a));
+        y += lr.height().max(lore_size * lore_line * 2.0) + gap;
         // Handling.
-        let sh = if wide { 66.0 } else { 52.0 };
         let box_ = Rect::from_min_size(pos2(at.x, y), vec2(width, sh));
-        let radius = if wide { 14.0 } else { 12.0 };
-        p.rect_filled(box_, radius, fade(col::PANEL, a));
-        p.rect_stroke(box_, radius, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
+        p.rect_filled(box_, 0.0, fade(STATS_FILL, a));
+        p.rect_stroke(box_, 0.0, Stroke::new(1.0, fade(STATS_EDGE, a)), StrokeKind::Inside);
         let cw = width / 3.0;
         for i in 1..3 {
-            p.vline(box_.left() + i as f32 * cw, box_.y_range(), Stroke::new(1.0, fade(col::LINE, a)));
+            p.vline(box_.left() + i as f32 * cw, box_.y_range(), Stroke::new(1.0, fade(STATS_EDGE, a)));
         }
         for (i, (label, stat)) in pl.stats.iter().enumerate() {
             let cell = Rect::from_min_size(pos2(box_.left() + i as f32 * cw, box_.top()), vec2(cw, sh));
-            let lx = cell.left() + if wide { 14.0 } else { 11.0 };
+            let lx = cell.left() + if wide { 14.0 } else { 10.0 };
             paint::text(p, pos2(lx, cell.top() + if wide { 12.0 } else { 9.0 }), Align2::LEFT_TOP, label, Font::label(if wide { 12.0 } else { 10.5 }, 0.14), fade(col::DUST_3, a));
             let vy = cell.top() + if wide { 43.0 } else { 35.0 };
             match stat {
                 Stat::Text(s) => {
-                    paint::text(p, pos2(lx, vy), Align2::LEFT_CENTER, s, Font::heading(if wide { 22.0 } else { 18.0 }), fade(col::DUST, a));
+                    paint::text(p, pos2(lx, vy), Align2::LEFT_CENTER, s, Font::race(if wide { 25.0 } else { 20.0 }), fade(col::DUST, a));
                 }
                 Stat::Pips(n) => paint::pips(p, pos2(lx + 2.0, vy), *n, if wide { 13.0 } else { 11.0 }, if wide { 8.0 } else { 7.0 }, a),
             }
         }
-        y += sh + gap;
-        // Pilots online (made up for now).
-        let dot = pos2(at.x + 5.0, y + 10.0);
-        let fs = if wide { 13.0 } else { 12.0 };
-        if pl.open {
-            let ph = ((now / 2.0) % 1.0) as f32;
-            p.circle_filled(dot, 4.5 + ph * 10.0, fade(col::HUB, a * 0.45 * (1.0 - ph)));
-            p.circle_filled(dot, 4.5, fade(col::HUB, a));
-            let n = paint::text(p, pos2(at.x + 19.0, y + 10.0), Align2::LEFT_CENTER, &thousands(self.online), Font::data(fs).weight(600.0), fade(col::DUST, a));
-            paint::text(p, pos2(n.right() + 8.0, y + 10.0), Align2::LEFT_CENTER, "pilotes sur Mars", Font::data(fs), fade(col::DUST_2, a));
-        } else {
-            p.circle_filled(dot, 4.5, fade(col::DUST_3, a));
-            paint::text(p, pos2(at.x + 19.0, y + 10.0), Align2::LEFT_CENTER, "Aucun pilote pour l'instant", Font::data(fs), fade(col::DUST_2, a));
-        }
     }
 
-    // ------------------------------------------------------------------ modes
+    // ------------------------------------------------------------------ circuits
 
-    pub(super) fn modes(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64, muted: bool) {
-        let p = ui.painter().clone();
-        let wide = layout == Layout::Wide;
-        if self.top_bar(ui, &p, r, layout, muted, BarLeft::Back("PLANÈTES")) {
-            self.back(now);
-        }
-        self.sky.glow = [r.center().x, r.top() + 1.15 * r.height(), 1.1 * r.width(), 0.6 * r.height()];
-        let (ea, edy) = self.enter(0, now);
-        let head = if wide { r.min + vec2(80.0, 88.0 + edy) } else { r.min + vec2(22.0, 66.0 + edy) };
-        paint::text(&p, head, Align2::LEFT_TOP, "MARS 2036", Font::label(if wide { 13.0 } else { 12.0 }, 0.22), fade(col::DUST_3, ea));
-        let h2 = if wide { 50.0 } else { 34.0 };
-        let hr = paint::text(&p, head + vec2(-2.0, if wide { 20.0 } else { 18.0 }), Align2::LEFT_TOP, "MODE DE JEU", Font::heading(h2), fade(col::DUST, ea));
-        let rects: [Rect; 2] = if wide {
-            let area = Rect::from_min_max(pos2(r.left() + 80.0, r.top() + 196.0), pos2(r.right() - 80.0, r.bottom() - 92.0));
-            let w = (area.width() - 26.0) / 2.0;
-            [Rect::from_min_size(area.min, vec2(w, area.height())), Rect::from_min_size(area.min + vec2(w + 26.0, 0.0), vec2(w, area.height()))]
-        } else {
-            let top = hr.bottom() + 18.0;
-            let h = ((r.bottom() - 22.0 - top - 14.0) / 2.0).clamp(150.0, 300.0);
-            let x = r.left() + 16.0;
-            let w = r.width() - 32.0;
-            [Rect::from_min_size(pos2(x, top), vec2(w, h)), Rect::from_min_size(pos2(x, top + h + 14.0), vec2(w, h))]
-        };
-        for (m, rect) in rects.into_iter().enumerate() {
-            let (a, dy) = self.enter(1 + m, now);
-            self.mode_card(ui, &p, rect.translate(vec2(0.0, dy)), m, layout, a, now);
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn mode_card(&mut self, ui: &mut Ui, p: &Painter, rect: Rect, m: usize, layout: Layout, a: f32, now: f64) {
-        let wide = layout == Layout::Wide;
-        let solo = m == 0;
-        let resp = self.hit(ui, rect, Id::new(("menu mode", m)), false);
-        if resp.hovered() && pointer_moved(ui) {
-            self.set_mode(m);
-        }
-        if resp.clicked() {
-            self.choose_mode(m, now);
-        }
-        let sel = self.mode == m;
-        let lift = if wide && sel { -4.0 } else { 0.0 };
-        let rect = rect.translate(vec2(if solo { 0.0 } else { self.shake_x(Shake::Multi, now) }, lift));
-        let a = a * if sel { 1.0 } else { 0.72 };
-        let radius = if wide { 26.0 } else { 22.0 };
-        if sel && solo {
-            paint::glow(p, rect, radius, col::LIVERY, a * 0.7);
-        }
-        p.rect_filled(rect, radius, fade(col::PANEL_2, a));
-        // A darker lower half, for depth.
-        p.rect_filled(Rect::from_min_max(pos2(rect.left(), rect.center().y), rect.max), CornerRadius { nw: 0, ne: 0, sw: radius as u8, se: radius as u8 }, fade(Color32::from_rgba_premultiplied(5, 3, 3, 40), a));
-        // The circuit plan in the corner, a dash running along it (several for multiplayer).
-        let deco = if wide { 400.0 } else { 230.0 };
-        let (dx, dy) = if wide { (50.0, -56.0) } else { (30.0, -24.0) };
-        let box_ = Rect::from_min_size(pos2(rect.right() - deco + dx, rect.top() + dy), vec2(deco, deco));
-        let clip = p.with_clip_rect(rect.shrink(1.0).intersect(p.clip_rect()));
-        let track = &self.tracks[if solo { 0 } else { 2.min(self.tracks.len() - 1) }];
-        let pts: Vec<Pos2> = track.route.iter().map(|(q, _)| box_.min + vec2(q.x, q.y) * box_.size()).collect();
-        let base_c = if solo { col::LIVERY } else { col::DUST_3 };
-        clip.add(egui::Shape::line(pts.clone(), egui::epaint::PathStroke::new(deco * 0.024, fade(base_c, a * 0.32))));
-        let runners: &[(Color32, f64, f64)] = if solo { &[(col::DUST, 6.0, 0.0)] } else { &[(col::DUST_2, 6.2, 0.0), (col::DUST_3, 6.8, 1.4), (col::DUST_3, 7.4, 2.9)] };
-        for &(c, period, offset) in runners {
-            let ph = (((now + offset) / period) % 1.0) as f32;
-            let seg = sub_path(&pts, ph, (ph + 0.06).min(1.0));
-            if seg.len() >= 2 {
-                clip.add(egui::Shape::line(seg, egui::epaint::PathStroke::new(deco * 0.036, fade(c, a))));
-            }
-        }
-        let stroke = match (sel, solo) {
-            (true, true) => (2.0, col::LIVERY),
-            (true, false) => (2.0, col::DUST_3),
-            _ => (1.0, col::LINE),
-        };
-        p.rect_stroke(rect, radius, Stroke::new(stroke.0, fade(stroke.1, a)), StrokeKind::Inside);
-        let pad = if wide { 34.0 } else { 20.0 };
-        if solo {
-            let gs = if wide { 60.0 } else { 46.0 };
-            let inset = if wide { 28.0 } else { 18.0 };
-            let c = pos2(rect.right() - inset - gs / 2.0, rect.top() + inset + gs / 2.0);
-            p.circle_filled(c, gs / 2.0, fade(col::LIVERY, a));
-            paint::icon_at(p, c, 24.0, Icon::ChevronRight, fade(col::LIVERY_INK, a));
-        } else {
-            let inset = if wide { 30.0 } else { 20.0 };
-            let font = Font::label(if wide { 12.0 } else { 11.0 }, 0.18);
-            let ts = paint::text_size(p, "BIENTÔT", font);
-            let ph = if wide { 26.0 } else { 24.0 };
-            paint::pill(p, pos2(rect.right() - inset - (ts.x + ph * 0.95) / 2.0, rect.top() + inset + ph / 2.0), "BIENTÔT", font, fade(col::DUST_3, a), None, fade(col::LINE, a), ph, None);
-        }
-        let (title, desc, foot): (&str, &str, &[&str]) = if solo {
-            ("SOLO", "Contre la montre. Bats les médailles, circuit après circuit.", &["3 circuits jouables", "0 / 9 médailles"])
-        } else {
-            ("MULTIJOUEUR", "Course en ligne contre les pilotes de la colonie.", &["En préparation"])
-        };
-        let foot_font = Font::data(if wide { 12.0 } else { 11.0 });
-        let mut y = rect.bottom() - pad;
-        let mut x = rect.left() + pad;
-        for f in foot {
-            let fr = paint::text(p, pos2(x, y), Align2::LEFT_BOTTOM, f, foot_font, fade(col::DUST_3, a));
-            x = fr.right() + 18.0;
-        }
-        y -= if wide { 26.0 } else { 22.0 };
-        let ds = if wide { 18.0 } else { 15.0 };
-        let dw = if wide { 360.0 } else { 260.0f32.min(rect.width() - 2.0 * pad) };
-        let dh = paint::para_height(p, dw, desc, Font::body(ds), 1.45);
-        paint::para(p, pos2(rect.left() + pad, y - dh), dw, desc, Font::body(ds), 1.45, fade(col::DUST_2, a));
-        y -= dh + 8.0;
-        let ts = if wide { 68.0 } else { 42.0 };
-        let tc = if solo { col::DUST } else { col::DUST_2 };
-        paint::text(p, pos2(rect.left() + pad - 3.0, y + ts * 0.28), Align2::LEFT_BOTTOM, title, Font::heading(ts), fade(tc, a));
-    }
-
-    // ------------------------------------------------------------------ solo
-
+    /// Mars's circuits as tiles, their outline first; the chosen one's record and medals beside
+    /// them on a computer, in a sheet from the bottom on a phone.
     pub(super) fn solo(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64, muted: bool, bests: &[Option<u32>]) {
         let p = ui.painter().clone();
         let wide = layout == Layout::Wide;
+        let w = r.width();
+        self.sky.video = 1.0;
+        self.sky.dim = 0.5;
+        self.sky.glow = [r.center().x, r.top() + 1.15 * r.height(), 1.1 * w, 0.6 * r.height()];
+        if wide {
+            paint::gradient(&p, r, false, &[(0.0, 0.85), (0.46, 0.4), (0.64, 0.0)], col::VOID);
+            paint::gradient(&p, r, true, &[(0.6, 0.0), (1.0, 0.75)], col::VOID);
+        } else {
+            paint::gradient(&p, r, true, &[(0.0, 0.85), (0.3, 0.4), (1.0, 0.3)], col::VOID);
+        }
         let sheet_open = self.sheet.is_some();
-        if self.top_bar(ui, &p, r, layout, muted, BarLeft::Back("MODES")) && !sheet_open {
+        if self.top_bar(ui, &p, r, layout, muted, BarLeft::Back("PLANÈTES")) && !sheet_open {
             self.back(now);
         }
-        self.sky.glow = [r.center().x, r.top() + 1.15 * r.height(), 1.1 * r.width(), 0.6 * r.height()];
-        let (x0, w) = if wide { (r.left() + 64.0, 540.0) } else { (r.left() + 16.0, r.width() - 32.0) };
-        // Heading.
         let (ea, edy) = self.enter(0, now);
-        let head = pos2(if wide { x0 } else { r.left() + 22.0 }, r.top() + if wide { 82.0 } else { 66.0 } + edy);
-        paint::text(&p, head, Align2::LEFT_TOP, "MARS 2036 · SOLO", Font::label(if wide { 13.0 } else { 12.0 }, 0.22), fade(col::DUST_3, ea));
-        let hr = paint::text(&p, head + vec2(-2.0, if wide { 20.0 } else { 18.0 }), Align2::LEFT_TOP, "CIRCUITS", Font::heading(if wide { 44.0 } else { 34.0 }), fade(col::DUST, ea));
-        // Series tabs.
-        let (ta, tdy) = self.enter(1, now);
-        let tabs = Rect::from_min_size(pos2(x0, hr.bottom() + 16.0 + tdy), vec2(w, if wide { 56.0 } else { 54.0 }));
-        p.rect_filled(tabs, 15.0, fade(col::PANEL, ta));
-        p.rect_stroke(tabs, 15.0, Stroke::new(1.0, fade(col::LINE, ta)), StrokeKind::Inside);
-        let tw = (tabs.width() - 16.0) / 2.0;
-        for (i, (series, label, count)) in [(Series::Easy, "FACILE", "3/5"), (Series::Hard, "DUR", "0/5")].into_iter().enumerate() {
-            let tr = Rect::from_min_size(tabs.min + vec2(5.0 + i as f32 * (tw + 6.0), 5.0), vec2(tw, tabs.height() - 10.0));
-            let resp = if sheet_open { None } else { Some(self.hit(ui, tr, Id::new(("menu tab", i)), true)) };
-            if resp.as_ref().is_some_and(|r| r.clicked()) {
-                self.set_series(series, now);
-            }
-            let on = self.series == series;
-            let (c, edge) = if series == Series::Easy { (col::EASY, None) } else { (col::HARD, Some(col::HARD_EDGE)) };
-            if on {
-                p.rect_filled(tr, 11.0, fade(col::PANEL_2, ta));
-                p.rect_filled(Rect::from_min_max(pos2(tr.left() + 8.0, tr.bottom() - 2.0), pos2(tr.right() - 8.0, tr.bottom())), 1.0, fade(edge.unwrap_or(c), ta));
-            }
-            let font = Font::label(if wide { 17.0 } else { 16.0 }, 0.14).weight(800.0);
-            let lw = paint::text_size(&p, label, font).x;
-            let cw = paint::text_size(&p, count, Font::data(11.0)).x;
-            let total = 14.0 + 10.0 + lw + 9.0 + cw;
-            let mut x = tr.center().x - total / 2.0;
-            let flag = Rect::from_min_size(pos2(x, tr.center().y - 7.0), vec2(14.0, 14.0));
-            p.rect_filled(flag, 3.0, fade(c, ta));
-            if let Some(e) = edge {
-                p.rect_stroke(flag, 3.0, Stroke::new(1.5, fade(e, ta)), StrokeKind::Inside);
-            }
-            x += 24.0;
-            let hovered = resp.is_some_and(|r| r.hovered());
-            let tc = if on || hovered { col::DUST } else { col::DUST_3 };
-            paint::text(&p, pos2(x, tr.center().y), Align2::LEFT_CENTER, label, font, fade(tc, ta));
-            paint::text(&p, pos2(x + lw + 9.0, tr.center().y + 1.0), Align2::LEFT_CENTER, count, Font::data(11.0), fade(col::DUST_3, ta));
-        }
-        // Series line: name and medals won.
-        let (sa, sdy) = self.enter(2, now);
-        let sy = tabs.bottom() + if wide { 24.0 } else { 26.0 } + sdy;
-        let (won, total) = self.medal_count(bests);
-        paint::text(&p, pos2(x0 + 4.0, sy), Align2::LEFT_CENTER, if self.series == Series::Easy { "SÉRIE FACILE" } else { "SÉRIE DUR" }, Font::label(13.0, 0.14), fade(col::DUST_3, sa));
-        let medals_text = if total > 0 { format!("{won} / {total} médailles") } else { "aucun circuit pour l'instant".into() };
-        paint::text(&p, pos2(x0 + w - 4.0, sy), Align2::RIGHT_CENTER, &medals_text, Font::data(11.0), fade(col::DUST_3, sa));
-        // The circuits.
-        let row_h = if wide { 70.0 } else { 74.0 };
-        let mut y = sy + 18.0;
+        let (x0, gw) = if wide { (r.left() + 64.0, 540.0) } else { (r.left() + 14.0, w - 28.0) };
+        let head = pos2(if wide { x0 } else { r.left() + 20.0 }, r.top() + if wide { 64.0 } else { 74.0 } + edy);
+        paint::text_shadowed(&p, head, Align2::LEFT_TOP, "CIRCUITS", Font::race(if wide { 58.0 } else { 44.0 }), fade(col::DUST, ea));
+        let (sa, sdy) = self.enter(1, now);
+        let switch = if wide {
+            Rect::from_min_size(pos2(x0, r.top() + 132.0 + sdy), vec2(400.0, 48.0))
+        } else {
+            Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 142.0 + sdy), vec2(w - 32.0, 46.0))
+        };
+        self.series_switch(ui, &p, switch, sa, sheet_open);
+        let cols = layout.columns();
+        let gap = 10.0;
+        let tw = (gw - gap * (cols - 1) as f32) / cols as f32;
+        let th = if wide { 190.0 } else { 196.0 };
+        let gy = r.top() + if wide { 198.0 } else { 204.0 };
         for i in 0..SLOTS {
-            let (a, dy) = self.enter(3 + i, now);
-            let rect = Rect::from_min_size(pos2(x0 + self.shake_x(Shake::Row(i), now), y + dy), vec2(w, row_h));
-            self.row(ui, &p, rect, i, layout, bests, a, now, sheet_open);
-            y += row_h + 8.0;
+            let (a, dy) = self.enter(2 + i, now);
+            let (row, c) = (i / cols, i % cols);
+            let rect = Rect::from_min_size(pos2(x0 + c as f32 * (tw + gap) + self.shake_x(Shake::Tile(i), now), gy + row as f32 * (th + gap) + dy), vec2(tw, th));
+            self.tile(ui, &p, rect, i, layout, bests, a, now, sheet_open);
         }
         if wide {
-            let (da, ddy) = self.enter(2, now);
-            let rect = Rect::from_min_max(pos2(r.left() + 640.0, r.top() + 80.0 + ddy), pos2(r.right() - 64.0, r.bottom() - 64.0 + ddy));
-            self.detail(ui, &p, rect, bests, da, now);
+            self.detail(ui, &p, r, bests, now);
         } else if self.sheet.is_some() {
             self.sheet_ui(ui, r, bests, now);
         }
     }
 
-    /// Medals won in the current series, out of those that can be.
-    fn medal_count(&self, bests: &[Option<u32>]) -> (usize, usize) {
-        let mut won = 0;
-        let mut total = 0;
-        for i in 0..SLOTS {
-            if let Some(t) = self.slot(i) {
-                total += 3;
-                if let Some(b) = bests.get(t.map).copied().flatten() {
-                    won += t.medal_ticks().iter().filter(|&&m| b <= m).count();
-                }
-            }
+    /// The two series side by side, the chosen one lit and underlined in its colour.
+    fn series_switch(&mut self, ui: &mut Ui, p: &Painter, rect: Rect, a: f32, blocked: bool) {
+        p.rect_filled(rect, 12.0, fade(col::GLASS_DARK, a));
+        p.rect_stroke(rect, 12.0, Stroke::new(1.0, fade(col::EDGE, a)), StrokeKind::Inside);
+        if self.on_series {
+            p.rect_stroke(rect.expand(3.0), 15.0, Stroke::new(2.0, fade(col::LIVERY, a)), StrokeKind::Outside);
         }
-        (won, total)
-    }
-
-    fn series_colours(&self) -> (Color32, Option<Color32>, Color32) {
-        match self.series {
-            Series::Easy => (col::EASY, None, col::VOID),
-            Series::Hard => (col::HARD, Some(col::HARD_EDGE), col::DUST),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn row(&mut self, ui: &mut Ui, p: &Painter, rect: Rect, i: usize, layout: Layout, bests: &[Option<u32>], a: f32, now: f64, blocked: bool) {
-        let wide = layout == Layout::Wide;
-        if !blocked {
-            let resp = self.hit(ui, rect, Id::new(("menu row", i)), false);
-            if wide && resp.hovered() && pointer_moved(ui) {
-                self.set_sel(i, now, true);
+        let half = (rect.width() - 8.0) / 2.0;
+        let built = format!("{}/{SLOTS}", self.tracks.len().min(SLOTS));
+        for (i, (series, label, count)) in [(Series::Easy, "FACILE", built.as_str()), (Series::Hard, "DUR", "0/5")].into_iter().enumerate() {
+            let tr = Rect::from_min_size(rect.min + vec2(4.0 + i as f32 * half, 4.0), vec2(half, rect.height() - 8.0));
+            let resp = if blocked { None } else { Some(self.hit(ui, tr, Id::new(("menu series", i)), true)) };
+            if resp.as_ref().is_some_and(|r| r.clicked()) {
+                self.on_series = false;
+                self.set_series(series, ui.input(|inp| inp.time));
             }
-            if resp.clicked() {
-                if wide {
-                    self.set_sel(i, now, false);
-                    self.launch(now);
-                } else {
-                    self.open_sheet(i, now);
-                }
+            let on = self.series == series;
+            if on {
+                p.rect_filled(tr, 9.0, fade(SERIES_ON, a));
+                let line = if series == Series::Easy { col::EASY } else { col::HARD_EDGE };
+                p.rect_filled(Rect::from_min_max(pos2(tr.left() + tr.width() * 0.2, tr.bottom() - 6.0), pos2(tr.right() - tr.width() * 0.2, tr.bottom() - 3.0)), 1.5, fade(line, a));
             }
-        }
-        let (c, edge, ink) = self.series_colours();
-        let sel = self.sel == i && (wide || self.sheet.is_none());
-        let track = self.slot(i).map(|t| (t.name.clone(), t.length, t.checkpoints, t.dirt, t.map, t.medal_ticks()));
-        let locked = track.is_none();
-        if locked {
-            if sel {
-                p.rect_filled(rect, 16.0, fade(col::GLASS, a));
-            }
-            p.rect_stroke(rect, 16.0, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
-        } else {
-            p.rect_filled(rect, 16.0, fade(if sel { col::PANEL_2 } else { col::PANEL }, a));
-            let s = if sel { (1.5, edge.unwrap_or(c)) } else { (1.0, col::LINE) };
-            p.rect_stroke(rect, 16.0, Stroke::new(s.0, fade(s.1, a)), StrokeKind::Inside);
-        }
-        let ns = if wide { 40.0 } else { 34.0 };
-        let num = Rect::from_min_size(pos2(rect.left() + 10.0, rect.center().y - ns / 2.0), vec2(ns, ns));
-        let na = if locked { a * 0.4 } else { a };
-        p.rect_filled(num, if wide { 10.0 } else { 9.0 }, fade(c, na));
-        if let Some(e) = edge {
-            p.rect_stroke(num, if wide { 10.0 } else { 9.0 }, Stroke::new(1.5, fade(e, na)), StrokeKind::Inside);
-        }
-        paint::text(p, num.center(), Align2::CENTER_CENTER, &format!("{:02}", i + 1), Font::heading(if wide { 18.0 } else { 16.0 }), fade(ink, na));
-        let th = if wide { 56.0 } else { 52.0 };
-        let gap = if wide { 14.0 } else { 11.0 };
-        let thumb = Rect::from_min_size(pos2(num.right() + gap, rect.center().y - th / 2.0), vec2(th, th));
-        let tx = thumb.right() + gap;
-        match &track {
-            Some((name, length, cps, dirt, map, medals)) => {
-                p.rect_filled(thumb, 12.0, fade(col::VOID, a));
-                p.rect_stroke(thumb, 12.0, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
-                let ti = self.slot_index(i).unwrap_or(0);
-                paint::route(p, thumb.shrink(th * 0.1), &self.tracks[ti], th * 0.058, 1.0, false, a);
-                let top = rect.top() + if wide { 9.0 } else { 11.0 };
-                paint::text(p, pos2(tx, top), Align2::LEFT_TOP, name, Font::heading(if wide { 22.0 } else { 20.0 }), fade(col::DUST, a));
-                paint::text(p, pos2(tx, top + if wide { 29.0 } else { 27.0 }), Align2::LEFT_TOP, &format!("{} km · {} CP", km(*length), cps), Font::label(13.0, 0.04), fade(col::DUST_3, a));
-                let my = top + if wide { 52.0 } else { 51.0 };
-                let bw = if wide { 56.0 } else { 48.0 };
-                let road_w = (bw - 2.0) * (1.0 - dirt);
-                if road_w > 0.5 {
-                    p.rect_filled(Rect::from_min_size(pos2(tx, my - 2.0), vec2(road_w, 4.0)), 2.0, fade(col::ROAD, a));
-                }
-                if *dirt > 0.0 {
-                    p.rect_filled(Rect::from_min_max(pos2(tx + road_w + 2.0, my - 2.0), pos2(tx + bw, my + 2.0)), 2.0, fade(col::DIRT, a));
-                }
-                paint::text(p, pos2(tx + bw + 8.0, my), Align2::LEFT_CENTER, &format!("{}\u{202F}% dirt", (dirt * 100.0).round()), Font::label(11.0, 0.06), fade(col::DUST_3, a));
-                // Medals won and the best time.
-                let best = bests.get(*map).copied().flatten();
-                let ms = if wide { 13.0 } else { 12.0 };
-                let right = rect.right() - if wide { 18.0 } else { 12.0 };
-                for (k, mc) in paint::MEDAL_COLOURS.iter().enumerate() {
-                    let cx = right - ms / 2.0 - (2 - k) as f32 * (ms + 5.0);
-                    let cy = rect.center().y - 9.0;
-                    let won = best.is_some_and(|b| b <= medals[k]);
-                    if won {
-                        p.circle_filled(pos2(cx, cy), ms / 2.0, fade(*mc, a));
-                    } else {
-                        p.circle_stroke(pos2(cx, cy), ms / 2.0 - 0.75, Stroke::new(1.5, fade(*mc, a * 0.55)));
-                    }
-                }
-                let bt = best.map_or("--:--.--".to_string(), format_time);
-                paint::text(p, pos2(right, rect.center().y + 12.0), Align2::RIGHT_CENTER, &bt, Font::data(11.0), fade(if best.is_some() { col::DUST_2 } else { col::DUST_3 }, a));
-            }
-            None => {
-                paint::dashed_rect(p, thumb, fade(col::LINE, a));
-                paint::icon_at(p, thumb.center(), 15.0, Icon::Lock, fade(col::DUST_3, a));
-                let hard = self.series == Series::Hard;
-                let top = rect.center().y - if wide { 20.0 } else { 19.0 };
-                paint::text(p, pos2(tx, top), Align2::LEFT_TOP, if hard { "Verrouillé" } else { "À venir" }, Font::heading(if wide { 22.0 } else { 20.0 }), fade(col::DUST_3, a));
-                paint::text(p, pos2(tx, top + if wide { 29.0 } else { 27.0 }), Align2::LEFT_TOP, if hard { "Termine la série Facile" } else { "Circuit en construction" }, Font::label(13.0, 0.04), fade(col::DUST_3, a));
-                paint::icon_at(p, pos2(rect.right() - 24.0, rect.center().y), 15.0, Icon::Lock, fade(col::DUST_3, a));
-            }
+            let hovered = resp.is_some_and(|r| r.hovered());
+            let font = Font::race(20.0);
+            let lw = paint::text_size(p, label, font).x;
+            let cw = paint::text_size(p, count, Font::data(11.0)).x;
+            let x = tr.center().x - (lw + 8.0 + cw) / 2.0;
+            let tc = if on || hovered { col::DUST } else { col::DUST_3 };
+            paint::text(p, pos2(x, tr.center().y - 1.0), Align2::LEFT_CENTER, label, font, fade(tc, a));
+            paint::text(p, pos2(x + lw + 8.0, tr.center().y), Align2::LEFT_CENTER, count, Font::data(11.0), fade(col::DUST_3, a));
         }
     }
 
@@ -753,79 +467,132 @@ impl Menu {
         }
     }
 
-    /// Wide layout: the selected circuit's card, beside the list.
-    fn detail(&mut self, ui: &mut Ui, p: &Painter, rect: Rect, bests: &[Option<u32>], a: f32, now: f64) {
-        p.rect_filled(rect, 24.0, fade(col::PANEL, a));
-        p.rect_stroke(rect, 24.0, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
-        let inner = rect.shrink2(vec2(28.0, 24.0));
-        let since = (now - self.sel_at) as f32;
-        let a = a * (0.25 + 0.75 * paint::ease_out(since / 0.22));
-        let (c, edge, _) = self.series_colours();
-        let series = if self.series == Series::Easy { "FACILE" } else { "DUR" };
-        let chip = format!("{series} · {:02}", self.sel + 1);
-        let flag = Rect::from_min_size(pos2(inner.left(), inner.top() + 5.0), vec2(14.0, 14.0));
-        p.rect_filled(flag, 3.0, fade(c, a));
-        if let Some(e) = edge {
-            p.rect_stroke(flag, 3.0, Stroke::new(1.5, fade(e, a)), StrokeKind::Inside);
+    /// A circuit's tile: its number and medals, its outline, its name and record.
+    #[allow(clippy::too_many_arguments)]
+    fn tile(&mut self, ui: &mut Ui, p: &Painter, rect: Rect, i: usize, layout: Layout, bests: &[Option<u32>], a: f32, now: f64, blocked: bool) {
+        let wide = layout == Layout::Wide;
+        if !blocked {
+            let resp = self.hit(ui, rect, Id::new(("menu tile", i)), false);
+            if wide && resp.hovered() && pointer_moved(ui) {
+                self.on_series = false;
+                self.set_sel(i, now, true);
+            }
+            if resp.clicked() {
+                self.on_series = false;
+                if wide {
+                    self.set_sel(i, now, false);
+                    self.launch(now);
+                } else {
+                    self.open_sheet(i, now);
+                }
+            }
         }
-        paint::text(p, pos2(flag.right() + 8.0, flag.center().y), Align2::LEFT_CENTER, &chip, Font::label(13.0, 0.16), fade(col::DUST_2, a));
+        let sel = self.sel == i && !self.on_series && (wide || self.sheet.is_none());
+        let ti = self.slot_index(i);
+        let a = if ti.is_some() { a } else { a * 0.5 };
+        p.rect_filled(rect, 14.0, fade(if sel { col::GLASS_WARM } else { col::GLASS_DARK }, a));
+        if sel {
+            p.rect_stroke(rect, 14.0, Stroke::new(2.0, fade(col::LIVERY, a)), StrokeKind::Inside);
+        } else {
+            p.rect_stroke(rect, 14.0, Stroke::new(1.0, fade(col::EDGE, a)), StrokeKind::Inside);
+        }
+        let inner = rect.shrink2(vec2(14.0, 12.0));
+        let ty = inner.top() + 7.0;
+        paint::text(p, pos2(inner.left(), ty), Align2::LEFT_CENTER, &format!("{:02}", i + 1), Font::data(11.0), fade(if sel { col::LIVERY } else { col::DUST_3 }, a));
+        let rec_y = inner.bottom() - 8.0;
+        let name_y = rec_y - 24.0;
+        match ti {
+            Some(ti) => {
+                let t = &self.tracks[ti];
+                let best = bests.get(t.map).copied().flatten();
+                let medals = t.medal_ticks();
+                let ms = 9.0;
+                for (k, mc) in paint::MEDAL_COLOURS.iter().enumerate() {
+                    let c = pos2(inner.right() - ms / 2.0 - (2 - k) as f32 * (ms + 3.0), ty);
+                    if best.is_some_and(|b| b <= medals[k]) {
+                        p.circle_filled(c, ms / 2.0, fade(*mc, a));
+                    } else {
+                        p.circle_stroke(c, ms / 2.0 - 0.6, Stroke::new(1.2, fade(*mc, a * 0.8)));
+                    }
+                }
+                let top = ty + 12.0;
+                let bottom = name_y - 16.0;
+                let s = (bottom - top).min(inner.width()).min(if wide { 100.0 } else { 104.0 });
+                let plan = Rect::from_center_size(pos2(inner.center().x, (top + bottom) / 2.0), vec2(s, s));
+                paint::route(p, plan, t, s * 0.05, 1.0, false, a);
+                paint::text(p, pos2(inner.left(), name_y), Align2::LEFT_CENTER, &t.name.to_uppercase(), Font::race(24.0), fade(col::DUST, a));
+                let rec = best.map_or(NO_TIME.to_string(), format_time);
+                paint::text(p, pos2(inner.left(), rec_y), Align2::LEFT_CENTER, &rec, Font::data(13.0), fade(col::DUST_2, a));
+            }
+            None => {
+                let hard = self.series == Series::Hard;
+                paint::icon_at(p, pos2(inner.center().x, (ty + name_y) / 2.0), 24.0, Icon::Lock, fade(col::DUST_3, a));
+                paint::text(p, pos2(inner.left(), name_y), Align2::LEFT_CENTER, if hard { "VERROUILLÉ" } else { "À VENIR" }, Font::race(24.0), fade(col::DUST_2, a));
+                paint::text(p, pos2(inner.left(), rec_y), Align2::LEFT_CENTER, if hard { "Série Facile" } else { "En construction" }, Font::data(11.0), fade(col::DUST_3, a));
+            }
+        }
+    }
+
+    /// A circuit's record and its three medals, in a dark box: the time on the left, the medals
+    /// stacked on the right.
+    fn record_block(&self, p: &Painter, rect: Rect, t: &TrackInfo, best: Option<u32>, a: f32, wide: bool) {
+        p.rect_filled(rect, 14.0, fade(col::GLASS_DARK, a));
+        p.rect_stroke(rect, 14.0, Stroke::new(1.0, fade(col::EDGE, a)), StrokeKind::Inside);
+        let inner = rect.shrink(16.0);
+        let left_w = if wide { 190.0 } else { 128.0 };
+        paint::text(p, inner.left_top(), Align2::LEFT_TOP, "TON RECORD", mono_caps(11.0), fade(col::DUST_2, a));
+        let at = pos2(inner.left(), inner.top() + 20.0);
+        match best {
+            Some(b) => paint::text(p, at, Align2::LEFT_TOP, &format_time(b), Font::race(if wide { 58.0 } else { 42.0 }), fade(col::DUST, a)),
+            None => paint::text(p, at + vec2(0.0, 10.0), Align2::LEFT_TOP, NO_TIME, Font::data(if wide { 26.0 } else { 20.0 }), fade(col::DUST_3, a)),
+        };
+        let mx = inner.left() + left_w;
+        let mw = inner.right() - mx;
+        let rh = (inner.height() - 12.0) / 3.0;
+        for (k, ((name, _), ticks)) in MEDALS.iter().zip(t.medal_ticks()).enumerate() {
+            let row = Rect::from_min_size(pos2(mx, inner.top() + k as f32 * (rh + 6.0)), vec2(mw, rh));
+            let won = best.is_some_and(|b| b <= ticks);
+            p.rect_stroke(row, 9.0, Stroke::new(1.0, fade(if won { paint::MEDAL_COLOURS[k] } else { MEDAL_EDGE }, a)), StrokeKind::Inside);
+            let c = pos2(row.left() + 16.0, row.center().y);
+            if won {
+                p.circle_filled(c, 5.0, fade(paint::MEDAL_COLOURS[k], a));
+            } else {
+                p.circle_stroke(c, 4.4, Stroke::new(1.3, fade(paint::MEDAL_COLOURS[k], a)));
+            }
+            paint::text(p, pos2(row.left() + 30.0, row.center().y), Align2::LEFT_CENTER, name, Font::data(12.0), fade(col::DUST_2, a));
+            paint::text(p, pos2(row.right() - 12.0, row.center().y), Align2::RIGHT_CENTER, &format_time(ticks), Font::data(12.0), fade(if won { col::DUST } else { col::DUST_2 }, a));
+        }
+    }
+
+    /// Wide layout: the chosen circuit over the footage, at the bottom right: its name, length
+    /// and dirt, its record and medals, and the race button.
+    fn detail(&mut self, ui: &mut Ui, p: &Painter, r: Rect, bests: &[Option<u32>], now: f64) {
+        let (da, ddy) = self.enter(3, now);
+        let since = (now - self.sel_at) as f32;
+        let e = paint::ease_out(since / 0.3);
+        let a = da * (0.25 + 0.75 * e);
+        let w = 520.0;
+        let x = r.right() - 60.0 - w;
+        let cta = Rect::from_min_size(pos2(x, r.bottom() - 44.0 - 60.0 + ddy), vec2(w, 60.0));
+        let slide = 30.0 * (1.0 - e);
         let Some(ti) = self.slot_index(self.sel) else {
             let hard = self.series == Series::Hard;
-            let cy = inner.center().y - 20.0;
-            paint::icon_at(p, pos2(inner.center().x, cy - 70.0), 44.0, Icon::Lock, fade(col::DUST_3, a));
-            paint::text(p, pos2(inner.center().x, cy), Align2::CENTER_CENTER, if hard { "VERROUILLÉ" } else { "À VENIR" }, Font::heading(52.0), fade(col::DUST_3, a));
-            paint::text(p, pos2(inner.center().x, cy + 50.0), Align2::CENTER_CENTER, self.locked_text(), Font::body(16.0), fade(col::DUST_2, a));
+            let text = self.locked_text();
+            paint::text_shadowed(p, pos2(x + slide, cta.top() - 30.0), Align2::LEFT_BOTTOM, text, Font::body(17.0), fade(col::TEXT, a));
+            paint::text_shadowed(p, pos2(x - 4.0 + slide, cta.top() - 58.0), Align2::LEFT_BOTTOM, if hard { "VERROUILLÉ" } else { "À VENIR" }, Font::race(96.0).weight(900.0), fade(col::DUST, a));
+            if self.cta(ui, p, cta, "run", "COURIR", true, Some("Entrée"), da, now) {
+                self.launch(now);
+            }
             return;
         };
         let t = &self.tracks[ti];
         let best = bests.get(t.map).copied().flatten();
-        let rec = paint::text(p, pos2(inner.right(), flag.center().y), Align2::RIGHT_CENTER, &best.map_or("--:--.--".into(), format_time), Font::data(13.0), fade(col::DUST_2, a));
-        paint::text(p, pos2(rec.left() - 10.0, flag.center().y), Align2::RIGHT_CENTER, "TON RECORD", Font::label(13.0, 0.14), fade(col::DUST_3, a));
-        let name = paint::text(p, pos2(inner.left() - 2.0, inner.top() + 34.0), Align2::LEFT_TOP, &t.name.to_uppercase(), Font::heading(52.0), fade(col::DUST, a));
-        let desc = paint::para(p, pos2(inner.left(), name.bottom() - 6.0), inner.width().min(470.0), t.desc, Font::body(16.0), 1.45, fade(col::DUST_2, a));
-        let mid = desc.bottom() + 16.0;
-        let map = Rect::from_min_size(pos2(inner.left(), mid), vec2(250.0, 250.0));
-        p.rect_filled(map, 18.0, fade(col::VOID, a));
-        paint::grid(p, map.shrink(1.0), a);
-        p.rect_stroke(map, 18.0, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
-        let progress = ((since - 0.12) / 1.1).clamp(0.0, 1.0);
-        paint::route(p, map.shrink(16.0), t, 8.6, progress, true, a);
-        // Numbers and medals beside the plan.
-        let sx = map.right() + 22.0;
-        let sw = inner.right() - sx;
-        let cw = (sw - 8.0) / 2.0;
-        let stats = [
-            (km(t.length), "km", "LONGUEUR"),
-            (t.checkpoints.to_string(), "", "CHECKPOINTS"),
-            (format!("{}", (t.dirt * 100.0).round()), "%", "DIRT"),
-            (t.jumps.to_string(), "", if t.jumps > 1 { "SAUTS" } else { "SAUT" }),
-        ];
-        for (k, (v, unit, label)) in stats.iter().enumerate() {
-            let cell = Rect::from_min_size(pos2(sx + (k % 2) as f32 * (cw + 8.0), mid + (k / 2) as f32 * 58.0), vec2(cw, 50.0));
-            p.rect_filled(cell, 12.0, fade(col::VOID, a));
-            p.rect_stroke(cell, 12.0, Stroke::new(1.0, fade(col::LINE, a)), StrokeKind::Inside);
-            let vr = paint::text(p, pos2(cell.left() + 12.0, cell.top() + 17.0), Align2::LEFT_CENTER, v, Font::data(16.0).weight(600.0), fade(col::DUST, a));
-            if !unit.is_empty() {
-                paint::text(p, pos2(vr.right() + 3.0, cell.top() + 19.0), Align2::LEFT_CENTER, unit, Font::data(10.0), fade(col::DUST_3, a));
-            }
-            paint::text(p, pos2(cell.left() + 12.0, cell.top() + 37.0), Align2::LEFT_CENTER, label, Font::label(11.0, 0.1), fade(col::DUST_3, a));
-        }
-        let my = mid + 2.0 * 58.0 + 8.0;
-        paint::text(p, pos2(sx, my + 8.0), Align2::LEFT_CENTER, "MÉDAILLES", Font::label(13.0, 0.16), fade(col::DUST_2, a));
-        paint::text(p, pos2(inner.right(), my + 8.0), Align2::RIGHT_CENTER, "temps provisoires", Font::data(10.0), fade(col::DUST_3, a));
-        for (k, ((label, _), ticks)) in MEDALS.iter().zip(t.medal_ticks()).enumerate() {
-            let row = Rect::from_min_size(pos2(sx, my + 22.0 + k as f32 * 40.0), vec2(sw, 34.0));
-            let won = best.is_some_and(|b| b <= ticks);
-            p.rect_filled(row, 10.0, fade(col::VOID, a));
-            p.rect_stroke(row, 10.0, Stroke::new(1.0, fade(if won { paint::MEDAL_COLOURS[k] } else { col::LINE }, a)), StrokeKind::Inside);
-            let cc = pos2(row.left() + 18.0, row.center().y);
-            p.circle_filled(cc, 10.0, fade(paint::MEDAL_COLOURS[k], a));
-            p.circle_stroke(cc, 8.5, Stroke::new(2.0, fade(col::INK_STRIPE, a)));
-            paint::text(p, pos2(row.left() + 38.0, row.center().y), Align2::LEFT_CENTER, &label.to_uppercase(), Font::label(12.0, 0.12), fade(col::DUST_3, a));
-            paint::text(p, pos2(row.right() - 12.0, row.center().y), Align2::RIGHT_CENTER, &format_time(ticks), Font::data(13.0), fade(if won { col::DUST } else { col::DUST_2 }, a));
-        }
-        let cta = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 60.0), inner.max);
-        if self.cta(ui, p, cta, "run", "COURIR", false, Some("Entrée"), a, now) {
+        let rec = Rect::from_min_size(pos2(x, cta.top() - 14.0 - 148.0), vec2(w, 148.0));
+        self.record_block(p, rec, t, best, da, true);
+        let meta = format!("{} KM · {}\u{202F}% DIRT", km(t.length), (t.dirt * 100.0).round());
+        let mr = paint::text_shadowed(p, pos2(x + slide, rec.top() - 14.0), Align2::LEFT_BOTTOM, &meta, mono_caps(11.0), fade(col::DUST_2, a));
+        paint::text_shadowed(p, pos2(x - 4.0 + slide, mr.top() - 6.0), Align2::LEFT_BOTTOM, &t.name.to_uppercase(), Font::race(96.0).weight(900.0), fade(col::DUST, a));
+        if self.cta(ui, p, cta, "run", "COURIR", false, Some("Entrée"), da, now) {
             self.launch(now);
         }
     }
@@ -833,7 +600,7 @@ impl Menu {
     /// Tall layout: the circuit's sheet sliding up from the bottom.
     fn sheet_ui(&mut self, ui: &mut Ui, r: Rect, bests: &[Option<u32>], now: f64) {
         let Some((open, t0)) = self.sheet else { return };
-        let e = paint::bezier(0.2, 0.9, 0.2, 1.0, ((now - t0) / 0.45) as f32);
+        let e = paint::bezier(0.2, 0.9, 0.2, 1.0, ((now - t0) / 0.4) as f32);
         let k = if open { e } else { 1.0 - e };
         if !open && k <= 0.001 {
             self.sheet = None;
@@ -841,103 +608,29 @@ impl Menu {
         }
         let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, Id::new("menu sheet")));
         p.rect_filled(r, 0.0, fade(col::SCRIM, k));
-        let h = r.height() * 0.88;
+        let h = 372.0;
         let rect = Rect::from_min_size(pos2(r.left(), r.bottom() - h * k), vec2(r.width(), h));
         // Clicks outside close the sheet; clicks on it stay on it.
         let scrim = ui.interact(r, Id::new("menu scrim"), Sense::click());
         let _sheet = ui.interact(rect, Id::new("menu sheet body"), Sense::click());
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(r.center())) {
-            self.close_sheet(now);
-        }
-        let top = CornerRadius { nw: 26, ne: 26, sw: 0, se: 0 };
-        p.rect_filled(rect, top, col::PANEL);
-        p.hline(rect.x_range().shrink(20.0), rect.top(), Stroke::new(1.0, col::LINE));
-        p.rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(40.0, 4.0)), 2.0, col::LINE);
-        let Some(ti) = self.slot_index(self.sel) else { return };
-        let pad = 20.0;
-        let x = rect.left() + pad;
-        let w = rect.width() - 2.0 * pad;
-        let mut y = rect.top() + 30.0;
-        // Chip and close.
-        let flag = Rect::from_min_size(pos2(x, y + 13.0), vec2(14.0, 14.0));
-        p.rect_filled(flag, 3.0, col::EASY);
-        paint::text(&p, pos2(flag.right() + 8.0, flag.center().y), Align2::LEFT_CENTER, &format!("FACILE · {:02}", self.sel + 1), Font::label(13.0, 0.16), col::DUST_2);
-        let close = Rect::from_min_size(pos2(rect.right() - pad - 40.0, y), vec2(40.0, 40.0));
-        let resp = self.hit(ui, close, Id::new("menu sheet close"), true);
-        paint::panel(&p, close, 12.0, col::GLASS, Some((1.0, col::LINE)));
-        paint::icon_at(&p, close.center(), 18.0, Icon::Close, if resp.hovered() { col::DUST } else { col::DUST_2 });
-        if resp.clicked() {
             self.cues.push(Cue::Back);
             self.close_sheet(now);
         }
-        y += 52.0;
+        p.rect_filled(rect, CornerRadius { nw: 28, ne: 28, sw: 0, se: 0 }, Color32::from_rgba_premultiplied(19, 13, 14, 247));
+        p.hline(rect.x_range().shrink(24.0), rect.top(), Stroke::new(1.0, col::EDGE));
+        p.rect_filled(Rect::from_center_size(pos2(rect.center().x, rect.top() + 12.0), vec2(40.0, 5.0)), 2.5, col::LINE);
+        let Some(ti) = self.slot_index(self.sel) else { return };
         let t = &self.tracks[ti];
-        let name = paint::text(&p, pos2(x - 2.0, y), Align2::LEFT_TOP, &t.name.to_uppercase(), Font::heading(42.0), col::DUST);
-        let desc = paint::para(&p, pos2(x, name.bottom() - 4.0), w, t.desc, Font::body(15.0), 1.45, col::DUST_2);
-        y = desc.bottom() + 14.0;
-        // The plan takes what is left above the numbers, medals and record (218 points) and the
-        // footer.
-        let foot = rect.bottom() - 96.0;
-        let ms = (w * 0.72).min(230.0).min(foot - 12.0 - 218.0 - y).max(120.0);
-        let map = Rect::from_min_size(pos2(rect.center().x - ms / 2.0, y), vec2(ms, ms));
-        p.rect_filled(map, 18.0, col::VOID);
-        paint::grid(&p, map.shrink(1.0), 1.0);
-        p.rect_stroke(map, 18.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
-        let progress = (((now - t0) as f32 - 0.25) / 1.3).clamp(0.0, 1.0);
-        paint::route(&p, map.shrink(ms * 0.07), t, ms * 0.036, progress, true, 1.0);
-        y = map.bottom() + 14.0;
-        // Legend.
-        let legend = [(col::ROAD, "BITUME", false), (col::DIRT, "DIRT", false), (col::HUB, "DÉPART", true)];
-        let font = Font::label(12.0, 0.14);
-        let widths: Vec<f32> = legend.iter().map(|(_, s, _)| 22.0 + paint::text_size(&p, s, font).x).collect();
-        let mut lx = rect.center().x - (widths.iter().sum::<f32>() + 16.0 * 2.0) / 2.0;
-        for ((c, s, dot), lw) in legend.iter().zip(&widths) {
-            if *dot {
-                p.circle_filled(pos2(lx + 4.0, y + 6.0), 4.0, *c);
-            } else {
-                p.rect_filled(Rect::from_min_size(pos2(lx, y + 4.0), vec2(16.0, 4.0)), 2.0, *c);
-            }
-            paint::text(&p, pos2(lx + 22.0, y + 6.0), Align2::LEFT_CENTER, s, font, col::DUST_3);
-            lx += lw + 16.0;
-        }
-        y += 28.0;
-        // Numbers.
-        let cw = (w - 24.0) / 4.0;
-        let stats = [(km(t.length), "km", "LONGUEUR"), (t.checkpoints.to_string(), "", "CHECKPOINTS"), (format!("{}", (t.dirt * 100.0).round()), "%", "DIRT"), (t.jumps.to_string(), "", "SAUT")];
-        for (k, (v, unit, label)) in stats.iter().enumerate() {
-            let cell = Rect::from_min_size(pos2(x + k as f32 * (cw + 8.0), y), vec2(cw, 52.0));
-            p.rect_filled(cell, 12.0, col::VOID);
-            p.rect_stroke(cell, 12.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
-            let vr = paint::text(&p, pos2(cell.left() + 8.0, cell.top() + 18.0), Align2::LEFT_CENTER, v, Font::data(15.0).weight(600.0), col::DUST);
-            if !unit.is_empty() {
-                paint::text(&p, pos2(vr.right() + 2.0, cell.top() + 20.0), Align2::LEFT_CENTER, unit, Font::data(10.0), col::DUST_3);
-            }
-            paint::text(&p, pos2(cell.left() + 8.0, cell.top() + 38.0), Align2::LEFT_CENTER, label, Font::label(10.0, 0.06), col::DUST_3);
-        }
-        y += 66.0;
-        // Medals.
-        paint::text(&p, pos2(x, y + 6.0), Align2::LEFT_CENTER, "MÉDAILLES", Font::label(13.0, 0.16), col::DUST_2);
-        paint::text(&p, pos2(x + w, y + 6.0), Align2::RIGHT_CENTER, "temps provisoires", Font::data(10.0), col::DUST_3);
-        y += 22.0;
-        let mw = (w - 16.0) / 3.0;
-        for (k, ((label, _), ticks)) in MEDALS.iter().zip(t.medal_ticks()).enumerate() {
-            let cx = x + k as f32 * (mw + 8.0);
-            let cc = pos2(cx + 11.0, y + 14.0);
-            p.circle_filled(cc, 11.0, paint::MEDAL_COLOURS[k]);
-            p.circle_stroke(cc, 9.5, Stroke::new(2.0, col::INK_STRIPE));
-            paint::text(&p, pos2(cx + 30.0, y + 6.0), Align2::LEFT_CENTER, &label.to_uppercase(), Font::label(11.0, 0.12), col::DUST_3);
-            paint::text(&p, pos2(cx + 30.0, y + 22.0), Align2::LEFT_CENTER, &format_time(ticks), Font::data(13.0), col::DUST);
-        }
-        y += 44.0;
-        let rec = Rect::from_min_size(pos2(x, y), vec2(w, 44.0));
-        p.rect_filled(rec, 12.0, col::VOID);
-        p.rect_stroke(rec, 12.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
-        paint::text(&p, pos2(rec.left() + 14.0, rec.center().y), Align2::LEFT_CENTER, "TON RECORD", Font::label(13.0, 0.14), col::DUST_3);
         let best = bests.get(t.map).copied().flatten();
-        paint::text(&p, pos2(rec.right() - 14.0, rec.center().y), Align2::RIGHT_CENTER, &best.map_or("--:--.--".into(), format_time), Font::data(13.0), col::DUST_2);
-        // Footer with the race button.
-        p.hline(rect.x_range(), foot, Stroke::new(1.0, col::LINE));
-        let cta = Rect::from_min_size(pos2(x, foot + 20.0), vec2(w, 56.0));
+        let x = rect.left() + 22.0;
+        let w = rect.width() - 44.0;
+        let name = paint::text(&p, pos2(x - 2.0, rect.top() + 28.0), Align2::LEFT_TOP, &t.name.to_uppercase(), Font::race(50.0).weight(900.0), col::DUST);
+        let meta = format!("{} KM · {}\u{202F}% DIRT", km(t.length), (t.dirt * 100.0).round());
+        let mr = paint::text(&p, pos2(x, name.bottom() + 2.0), Align2::LEFT_TOP, &meta, mono_caps(11.0), col::DUST_2);
+        let rec = Rect::from_min_size(pos2(x, mr.bottom() + 14.0), vec2(w, 124.0));
+        self.record_block(&p, rec, t, best, 1.0, false);
+        let cta = Rect::from_min_size(pos2(x, rect.bottom() - 34.0 - 60.0), vec2(w, 60.0));
         let pc = p.clone();
         if self.cta(ui, &pc, cta, "sheet run", "COURIR", false, None, 1.0, now) {
             self.launch(now);
@@ -945,33 +638,6 @@ impl Menu {
     }
 
     // ------------------------------------------------------------------ overlays
-
-    pub(super) fn hints(&mut self, ui: &mut Ui, r: Rect, now: f64) {
-        let p = ui.painter().clone();
-        let items: &[(&[&str], &str)] = match self.screen {
-            Screen::Planets => &[(&["←", "→"], "PLANÈTE"), (&["Entrée"], "VALIDER")],
-            Screen::Modes => &[(&["←", "→"], "MODE"), (&["Entrée"], "VALIDER"), (&["Échap"], "RETOUR")],
-            Screen::Solo => &[(&["↑", "↓"], "CIRCUIT"), (&["←", "→"], "SÉRIE"), (&["Entrée"], "COURIR"), (&["Échap"], "RETOUR")],
-            Screen::Title => &[],
-        };
-        let (a, _) = self.enter(4, now);
-        let font = Font::label(14.0, 0.14);
-        let y = r.bottom() - 28.0;
-        let mut x = r.right() - 40.0;
-        for (keys, label) in items.iter().rev() {
-            let lw = paint::text_size(&p, label, font).x;
-            x -= lw;
-            paint::text(&p, pos2(x, y), Align2::LEFT_CENTER, label, font, fade(col::DUST_3, a));
-            x -= 10.0;
-            for k in keys.iter().rev() {
-                let kw = (paint::text_size(&p, k, Font::data(11.0)).x + 14.0).max(28.0);
-                x -= kw;
-                paint::keycap(&p, pos2(x, y), k, fade(col::PANEL_2, a), Some(fade(col::LINE, a)), fade(col::DUST_2, a));
-                x -= 5.0;
-            }
-            x -= 23.0;
-        }
-    }
 
     pub(super) fn toast_ui(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64) {
         let Some((text, t0)) = &self.toast else { return };
@@ -1026,27 +692,4 @@ impl Menu {
             paint::text(&p, r.center(), Align2::CENTER_CENTER, "PRÊT", Font::display(size), fade(col::LIVERY, alpha * op));
         }
     }
-}
-
-/// The part of a polyline between fractions `a` and `b` of its length.
-fn sub_path(pts: &[Pos2], a: f32, b: f32) -> Vec<Pos2> {
-    let mut lengths = vec![0.0f32];
-    for w in pts.windows(2) {
-        lengths.push(lengths.last().unwrap() + w[0].distance(w[1]));
-    }
-    let total = *lengths.last().unwrap_or(&0.0);
-    let (sa, sb) = (a * total, b * total);
-    let at = |s: f32| {
-        let i = lengths.partition_point(|&l| l < s).clamp(1, pts.len() - 1);
-        let k = (s - lengths[i - 1]) / (lengths[i] - lengths[i - 1]).max(1e-3);
-        pts[i - 1] + (pts[i] - pts[i - 1]) * k
-    };
-    let mut out = vec![at(sa)];
-    for (i, &l) in lengths.iter().enumerate() {
-        if l > sa && l < sb {
-            out.push(pts[i]);
-        }
-    }
-    out.push(at(sb));
-    out
 }

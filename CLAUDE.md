@@ -142,8 +142,8 @@ link the main checkout's `track` (missing a new block or surface).
   (`crates/app/assets/music/`): `/usr/bin/python3 tools/audio/music.py art/audio/music crates/app/assets/music`.
   `crates/app/src/music.rs` embeds them and streams them (symphonia, on a thread); `audio.rs`
   plays the theme in the menu (its only background: the menu has no wind of its own) and the
-  planet's tracks in turn in a race, about as loud as the car, fading between the two; a race
-  by night plays "Night Shift" alone, in a loop (`MARS_NIGHT`).
+  planet's day tracks in turn in a race, about as loud as the car, fading between the two; a
+  race by night plays "Night Shift" alone, in a loop (`MARS_NIGHT`).
 
 Conventions: metres, y up, right-handed; yaw 0 faces +Z and a positive yaw turns left; a car
 facing +Z has +X on its left. Wheel order: front-left, front-right, rear-left, rear-right.

@@ -65,7 +65,8 @@ pub fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
                 ui.label("Essais");
                 ui.label("");
                 ui.end_row();
-                for (i, p) in game.session.profiles.iter().enumerate() {
+                // Only the cars of the map's planet.
+                for (i, p) in game.session.profiles.iter().enumerate().filter(|(i, _)| game.drives_here(*i)) {
                     ui.label(RichText::new(format!("{}", i + 1)).monospace());
                     let mut name = RichText::new(&p.params.name);
                     if p.eliminated {

@@ -1,0 +1,53 @@
+# Sulcus: the ice planet's first circuit on its own blocks (docs/blocks-ice.md), driven with the
+# ski car. Version 2: it climbs and drops. The start stands on a mesa 24 m up, where the car is
+# slow: a tight right at once, then a long progressive left that drops two levels down a cutting,
+# speed building into the slide. At the bottom, fast ice: a banked progressive sweeper and a long
+# S at full speed, then a banked progressive left that climbs back up a level, slowing the car
+# for the snow. The snow winds over a plateau, slow: a banked right, a climb onto the top, a
+# long banked left, one snake, a progressive left dropping off the top, a chicane, a hairpin and
+# a banked left dropping to the plain. Back on the ice for an S to the finish.
+name Sulcus
+planet ice
+seed 2207
+version 2
+start 0 0 3 0
+# Up on the mesa, slow: a tight right, then down a cutting into the first slide.
+turn1_right
+curve3_left_down2
+slope2_down1
+# Fast ice in the valley.
+curveberm3_left
+sbend4_right
+# A banked climb, slowing the car for the snow.
+curveberm3_left_up1
+checkpoint
+# Snow over the plateau: 16 m, slow, every turn different.
+to_dirt snow
+berm2_right snow
+slope2_up1 snow
+curveberm2_left snow
+snake2 snow
+curve2_left_down1 snow
+sbend2_right snow
+turn1_right snow
+curveberm2_left_down1 snow
+checkpoint snow
+to_road snow
+# Ice to the finish.
+sbend3_left
+straight
+finish
+
+terrain hills 8.0
+terrain relief 12.0
+# The start mesa, 24 m, stretched down the drop so the road runs down a cutting into it.
+landform mesa -30 70 40 24 120 -38
+# The plateau the snow winds over, 16 m.
+landform mesa 300 40 60 16 160 0
+# Rock framing the circuit: a butte inside the ice loop, walls to the north and the south,
+# buttes to the east.
+landform butte 70 140 16 18
+landform mesa 120 440 60 40 260 90
+landform mesa 120 -330 50 30 260 90
+landform butte -210 110 28 26
+landform butte -180 -120 22 20

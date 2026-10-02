@@ -151,7 +151,7 @@ pub struct Hit {
 /// Height of the floor of frame `f` at `h` metres to the left of its centreline (horizontally,
 /// negative to the right), and its slope going away from the centreline there.
 fn floor_at(f: &Frame, h: f32) -> (f32, f32) {
-    let (left, right) = f.deck_edges(half_width(f.deck));
+    let (left, right) = f.deck_edges(f.half_width);
     if h > left {
         let (y0, g) = f.deck_height(left);
         let (y, g) = beyond(g, h - left);
@@ -215,6 +215,39 @@ fn project(p: &Placed, q: Vec2) -> (f32, f32) {
             }
             (r * th, sg * (r - v.length()))
         }
+        Kind::Shift { .. } | Kind::Snake { .. } | Kind::Curve { .. } => {
+            // A first guess (along the axis, or round the arc of a turn of the same size), then a
+            // few Newton steps to the foot of the perpendicular from `q`. Shifts and snakes are
+            // measured along their axis, so a step along the curve counts for less there.
+            let along_axis = !matches!(p.piece.kind, Kind::Curve { .. });
+            let mut s = match p.piece.kind {
+                Kind::Curve { size, side, .. } => {
+                    let r = turn_radius(size);
+                    let sg = side.sign();
+                    let v = q - (e + l * (sg * r));
+                    let th = libm::atan2f(v.dot(f), v.dot(-l * sg));
+                    let th = if th < 0.25 * PI - PI { th + TAU } else { th };
+                    th / FRAC_PI_2 * p.length
+                }
+                _ => (q - e).dot(f),
+            };
+            let at = |s: f32| {
+                let c = s.clamp(0.0, p.length);
+                let fr = p.frame(c);
+                let t = Vec2::new(fr.forward.x, fr.forward.z);
+                // Past either end the centreline carries on straight.
+                let beyond = if along_axis { (s - c) / t.dot(f).max(0.3) } else { s - c };
+                (Vec2::new(fr.horiz.x, fr.horiz.z) + t * beyond, t, Vec2::new(fr.left.x, fr.left.z))
+            };
+            for _ in 0..4 {
+                let (c, t, _) = at(s);
+                let ds = (q - c).dot(t);
+                let ds = if along_axis { ds * t.dot(f).max(0.3) } else { ds };
+                s += ds.clamp(-8.0, 8.0);
+            }
+            let (c, _, left) = at(s);
+            (s, (q - c).dot(left))
+        }
         _ => {
             let d = q - e;
             (d.dot(f), d.dot(l))
@@ -260,7 +293,7 @@ impl Corridors {
                 let s = d0 + (d1 - d0) * k as f32 / n as f32;
                 let f = p.frame(s);
                 let carved = p.carved_range().is_some_and(|(c0, c1)| s >= c0 && s <= c1);
-                let reach = if carved { DIRT_HALF_WIDTH } else { half_width(f.deck) + 3.0 + (f.centre().y.max(0.0)) };
+                let reach = if carved { p.piece.half_width(Surface::Dirt) } else { f.half_width + 3.0 + (f.centre().y.max(0.0)) };
                 obstacles.push((j, Vec2::new(f.horiz.x, f.horiz.z), reach));
             }
         }
@@ -274,7 +307,8 @@ impl Corridors {
                 // its deck, and a trench under the gap before a landing.
                 if p.piece.deck == Surface::Dirt && !matches!(p.piece.kind, Kind::Transition { .. }) {
                     let n = (libm::ceilf(d1 / STEP) as usize).max(1) + 2;
-                    let widths = vec![[DIRT_HALF_WIDTH, DIRT_HALF_WIDTH]; n];
+                    let hw = p.piece.half_width(Surface::Dirt);
+                    let widths = vec![[hw, hw]; n];
                     let base = Cut {
                         placed: p.clone(),
                         range: (d0, d1),
@@ -301,7 +335,7 @@ impl Corridors {
             let ext0 = if range.0 > d0 + 1e-3 || joined_before.is_some_and(swept_end) { APRON } else { 0.0 };
             let ext1 = if range.1 < d1 - 1e-3 || joined_after.is_some_and(swept_start) { APRON } else { 0.0 };
             let turn = match p.piece.kind {
-                Kind::Turn { side, .. } => side.sign(),
+                Kind::Turn { side, .. } | Kind::Curve { side, .. } => side.sign(),
                 _ => 0.0,
             };
             let mut cut = Cut {
@@ -319,7 +353,7 @@ impl Corridors {
             let n = (libm::ceilf((cut.end() - cut.start()) / STEP) as usize).max(1);
             for k in 0..=n + 1 {
                 let s = cut.start() + k as f32 * STEP;
-                let base = Self::base_widths(p, range, s, turn, cut_seed);
+                let (base, nominal) = Self::base_widths(p, range, s, turn, cut_seed);
                 let mut w = base;
                 // Widening yields to other pieces nearby.
                 let f = p.frame(s.clamp(0.0, p.length));
@@ -332,7 +366,7 @@ impl Corridors {
                     let v = q - c;
                     let side = if v.dot(left) >= 0.0 { 0 } else { 1 };
                     let limit = v.length() - reach - CLEARANCE;
-                    let floor = DIRT_HALF_WIDTH.min(base[side]);
+                    let floor = nominal.min(base[side]);
                     w[side] = w[side].min(limit.max(floor));
                 }
                 cut.widths.push(w);
@@ -342,26 +376,33 @@ impl Corridors {
         Self::index(cuts)
     }
 
-    /// Floor half-widths `[left, right]` of piece `p` at `s`, before other pieces are considered.
-    fn base_widths(p: &Placed, range: (f32, f32), s: f32, turn: f32, seed: u32) -> [f32; 2] {
+    /// Floor half-widths `[left, right]` of piece `p` at `s`, before other pieces are considered,
+    /// and the width it never narrows below for them: the track's own, or the road's where a
+    /// transition meets one wider than a snow track.
+    fn base_widths(p: &Placed, range: (f32, f32), s: f32, turn: f32, seed: u32) -> ([f32; 2], f32) {
         let (c0, c1) = range;
-        // A transition narrows to the road at its middle.
+        // A transition narrows to the road at its middle (or widens from it, on a snow track
+        // narrower than the road).
+        let dirt = p.piece.half_width(Surface::Dirt);
+        let road = half_width(Surface::Road);
         let base = match p.piece.kind {
-            Kind::Transition { to: Surface::Dirt } => {
-                half_width(Surface::Road) + (DIRT_HALF_WIDTH - half_width(Surface::Road)) * smootherstep(c0, c1, s)
-            }
-            Kind::Transition { .. } => {
-                half_width(Surface::Road) + (DIRT_HALF_WIDTH - half_width(Surface::Road)) * (1.0 - smootherstep(c0, c1, s))
-            }
-            _ => DIRT_HALF_WIDTH,
+            Kind::Transition { to: Surface::Dirt } => road + (dirt - road) * smootherstep(c0, c1, s),
+            Kind::Transition { .. } => road + (dirt - road) * (1.0 - smootherstep(c0, c1, s)),
+            _ => dirt,
         };
         let mut w = [base, base];
-        if let Kind::Turn { size, bank_deg, .. } = p.piece.kind {
+        let turn_shape = match p.piece.kind {
+            Kind::Turn { size, bank_deg, .. } | Kind::Curve { size, bank_deg, .. } => Some((size, bank_deg)),
+            _ => None,
+        };
+        if let Some((size, bank_deg)) = turn_shape {
             let t = libm::sinf(PI * (s / p.length).clamp(0.0, 1.0));
             let bump = t * t;
-            let out = if bank_deg != 0.0 { BANKED_WIDEN } else { OUTSIDE_WIDEN[(size as usize).min(3)] };
+            // A narrow track widens in proportion.
+            let narrow = dirt / DIRT_HALF_WIDTH;
+            let out = narrow * if bank_deg != 0.0 { BANKED_WIDEN } else { OUTSIDE_WIDEN[(size as usize).min(3)] };
             let r = turn_radius(size);
-            let inside = INSIDE_WIDEN.min(r - 3.0 - DIRT_HALF_WIDTH).max(0.0);
+            let inside = INSIDE_WIDEN.min(r - 3.0 - dirt).max(0.0);
             let (outer, inner) = if turn > 0.0 { (1, 0) } else { (0, 1) };
             w[outer] += out * bump;
             w[inner] += inside * bump;
@@ -375,7 +416,7 @@ impl Corridors {
                 *wk += EDGE_WANDER * n * fade;
             }
         }
-        w
+        (w, dirt.max(base))
     }
 
     fn index(cuts: Vec<Cut>) -> Self {

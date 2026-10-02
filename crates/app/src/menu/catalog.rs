@@ -101,6 +101,8 @@ impl TrackInfo {
 fn pace(name: &str) -> f32 {
     match name.to_lowercase().as_str() {
         "noctis" | "noctis neige" => 0.87,
+        // The ice planet's: the test driver laps it in 28.4 to 33 s, so its gold is 27.3 s.
+        "sulcus" => 0.98,
         "marineris" => 1.357,
         _ => 1.0,
     }

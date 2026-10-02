@@ -36,7 +36,7 @@ const SLEEVE_R: f32 = 0.62;
 /// horizontal position `p`), what the eye sees into `decor` (standing on the ground at
 /// `terrain(p)`).
 pub(crate) fn gate(b: &mut MeshBuilder, decor: &mut MeshBuilder, f: &Frame, ground: impl Fn(Vec3) -> f32, terrain: impl Fn(Vec3) -> f32) {
-    let post_u = kit::gate_post_u(f.deck);
+    let post_u = kit::gate_post_u(f);
     let deck_y = f.centre().y;
     let top = deck_y + GATE_BEAM_BOTTOM + GATE_BEAM_HEIGHT;
     // The hulls: the posts and the beam.

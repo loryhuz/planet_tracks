@@ -170,7 +170,7 @@ fn berms_have_no_hump() {
         for quarters in [1, 2] {
             for (deck, min_radius) in [(Surface::Dirt, 120.0), (Surface::Road, 70.0)] {
                 let kind = Kind::berm(size, Side::Left, quarters, 18.0);
-                let p = Placed::new(Piece { kind, deck, gate: None, edge: Default::default(), boost: false }, Connector::entering((0, 0), 0, Heading::North));
+                let p = Placed::new(Piece { kind, deck, gate: None, edge: Default::default(), boost: false, narrow: false }, Connector::entering((0, 0), 0, Heading::North));
                 let h = 0.5;
                 let y = |s: f32| p.frame(s).centre().y;
                 let mut s = h;

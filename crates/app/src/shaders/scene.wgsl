@@ -286,7 +286,7 @@ const ROAD_DUST: vec3<f32> = vec3<f32>(0.36, 0.13, 0.055);
 // Martian textures' relief. Deep powder off the track, packed snow on the dirt tracks, bare ice
 // on the road decks, dark rock.
 const SNOW: vec3<f32> = vec3<f32>(0.56, 0.60, 0.66);
-const SNOW_BANK: vec3<f32> = vec3<f32>(0.42, 0.46, 0.53);
+const SNOW_BANK: vec3<f32> = vec3<f32>(0.50, 0.54, 0.61);
 const PACKED_SNOW: vec3<f32> = vec3<f32>(0.22, 0.25, 0.32);
 const ICE: vec3<f32> = vec3<f32>(0.13, 0.27, 0.42);
 const ICE_ROCK: vec3<f32> = vec3<f32>(0.16, 0.165, 0.18);

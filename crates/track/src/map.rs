@@ -32,7 +32,8 @@
 //! [`crate::kit`] for the grid), the level of that entry (`level`, 8 m each) and the heading of
 //! the entry (`rotation`: quarter turns to the left from north, 0 = +Z, 1 = +X, 2 = −Z, 3 = −X).
 //! Blocks are directed: a car drives them from their entry to their exit. `variant` picks the
-//! deck: `"road"` (the default) or `"dirt"`; a road's edges ([`Edge`]) can be picked with
+//! deck: `"road"` (the default), `"dirt"` or `"snow"` (a dirt deck 16 m wide instead of 28, the
+//! ice planet's snow track; on `to_dirt`/`to_road`, the dirt half); a road's edges ([`Edge`]) can be picked with
 //! `"sandbags"` (a row of sandbags, the tarp staked) or `"bumpers"` (red and white tubes, the tarp
 //! strapped); a plain road has bumpers where it leaves the ground and sandbags where it stays on
 //! it. `"booster"` paints arrows along a road (any block but the gates and the transitions, its
@@ -60,6 +61,11 @@
 //! | `kicker` | one cell rising to a [`KICKER_DEG`]° lip: a big jump, ending on a gap |
 //! | `kicker_landingN_downL` | the landing hill that catches a kicker, placed like `landingN_downL` |
 //! | `landingN_downL_left/right`, `kicker_landingN_downL_left/right` | the same landings bending one cell to that side over their length, an S under the flight (see [`Kind::Landing`]) |
+//! | `curveN_left/right` | progressive quarter turn on `N × N` cells (N ≥ 2): its curvature grows to the apex and dies away, for drifting on ice ([`Kind::Curve`]) |
+//! | `curvebermN_left/right` | the same, its outside raised by [`BANK_DEG`] |
+//! | `sbendN_left/right` | an S one cell to that side over `N` cells (N ≥ 2), to flip a drift ([`Kind::Shift`]) |
+//! | `snakeN` | `N` cells of swerves, one per cell, left and right in turn: tight and winding, for snow ([`Kind::Snake`]) |
+//! | `…_upL`, `…_downL` | after `turnN_left/right`, `bankedN`, `bermN`, `ubermN`, `curveN` or `curvebermN`: the same turn climbing or descending `L` levels (1 or 2) as it turns, with a slope's profile; only those riding without a hump exist ([`kit::climb_fits`]) |
 
 use std::fmt;
 
@@ -255,19 +261,35 @@ fn parse_shape(id: &str) -> Option<Kind> {
     }
     let (head, tail) = id.split_once('_').unwrap_or((id, ""));
     let (name, n) = split_number(head);
+    // A turn may climb or descend as it turns: `_left_up1`, `_right_down2`.
+    let (tail, climb) = match tail.split_once('_') {
+        Some((side @ ("left" | "right"), rest)) if matches!(name, "turn" | "banked" | "berm" | "uberm" | "curve" | "curveberm") => {
+            let levels = |prefix: &str| rest.strip_prefix(prefix).and_then(|l| l.parse::<i32>().ok()).filter(|l| (1..=2).contains(l));
+            match (levels("up"), levels("down")) {
+                (Some(l), _) => (side, l),
+                (_, Some(l)) => (side, -l),
+                _ => return None,
+            }
+        }
+        _ => (tail, 0),
+    };
     let side = match tail {
         "left" => Some(Side::Left),
         "right" => Some(Side::Right),
         _ => None,
     };
     let levels = |prefix: &str| tail.strip_prefix(prefix).and_then(|l| l.parse::<i32>().ok()).filter(|l| (1..=8).contains(l));
-    Some(match (name, n, side) {
+    let kind = Some(match (name, n, side) {
         ("straight", n, None) if tail.is_empty() => Kind::Straight { cells: n.unwrap_or(1) },
         ("whoops", Some(n), None) if tail.is_empty() => Kind::Whoops { cells: n, bumps: n, height: WHOOPS_HEIGHT },
         ("turn", Some(n), Some(s)) => Kind::turn(n, s),
         ("banked", Some(n), Some(s)) => Kind::banked(n, s, BANK_DEG),
         ("berm", Some(n), Some(s)) => Kind::berm(n, s, 1, BANK_DEG),
         ("uberm", Some(n), Some(s)) => Kind::berm(n, s, 2, BANK_DEG),
+        ("curve", Some(n), Some(side)) if n >= 2 => Kind::Curve { size: n, side, bank_deg: 0.0, pivot: Pivot::Centre, levels: 0 },
+        ("curveberm", Some(n), Some(side)) if n >= 2 => Kind::Curve { size: n, side, bank_deg: BANK_DEG, pivot: Pivot::Inner, levels: 0 },
+        ("sbend", Some(n), Some(side)) if n >= 2 => Kind::Shift { cells: n, shift: if side == Side::Left { 1 } else { -1 } },
+        ("snake", Some(n), None) if tail.is_empty() => Kind::Snake { cells: n },
         ("slope", Some(n), None) => match (levels("up"), levels("down")) {
             (Some(l), _) => Kind::Slope { cells: n, levels: l },
             (_, Some(l)) => Kind::Slope { cells: n, levels: -l },
@@ -284,7 +306,12 @@ fn parse_shape(id: &str) -> Option<Kind> {
             Kind::Landing { cells: n, levels: -levels, gap: LANDING_GAP, epsilon: LANDING_EPSILON, outrun: LANDING_OUTRUN, shift }
         }
         _ => return None,
-    })
+    })?;
+    if climb == 0 {
+        return Some(kind);
+    }
+    let climbing = kind.climbing(climb);
+    kit::climb_fits(climbing).then_some(climbing)
 }
 
 /// The piece a catalogue id and variant stand for.
@@ -295,10 +322,13 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
         _ => None,
     };
     if let Some((deck, to)) = transition {
-        return match variant {
-            None => Ok(Piece { kind: Kind::Transition { to }, deck, gate: None, edge: Edge::Auto, boost: false }),
-            Some(_) => Err(BlockError::BadVariant),
+        // `snow`: the dirt half is a narrow snow track.
+        let narrow = match variant {
+            None => false,
+            Some("snow") => true,
+            Some(_) => return Err(BlockError::BadVariant),
         };
+        return Ok(Piece { kind: Kind::Transition { to }, deck, gate: None, edge: Edge::Auto, boost: false, narrow });
     }
     let gate = match id {
         "start" => Some(Gate::Start),
@@ -311,17 +341,18 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
         None | Some("road") => (Surface::Road, Edge::Auto, false),
         Some("sandbags") => (Surface::Road, Edge::Sandbags, false),
         Some("bumpers") => (Surface::Road, Edge::Bumpers, false),
-        Some("dirt") => (Surface::Dirt, Edge::Auto, false),
+        Some("dirt") | Some("snow") => (Surface::Dirt, Edge::Auto, false),
         // A gate's deck carries its line and word: no arrows on it.
         Some("booster") if gate.is_none() => (Surface::Road, Edge::Auto, true),
         Some(_) => return Err(BlockError::BadVariant),
     };
-    Ok(Piece { kind, deck, gate, edge, boost })
+    Ok(Piece { kind, deck, gate, edge, boost, narrow: variant == Some("snow") })
 }
 
 /// The catalogue id and variant of a piece, or `None` when the catalogue has no such block.
 pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
     let dirt = match (piece.deck, piece.edge, piece.boost) {
+        (Surface::Dirt, _, false) if piece.narrow => Some("snow".to_string()),
         (Surface::Dirt, _, false) => Some("dirt".to_string()),
         (Surface::Road, Edge::Auto, true) if piece.gate.is_none() && !matches!(piece.kind, Kind::Transition { .. }) => {
             Some("booster".to_string())
@@ -345,15 +376,32 @@ pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
     let id = match piece.kind {
         Kind::Straight { cells: 1 } => "straight".into(),
         Kind::Straight { cells } => format!("straight{cells}"),
-        Kind::Turn { size, side, quarters: 1, bank_deg: 0.0, pivot: Pivot::Centre } => format!("turn{size}_{}", side_name(side)),
-        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Centre } if bank_deg == BANK_DEG => format!("banked{size}_{}", side_name(side)),
-        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Inner } if bank_deg == BANK_DEG => format!("berm{size}_{}", side_name(side)),
-        Kind::Turn { size, side, quarters: 2, bank_deg, pivot: Pivot::Inner } if bank_deg == BANK_DEG => format!("uberm{size}_{}", side_name(side)),
+        Kind::Turn { size, side, quarters: 1, bank_deg: 0.0, pivot: Pivot::Centre, levels } => format!("turn{size}_{}{}", side_name(side), climb_suffix(levels)),
+        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Centre, levels } if bank_deg == BANK_DEG => {
+            format!("banked{size}_{}{}", side_name(side), climb_suffix(levels))
+        }
+        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Inner, levels } if bank_deg == BANK_DEG => {
+            format!("berm{size}_{}{}", side_name(side), climb_suffix(levels))
+        }
+        Kind::Turn { size, side, quarters: 2, bank_deg, pivot: Pivot::Inner, levels } if bank_deg == BANK_DEG => {
+            format!("uberm{size}_{}{}", side_name(side), climb_suffix(levels))
+        }
         Kind::Slope { cells, levels } if levels > 0 => format!("slope{cells}_up{levels}"),
         Kind::Slope { cells, levels } if levels < 0 => format!("slope{cells}_down{}", -levels),
         Kind::Whoops { cells, bumps, height } if bumps == cells && height == WHOOPS_HEIGHT => format!("whoops{cells}"),
-        Kind::Transition { to: Surface::Dirt } if piece.deck == Surface::Road => return Some(("to_dirt".into(), None)),
-        Kind::Transition { to: Surface::Road } if piece.deck == Surface::Dirt => return Some(("to_road".into(), None)),
+        Kind::Transition { to: Surface::Dirt } if piece.deck == Surface::Road => {
+            return Some(("to_dirt".into(), piece.narrow.then(|| "snow".to_string())));
+        }
+        Kind::Transition { to: Surface::Road } if piece.deck == Surface::Dirt => {
+            return Some(("to_road".into(), piece.narrow.then(|| "snow".to_string())));
+        }
+        Kind::Curve { size, side, bank_deg: 0.0, pivot: Pivot::Centre, levels } => format!("curve{size}_{}{}", side_name(side), climb_suffix(levels)),
+        Kind::Curve { size, side, bank_deg, pivot: Pivot::Inner, levels } if bank_deg == BANK_DEG => {
+            format!("curveberm{size}_{}{}", side_name(side), climb_suffix(levels))
+        }
+        Kind::Shift { cells, shift: 1 } => format!("sbend{cells}_left"),
+        Kind::Shift { cells, shift: -1 } => format!("sbend{cells}_right"),
+        Kind::Snake { cells } => format!("snake{cells}"),
         Kind::JumpRamp { lip_deg } if lip_deg == LIP_DEG => "jump_ramp".into(),
         Kind::JumpRamp { lip_deg } if lip_deg == KICKER_DEG => "kicker".into(),
         Kind::Landing { cells, levels, gap, epsilon, outrun, shift }
@@ -369,6 +417,15 @@ pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
         _ => return None,
     };
     Some((id, dirt))
+}
+
+/// The id suffix of a turn climbing or descending `levels`.
+fn climb_suffix(levels: i32) -> String {
+    match levels {
+        0 => String::new(),
+        l if l > 0 => format!("_up{l}"),
+        l => format!("_down{}", -l),
+    }
 }
 
 /// The id suffix of a landing bending `shift` cells to the side.
@@ -391,6 +448,28 @@ pub fn catalogue() -> Vec<String> {
                 out.push(format!("{kind}{n}_{side}"));
             }
         }
+    }
+    // Turns that climb or descend as they turn.
+    for (kind, sizes) in [("turn", 2..=3), ("berm", 2..=3), ("uberm", 1..=2), ("curve", 2..=4), ("curveberm", 2..=4)] {
+        for n in sizes {
+            for side in ["left", "right"] {
+                for climb in ["up1", "up2", "down1", "down2"] {
+                    let id = format!("{kind}{n}_{side}_{climb}");
+                    if parse_shape(&id).is_some() {
+                        out.push(id);
+                    }
+                }
+            }
+        }
+    }
+    // The ice planet's shapes (docs/blocks-ice.md).
+    for n in 2..=4 {
+        for kind in ["curve", "curveberm", "sbend"] {
+            for side in ["left", "right"] {
+                out.push(format!("{kind}{n}_{side}"));
+            }
+        }
+        out.push(format!("snake{n}"));
     }
     for n in 1..=4 {
         for l in 1..=2 {

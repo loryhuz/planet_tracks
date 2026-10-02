@@ -36,7 +36,13 @@ link the main checkout's `track` (missing a new block or surface).
   `BUILTIN_MAPS`. A map's `planet` (`planet ice` in a `.chain`, Mars when left out) picks its car
   (`physics::car_for`), its look (scene.wgsl's `frame.misc.w`) and its planet in the menu:
   `noctis_neige.chain`, the ice planet's prototype, is Noctis's layout where the road decks are
-  bare ice, the dirt packed snow and the ground deep powder (flat colours, no storm or weather). `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
+  bare ice, the dirt packed snow and the ground deep powder (flat colours, no storm or weather).
+  The ice planet has blocks of its own (`docs/blocks-ice.md`, its shape sheet `docs/blocks-ice/`
+  drawn by the same `shapes` example): progressive turns for drifting (`curveN`, `curvebermN`),
+  S-bends (`sbendN`), snakes (`snakeN`) and a 16 m snow track (variant `snow`); any turn can
+  climb or descend as it turns (`curve3_left_down2`, `uberm2_right_up1`; `kit::climb_fits`
+  refuses those that would hump). `sulcus.chain` is its first circuit built from them, up and
+  down a mesa and a plateau. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
   test autopilot over a map (with the two numbers it brakes for the bends). The menu's series:
   easy circuits stay short (30 s), the hard series' (`series()` in `crates/app/src/menu/catalog.rs`,
   Marineris first) run 45 s to a minute, a roller coaster on scaffolding with boosters. At

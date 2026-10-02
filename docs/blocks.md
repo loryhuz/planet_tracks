@@ -56,13 +56,16 @@ boudins, ou terre : « Les variantes »). Chaque variante s'applique à toutes l
 
 - La hauteur se compte en **niveaux de 8 m**. Chaque bloc commence et finit **à plat, à un
   niveau entier**, au milieu d'un bord de cellule.
-- On ne change de niveau qu'avec une pente (`slopeN_upL`, `slopeN_downL`) ou la réception d'un
-  saut. L'angle n'est pas libre : il découle de `N` et `L`. Deux pentes à la suite repassent par
-  le plat entre elles.
+- On change de niveau avec une pente (`slopeN_upL`, `slopeN_downL`), la réception d'un saut ou
+  un virage qui monte ou descend (`turn2_left_up1`, `berm3_right_down2`, `uberm2_left_up1`… :
+  le suffixe `_upL` ou `_downL`, un ou deux niveaux, voir le kit de la glace,
+  `docs/blocks-ice.md`). L'angle n'est pas libre : il découle de la longueur et de `L`. Deux pentes
+  à la suite repassent par le plat entre elles.
 - Le dévers des virages relevés vaut 18° (moins sur la terre dans les petits virages). Il se met
   en place et disparaît à l'intérieur du bloc.
-- Il n'y a donc ni virage qui monte, ni pente ou dévers qui continue d'un bloc à l'autre, ni angle
-  hors de la grille.
+- Il n'y a donc ni pente ou dévers qui continue d'un bloc à l'autre, ni angle hors de la grille ;
+  un virage trop court pour monter sans bosse (`turn1`, `uberm1`, ou un `berm2` qui monterait
+  de deux niveaux, son dévers et sa montée s'ajoutant) n'existe pas en version qui monte.
 
 ### Comment lire les vignettes
 

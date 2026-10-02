@@ -252,3 +252,45 @@ pub(crate) fn add_post(b: &mut MeshBuilder, a: Vec3, c: Vec3, r: f32, sides: u32
         b.tri(centre, rim[k], rim[(k + 1) % sides as usize], surface);
     }
 }
+
+/// A hose: a smooth tube of radius `r` along the polyline `pts`, `sides` faces around it, its
+/// rings shared from one segment to the next (bends without gaps), shaded round, its ends open.
+/// Its vertices' `uv` are the distance along it from `pts[0]` and its length, metres.
+pub(crate) fn add_hose(b: &mut MeshBuilder, pts: &[Vec3], r: f32, sides: u32, surface: Surface, color: [f32; 3]) {
+    let n = pts.len();
+    if n < 2 {
+        return;
+    }
+    let mut along = vec![0.0f32; n];
+    for i in 1..n {
+        along[i] = along[i - 1] + pts[i].distance(pts[i - 1]);
+    }
+    let length = along[n - 1];
+    let tangent = |i: usize| (pts[(i + 1).min(n - 1)] - pts[i.saturating_sub(1)]).normalize_or(Vec3::Y);
+    // A frame carried along the hose (parallel transport), so the rings do not twist.
+    let t0 = tangent(0);
+    let mut e1 = t0.cross(if t0.y.abs() < 0.9 { Vec3::Y } else { Vec3::X }).normalize();
+    let mut rings: Vec<Vec<u32>> = Vec::with_capacity(n);
+    for (i, &p) in pts.iter().enumerate() {
+        let t = tangent(i);
+        e1 = (e1 - t * e1.dot(t)).normalize_or(t.cross(Vec3::X).normalize_or(Vec3::Z));
+        let e2 = t.cross(e1);
+        rings.push(
+            (0..sides)
+                .map(|k| {
+                    let (s, c) = libm::sincosf(core::f32::consts::TAU * k as f32 / sides as f32);
+                    let out = e1 * c + e2 * s;
+                    b.vertex_facing(p + out * r, out, color, [along[i], length])
+                })
+                .collect(),
+        );
+    }
+    for i in 0..n - 1 {
+        let (ra, rc) = (&rings[i], &rings[i + 1]);
+        for k in 0..sides as usize {
+            let m = (k + 1) % sides as usize;
+            b.tri(ra[k], ra[m], rc[k], surface);
+            b.tri(ra[m], rc[m], rc[k], surface);
+        }
+    }
+}

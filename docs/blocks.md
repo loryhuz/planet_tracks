@@ -25,7 +25,7 @@ https://claude.ai/artifact/QNgJoQ6GnMenV8nMVZ1USZ
 
 | Bloc | Ce que c'est |
 |---|---|
-| `start`, `checkpoint`, `finish` | une cellule droite avec son portique de départ, de passage ou d'arrivée |
+| `start`, `checkpoint`, `finish` | une cellule droite avec son portique de départ, de passage ou d'arrivée (voir « Les portiques ») |
 | `straight`, `straightN` | ligne droite d'une ou `N` cellules |
 | `turnN_left`, `turnN_right` | quart de virage sur `N × N` cellules (rayons 16, 48, 80 m pour N = 1, 2, 3) |
 | `bankedN_left/right` | quart de virage relevé de 18° autour de son axe (pour les plateformes) |
@@ -138,6 +138,31 @@ Un couloir creusé dans le terrain, large, relevé dans les virages, aux bords i
 - Les tubes des pilotis sont solides. Les sangles, sardines et boucles ne sont que dessinées. Une
   voiture tombée d'une route surélevée peut maintenant passer dessous.
 
+## Les portiques
+
+Le départ, les checkpoints et l'arrivée ont le même portique, construit comme les routes
+(moodboard 07, `crates/track/src/gates.rs`) :
+
+- une arche de gros tubes de plastique rouge (28 cm de rayon), deux côte à côte dans chaque
+  jambe et le long du haut, cintrés aux angles, tenus par des colliers gris ;
+- des manchons de toile blanche sur le haut des jambes ;
+- sous le haut, une banderole de toile blanche de 1,8 m : un damier à chaque bout, « PLANET
+  TRACKS » au milieu au pochoir (Saira Stencil One, la police du logo), un trait orange dessous,
+  lisible des deux côtés ;
+- quatre gros sacs de sable autour du pied de chaque jambe, et deux sangles orange par jambe vers
+  des piquets plantés dans le sol.
+
+Ce qui distingue les portiques est peint sur la bâche, à lire par le pilote qui arrive :
+
+- départ : une ligne à damier, et « DÉPART » en grandes lettres au pochoir (15 × 3 m) 3 m avant ;
+- checkpoint : une ligne orange, et « CHECKPOINT » ;
+- arrivée : une ligne à damier, et « ARRIVÉE ».
+
+Sur la terre, il n'y a ni ligne ni mot : seul le portique, plus large, se dresse sur les talus.
+
+Pour la voiture, rien ne change : elle rencontre les poteaux et la poutre qu'avaient les anciens
+portiques, en boîtes invisibles. L'arche, la banderole et les accessoires ne sont que dessinés.
+
 ## Matières
 
 Textures cuites par `tools/textures/bake.py` à partir de `art/textures/src/` :
@@ -145,6 +170,8 @@ Textures cuites par `tools/textures/bake.py` à partir de `art/textures/src/` :
 - `tarp` (couche 0) : la bâche des chaussées et des dalles ;
 - `sandbag` (couche 8) : la toile des sacs ;
 - `webbing` (couche 9) : la sangle orange ;
+- `signs` (couche 12) : les inscriptions des portiques, dessinées par `tools/textures/signs.py`
+  (« PLANET TRACKS », « DÉPART », « ARRIVÉE », « CHECKPOINT ») ;
 - `galvanized` (couche 10) et `rust` (couche 11) : l'acier galvanisé des piquets et des boucles,
   avec ses cristaux de zinc, et l'acier rouillé de quelques piquets. L'acier est rendu comme du
   métal nu : il reflète le ciel au-dessus de l'horizon et le sol plus sombre en dessous, chaque
@@ -158,4 +185,4 @@ Les tubes sont en plastique brillant, avec leurs colliers gris peints aux extré
 
 `art/roads/in-game/` : vue aérienne et dessous du tablier de Jezero, dessous du kicker de
 Noctis, route au sol en sacs (A, au ras du sol, de près et vue d'en haut) et en boudins (B), route
-surélevée vue du tablier.
+surélevée vue du tablier ; les portiques (départ, checkpoint, arrivée, sur la terre, de dos).

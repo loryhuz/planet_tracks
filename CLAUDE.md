@@ -101,7 +101,8 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   from the generated photos in `art/textures/src/`: one tile, seamless, delit, recoloured toward
   the palette, with a normal and height map, per material. Rerun
   `blender -b -P tools/textures/bake.py -- art/textures/src crates/app/assets/textures art/textures/preview`
-  after changing a source or a setting; the layer order is `scene.wgsl`'s `L_*`.
+  after changing a source or a setting; the layer order is `scene.wgsl`'s `L_*`. The gates'
+  lettering (one more layer) is drawn by `/usr/bin/python3 tools/textures/signs.py`.
 - `tools/audio/prepare.py` — turns the ElevenLabs sounds in `art/audio/src/` (prompts and settings
   in its `SOURCES`) into the seamless, levelled loops the app embeds (`crates/app/assets/audio/`):
   `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`.

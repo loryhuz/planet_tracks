@@ -48,7 +48,9 @@ struct Object {
 // paint coloured by the livery texture at `uv`, 20 concrete, 21 dug earth, 22 rock, 23 tarp
 // (slabs of raised roads), 24 plastic (stilts; `uv` metres along the tube, its length), 25
 // inflatable bumpers, 26 sandbags, 27 straps (`uv` metres along), 28 steel (stakes, buckles:
-// galvanised, or rusty by a reddish vertex colour).
+// galvanised, or rusty by a reddish vertex colour), 29 the gates' banner (`uv` metres right of
+// its middle, down from its top). A gate block's road deck carries in its colour what is painted
+// on it (track's kit.rs gate_deck_colour).
 // The track's ground (kind 2) blends from natural ground to dug banks and driven dirt with
 // `dirt` (0, ½, 1), and lays ruts along the track coordinates `uv` (metres along, across).
 struct VsIn {
@@ -162,6 +164,9 @@ const L_SANDBAG: i32 = 8;
 const L_WEBBING: i32 = 9;
 const L_GALVANIZED: i32 = 10;
 const L_RUST: i32 = 11;
+// The gates' lettering (tools/textures/signs.py): five rows, each five times as wide as tall,
+// the ink in alpha: PLANET, TRACKS (side by side on the banner), DÉPART, ARRIVÉE, CHECKPOINT.
+const L_SIGNS: i32 = 12;
 const TILE_TARP: f32 = 1.6;
 const TILE_DIRT: f32 = 4.0;
 const TILE_EARTH: f32 = 2.5;
@@ -208,6 +213,28 @@ const BUMPER_WHITE: vec3<f32> = vec3<f32>(0.70, 0.68, 0.64);
 // Orange webbing of the straps, and the steel of stakes and buckles.
 const STRAP_ORANGE: vec3<f32> = vec3<f32>(0.62, 0.17, 0.015);
 const STEEL: vec3<f32> = vec3<f32>(0.4, 0.4, 0.42);
+
+// The ink of row `row` of the signs layer at `t` (0..1 across and down the row), with `gx`, `gy`
+// the screen derivatives of `t`; none outside the row.
+fn sign_ink(row: f32, t: vec2<f32>, gx: vec2<f32>, gy: vec2<f32>) -> f32 {
+    if any(t < vec2<f32>(0.0)) || any(t > vec2<f32>(1.0)) {
+        return 0.0;
+    }
+    let s = vec2<f32>(1.0, 0.2);
+    return textureSampleGrad(surf_colour, surf_sampler, vec2<f32>(t.x, (row + t.y) * 0.2), L_SIGNS, gx * s, gy * s).a;
+}
+
+// A checkerboard of `size` squares at `p`, antialiased over `aa` (metres a pixel covers): 1 on
+// the dark squares.
+fn checkers(p: vec2<f32>, size: f32, aa: f32) -> f32 {
+    let c = p / size;
+    let f = abs(fract(c) - 0.5);
+    let w = max(aa / size, 1e-4);
+    let sx = smoothstep(0.25 - w, 0.25 + w, f.x) * 2.0 - 1.0;
+    let sy = smoothstep(0.25 - w, 0.25 + w, f.y) * 2.0 - 1.0;
+    let parity = select(1.0, -1.0, (i32(floor(c.x + 0.5)) + i32(floor(c.y + 0.5))) % 2 == 0);
+    return clamp(0.5 + 0.5 * sx * sy * parity, 0.0, 1.0);
+}
 
 // The panel of deck tarp at track coordinates `uv` (metres along, across): its length across and
 // its index along (xy), and the point's place in it, metres from its corner (zw).
@@ -631,6 +658,8 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     let uv_aa = max(fwidth(in.uv.x), fwidth(in.uv.y));
     let along_dx = dpdx(in.uv.x);
     let along_dy = dpdy(in.uv.x);
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
     let weld = deck_weld(in.uv);
     let dwx = dpdx(weld);
     let dwy = dpdy(weld);
@@ -742,9 +771,12 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let band = 1.0 - smoothstep(0.06, 0.06 + aa, edge);
         tint *= mix(1.0, (1.0 + 0.05 * band) * (1.0 - 0.3 * line), fine);
         a.colour *= tint;
+        // A gate block's deck says what is painted on it (track's kit.rs gate_deck_colour).
+        let gate_deck = in.color.r < 0.005;
+        let code = u32(floor(in.color.b * 16.0));
         // Stencilled marks: the kit's edge lines painted orange, black dashes inside them.
         let grain = clamp(lum(a.colour) / 0.45, 0.7, 1.3);
-        let paint = smoothstep(0.3, 0.5, lum(in.color));
+        let paint = select(smoothstep(0.3, 0.5, lum(in.color)), select(0.0, 1.0, (code & 8u) != 0u), gate_deck);
         a.colour = mix(a.colour, STENCIL_ORANGE * (0.8 + 0.2 * grain), paint);
         let u = abs(in.uv.y);
         let dash = (smoothstep(KIT_HALF_WIDTH - 1.25 - aa, KIT_HALF_WIDTH - 1.25 + aa, u) - smoothstep(KIT_HALF_WIDTH - 0.95 - aa, KIT_HALF_WIDTH - 0.95 + aa, u))
@@ -752,7 +784,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         a.colour = mix(a.colour, STENCIL_BLACK, 0.9 * dash);
         // The tarp's edges (the kit tells them apart by the blue of the vertex colour): strapped
         // down under bumpers, or pinned by stakes in front of a row of sandbags.
-        let strapped = in.color.b - in.color.r > 0.02;
+        let strapped = select(in.color.b - in.color.r > 0.02, (code & 4u) != 0u, gate_deck);
         var fixings = 0.0;
         if strapped {
             // Eyelets every 0.9 m, and every 4 m a strap across the edge to the bumper's own
@@ -782,6 +814,32 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             let hole = 1.0 - smoothstep(0.03, 0.03 + aa, r);
             a.colour = mix(a.colour, mix(vec3<f32>(0.42, 0.36, 0.25), vec3<f32>(0.03), hole), ring);
             fixings = ring;
+        }
+        if gate_deck {
+            // The gate's line across the deck (`y` metres along from it), checkered at the start
+            // and the finish, orange at a checkpoint; before it, its word in big stencilled
+            // letters, read by a driver coming through: DÉPART, CHECKPOINT, ARRIVÉE.
+            let kind = code & 3u;
+            let y = in.uv.x - in.color.g * 8192.0;
+            let x = in.uv.y;
+            let worn = 0.85 + 0.15 * value_noise(xz * 3.7);
+            if kind == 2u {
+                let band = 1.0 - smoothstep(0.35 - aa, 0.35 + aa, abs(y));
+                a.colour = mix(a.colour, STENCIL_ORANGE * (0.8 + 0.2 * grain), band * worn);
+            } else {
+                let band = 1.0 - smoothstep(0.6 - aa, 0.6 + aa, abs(y));
+                let dark = checkers(vec2<f32>(x, y + 0.6), 0.4, aa);
+                let white = vec3<f32>(0.86, 0.85, 0.82) * grain;
+                a.colour = mix(a.colour, mix(white, STENCIL_BLACK, dark), band * worn);
+            }
+            // The word: 15 m by 3 m, 3 m before the line; its rows in the signs layer.
+            let row = select(select(2.0, 3.0, kind == 3u), 4.0, kind == 2u);
+            let t = vec2<f32>((7.5 - x) / 15.0, (-3.0 - y) / 3.0);
+            let gx = vec2<f32>(-uv_dx.y / 15.0, -uv_dx.x / 3.0);
+            let gy = vec2<f32>(-uv_dy.y / 15.0, -uv_dy.x / 3.0);
+            let ink = sign_ink(row, t, gx, gy);
+            a.colour = mix(a.colour, STENCIL_BLACK, 0.92 * ink * worn);
+            fixings = max(fixings, ink);
         }
         // Rubber laid along the racing lines.
         let rub = rubber(in.uv);
@@ -891,6 +949,33 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let dust = 0.3 * smoothstep(0.4, 0.9, n.y);
         base = mix(t.colour, ROAD_DUST, dust);
         sheen = vec2<f32>(0.12, 20.0);
+    } else if k == 29u {
+        // The gates' banner: white fabric, checkered at both ends, PLANET TRACKS across its
+        // middle over an orange stripe, hemmed top and bottom, dusty toward its lower edge. `uv`:
+        // metres to the viewer's right of its middle, metres down from its top (1.8 m high).
+        let x = in.uv.x;
+        let y = in.uv.y;
+        let aa = max(uv_aa, 0.002);
+        let t = tex_at(L_TARP, in.uv / TILE_TARP, uv_dx / TILE_TARP, uv_dy / TILE_TARP, false);
+        let grain = clamp(lum(t.colour) / 0.45, 0.8, 1.2);
+        var c = vec3<f32>(0.80, 0.79, 0.76) * grain;
+        // The words: 9 m by 1.8 m each, side by side.
+        let tw = (x + 9.0) / 9.0;
+        let row = select(0.0, 1.0, tw >= 1.0);
+        let tt = vec2<f32>(tw - row, y / 1.8);
+        let gx = vec2<f32>(uv_dx.x / 9.0, uv_dx.y / 1.8);
+        let gy = vec2<f32>(uv_dy.x / 9.0, uv_dy.y / 1.8);
+        let ink = select(0.0, sign_ink(row, tt, gx, gy), abs(x) < 9.0);
+        let stripe = (smoothstep(1.43 - aa, 1.43 + aa, y) - smoothstep(1.53 - aa, 1.53 + aa, y)) * (1.0 - smoothstep(8.2 - aa, 8.2 + aa, abs(x)));
+        let ends = smoothstep(9.3 - aa, 9.3 + aa, abs(x));
+        let dark = checkers(vec2<f32>(x, y - 0.09), 0.45, aa) * ends;
+        let hem = 1.0 - smoothstep(0.05, 0.05 + aa, min(y, 1.8 - y));
+        c = mix(c, STENCIL_ORANGE, stripe);
+        c = mix(c, STENCIL_BLACK * 1.4, max(ink, dark));
+        c *= 1.0 - 0.25 * hem;
+        let dust = 0.3 * smoothstep(0.9, 1.8, y) * (0.6 + 0.4 * value_noise(in.world.xz * 0.7 + vec2<f32>(x)));
+        base = mix(c, ROAD_DUST * 1.3, dust);
+        sheen = vec2<f32>(0.05, 12.0);
     } else if k == 28u {
         // Steel: galvanised (its zinc spangle, hammer scuffs, dust in the scratches) or rusty,
         // told by the vertex colour (the kit's rust is reddish).

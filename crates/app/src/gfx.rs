@@ -169,6 +169,9 @@ pub mod kind {
     /// Steel of the stakes and buckles, textured and mirroring like bare metal: galvanised, or
     /// rusty when the vertex colour is reddish.
     pub const STEEL: u32 = 28;
+    /// The gates' banner: white fabric lettered from the signs texture, by the vertex uv (metres
+    /// to the viewer's right of its middle, metres down from its top; see track's gates.rs).
+    pub const BANNER: u32 = 29;
 }
 
 #[derive(Clone, Debug, Default)]

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod demo;
 pub mod dirt;
+pub mod gates;
 pub mod jump;
 pub mod kit;
 pub mod landform;

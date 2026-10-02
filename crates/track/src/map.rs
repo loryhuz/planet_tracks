@@ -69,6 +69,7 @@ use crate::kit::{self, CELL, Connector, Edge, FALL_LIMIT_Y, Gate, Heading, Kind,
 use crate::landform::Landform;
 use crate::mesh::MeshBuilder;
 use crate::scenery::{self, PlacedProp, Prop};
+use crate::gates;
 use crate::stilts;
 use crate::terrain::{Capsule, Terrain, TerrainSettings};
 use crate::{Surface, Track, TrackMesh};
@@ -618,10 +619,10 @@ impl Map {
         let terrain = Terrain::new(&self.terrain, kit::centre_of(&r.pieces), caps, dirt, &self.landforms);
         // Gates, standing on the terrain.
         for p in &r.pieces {
-            if let Some(g) = p.piece.gate {
+            if p.piece.gate.is_some() {
                 let f = p.frame(p.gate_s());
                 let carved = p.carved_range().is_some_and(|(c0, c1)| (c0..=c1).contains(&p.gate_s()));
-                kit::gate(&mut b, &f, g, |q| if carved { post_ground(&terrain, q) } else { kit::TERRAIN_Y });
+                gates::gate(&mut b, &mut decor, &f, |q| if carved { post_ground(&terrain, q) } else { kit::TERRAIN_Y }, |q| terrain.height(q.x, q.z));
             }
         }
         // Stilts under the raised roads, standing on the terrain, and their straps.

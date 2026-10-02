@@ -48,7 +48,7 @@ use core::f32::consts::{FRAC_PI_2, PI};
 use glam::{Vec2, Vec3};
 
 use crate::jump::LandingProfile;
-use crate::mesh::{MeshBuilder, add_box, add_post, add_sandbag, add_tube};
+use crate::mesh::{MeshBuilder, add_post, add_sandbag, add_tube};
 use crate::noise::{hash2, perlin, unit};
 use crate::{Pose, Surface, Track, TrackMesh, Trigger};
 
@@ -97,9 +97,11 @@ pub const TERRAIN_SIZE: f32 = 2048.0;
 pub const START_POSE_S: f32 = 8.0;
 const START_GATE_S: f32 = 16.0;
 const GATE_POST_U: f32 = HALF_WIDTH + LIP_WIDTH + 1.2;
-const GATE_POST_HALF: f32 = 0.5;
-const GATE_BEAM_BOTTOM: f32 = 7.5;
-const GATE_BEAM_HEIGHT: f32 = 1.2;
+/// A gate's posts and beam as the car meets them (see [`crate::gates`]): the posts' half width,
+/// the beam's underside over the deck and its height, metres.
+pub(crate) const GATE_POST_HALF: f32 = 0.5;
+pub(crate) const GATE_BEAM_BOTTOM: f32 = 7.5;
+pub(crate) const GATE_BEAM_HEIGHT: f32 = 1.2;
 /// Gate posts of a dirt piece stand this far out from its centreline, on the banks.
 const DIRT_GATE_POST_U: f32 = DIRT_HALF_WIDTH + 4.0;
 /// Half extents of checkpoint and finish triggers on the road: across (deck, lips and a margin),
@@ -111,6 +113,24 @@ pub const DIRT_TRIGGER_HALF: Vec3 = Vec3::new(DIRT_HALF_WIDTH + 2.0, 4.5, 2.0);
 pub const TRIGGER_LIFT: f32 = 2.0;
 /// Below the terrain: only reached by leaving the terrain square.
 pub const FALL_LIMIT_Y: f32 = TERRAIN_Y - 20.0;
+
+/// Scale of the distance along the route a gate block's deck colour carries (see
+/// [`gate_deck_colour`]), metres.
+pub const GATE_S_SCALE: f32 = 8192.0;
+
+/// The colour of a gate block's road deck and lines: instead of a colour, what the renderer paints
+/// there (the gate line and its word, scene.wgsl), within 0..1. Red 0 marks it; green is the
+/// distance along the route of the gate line over [`GATE_S_SCALE`]; blue is (the gate, 1 start, 2
+/// checkpoint, 3 finish; + 4 if the tarp is strapped; + 8 on a line strip; + 0.5) / 16.
+pub fn gate_deck_colour(gate: Gate, gate_route_s: f32, strapped: bool, line: bool) -> [f32; 3] {
+    let kind = match gate {
+        Gate::Start => 1,
+        Gate::Checkpoint => 2,
+        Gate::Finish => 3,
+    };
+    let code = kind + if strapped { 4 } else { 0 } + if line { 8 } else { 0 };
+    [0.0, (gate_route_s / GATE_S_SCALE).clamp(0.0, 1.0), (code as f32 + 0.5) / 16.0]
+}
 
 /// Flat vertex colours (linear RGB).
 pub mod color {
@@ -151,9 +171,10 @@ pub mod color {
     pub const STAKE: [f32; 3] = [0.40, 0.40, 0.41];
     /// The face of a dirt kicker or landing over its trench.
     pub const EARTH_FACE: [f32; 3] = [0.40, 0.16, 0.075];
-    pub const START: [f32; 3] = [0.10, 0.60, 0.15];
-    pub const CHECKPOINT: [f32; 3] = [0.05, 0.35, 0.90];
-    pub const FINISH: [f32; 3] = [0.90, 0.10, 0.05];
+    /// The gates' banner (the renderer letters it, see [`crate::gates`]) and the white fabric
+    /// sleeves on their legs.
+    pub const BANNER: [f32; 3] = [0.81, 0.80, 0.77];
+    pub const SLEEVE: [f32; 3] = [0.80, 0.79, 0.76];
 }
 
 /// Half the width of a deck of this surface.
@@ -1091,8 +1112,9 @@ impl Section {
 }
 
 /// Surface, colour and dirt amount (see [`TrackMesh::dirt`]) of a strip of a road whose edges
-/// are finished with `edge`.
-fn classify(role: Role, deck: Surface, edge: Edge, normal: Vec3) -> (Surface, [f32; 3], u8) {
+/// are finished with `edge`; `gate`, the gate of a gate block and the distance along the route
+/// of its line (its road deck carries them, see [`gate_deck_colour`]).
+fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, normal: Vec3) -> (Surface, [f32; 3], u8) {
     let worked = if deck == Surface::Dirt { 1 } else { 0 };
     let side = if deck == Surface::Dirt { color::WALL } else { color::SLAB };
     let strapped = edge == Edge::Bumpers;
@@ -1110,14 +1132,13 @@ fn classify(role: Role, deck: Surface, edge: Edge, normal: Vec3) -> (Surface, [f
             _ => (Surface::Ground, if strapped { color::VERGE_STRAPPED } else { color::VERGE }, 0),
         },
         Role::Border => (Surface::Wall, color::HULL, 0),
-        Role::Line => match deck {
-            Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
-            _ => (Surface::Road, if strapped { color::LINE_STRAPPED } else { color::LINE }, 0),
-        },
-        Role::Deck => match deck {
-            Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
-            _ => (Surface::Road, if strapped { color::ROAD_STRAPPED } else { color::ROAD }, 0),
-        },
+        Role::Line | Role::Deck if deck == Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
+        Role::Line | Role::Deck if gate.is_some() => {
+            let (g, s) = gate.unwrap();
+            (Surface::Road, gate_deck_colour(g, s, strapped, role == Role::Line), 0)
+        }
+        Role::Line => (Surface::Road, if strapped { color::LINE_STRAPPED } else { color::LINE }, 0),
+        Role::Deck => (Surface::Road, if strapped { color::ROAD_STRAPPED } else { color::ROAD }, 0),
     }
 }
 
@@ -1163,6 +1184,7 @@ pub(crate) fn sweep(
     let secs: Vec<Section> = ss.iter().map(|&s| Section::new(&p.frame(s))).collect();
     let decks: Vec<Surface> = ss.windows(2).map(|w| p.frame(0.5 * (w[0] + w[1])).deck).collect();
     let edge = p.edge();
+    let gate = p.piece.gate.map(|g| (g, route_s + p.gate_s()));
     let n = ss.len();
     let mut run = 0u32;
     for (j, &role) in ROLES.iter().enumerate() {
@@ -1181,7 +1203,7 @@ pub(crate) fn sweep(
                 current = None;
                 continue;
             }
-            let class = classify(role, decks[k], edge, normal);
+            let class = classify(role, decks[k], edge, gate, normal);
             // A border's own normals where they agree with the strip (shaded round), the
             // triangles' elsewhere (its crease against the deck).
             let round = role == Role::Border
@@ -1363,7 +1385,7 @@ fn sandbag_row(decor: &mut MeshBuilder, p: &Placed, range: (f32, f32), route_s: 
 /// bar about 9 cm across, standing 35 to 55 cm out of the ground, under a round cap with a
 /// handle to pull it out by; leaning 3 to 16° in its own direction and turned its own way,
 /// mostly galvanised, some rusty (`seed`). `across` and `forward` are the border's directions.
-fn stake(b: &mut MeshBuilder, ground: Vec3, across: Vec3, forward: Vec3, seed: u32) {
+pub(crate) fn stake(b: &mut MeshBuilder, ground: Vec3, across: Vec3, forward: Vec3, seed: u32) {
     let r = |k: i32| unit(hash2(seed, k, 5));
     let colour = if r(0) < 0.2 { color::RUST } else { color::STAKE };
     let tilt = (3.0 + 13.0 * r(1)).to_radians();
@@ -1448,29 +1470,6 @@ pub(crate) fn gate_post_u(deck: Surface) -> f32 {
         Surface::Dirt => DIRT_GATE_POST_U,
         _ => GATE_POST_U,
     }
-}
-
-/// A gate across the deck at frame `f`. `ground(p)` is the height the post at horizontal
-/// position `p` stands on.
-pub(crate) fn gate(b: &mut MeshBuilder, f: &Frame, kind: Gate, ground: impl Fn(Vec3) -> f32) {
-    let color = match kind {
-        Gate::Start => color::START,
-        Gate::Checkpoint => color::CHECKPOINT,
-        Gate::Finish => color::FINISH,
-    };
-    let post_u = gate_post_u(f.deck);
-    let deck_y = f.centre().y;
-    let top = deck_y + GATE_BEAM_BOTTOM + GATE_BEAM_HEIGHT;
-    for side in [1.0, -1.0] {
-        let base = f.horiz + f.left * (side * post_u);
-        let foot = ground(base);
-        let h = 0.5 * (top - foot);
-        let centre = Vec3::new(base.x, foot + h, base.z);
-        add_box(b, centre, Vec3::new(GATE_POST_HALF, h, GATE_POST_HALF), f.forward, Surface::Wall, color, false);
-    }
-    let beam = f.horiz + Vec3::Y * (deck_y + GATE_BEAM_BOTTOM + 0.5 * GATE_BEAM_HEIGHT);
-    let half = Vec3::new(post_u + GATE_POST_HALF, 0.5 * GATE_BEAM_HEIGHT, 0.6);
-    add_box(b, beam, half, f.forward, Surface::Wall, color, true);
 }
 
 fn terrain(b: &mut MeshBuilder, centre: Vec3) {
@@ -1638,8 +1637,8 @@ impl Layout {
             let open_end = i + 1 == n || self.pieces[i + 1].deck_range().0 > 0.0;
             sweep(&mut b, &mut decor, p, p.deck_range(), route_s, open_start, open_end, false);
             crate::stilts::stilts(&mut b, &mut decor, p, p.deck_range(), route_s, |_| TERRAIN_Y);
-            if let Some(g) = p.piece.gate {
-                gate(&mut b, &p.frame(p.gate_s()), g, |_| TERRAIN_Y);
+            if p.piece.gate.is_some() {
+                crate::gates::gate(&mut b, &mut decor, &p.frame(p.gate_s()), |_| TERRAIN_Y, |_| TERRAIN_Y);
             }
             route_s += p.length;
         }

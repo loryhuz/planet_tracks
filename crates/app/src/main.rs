@@ -161,21 +161,21 @@ fn road_spill(vertices: &mut [Vertex]) {
 }
 
 /// What a wall is made of, told by the kit's colour it was given: inflatable bumpers, sandbags,
-/// tarp-wrapped slabs, plastic stilts, straps, steel stakes and buckles, concrete sides of dirt
-/// mounds, the dug earth of dirt jumps, painted gates (kept plain), and rocks (any other colour:
-/// the scenery shades each rock its own way).
+/// tarp-wrapped slabs and the gates' fabric sleeves, the gates' banner, plastic tubes, straps,
+/// steel stakes and buckles, concrete sides of dirt mounds, the dug earth of dirt jumps, and
+/// rocks (any other colour: the scenery shades each rock its own way).
 fn wall_kind(color: [f32; 3]) -> u32 {
     use track::kit::color as c;
     match color {
         x if x == c::LIP => gfx::kind::BUMPER,
         x if x == c::SANDBAG => gfx::kind::SANDBAG,
-        x if x == c::SLAB => gfx::kind::TARP,
+        x if x == c::SLAB || x == c::SLEEVE => gfx::kind::TARP,
+        x if x == c::BANNER => gfx::kind::BANNER,
         x if x == c::TUBE || x == c::COLLAR => gfx::kind::PLASTIC,
         x if x == c::STRAP => gfx::kind::STRAP,
         x if x == c::STEEL || x == c::RUST || x == c::STAKE => gfx::kind::STEEL,
         x if x == c::WALL => gfx::kind::CONCRETE,
         x if x == c::EARTH_FACE => gfx::kind::EARTH,
-        x if x == c::START || x == c::CHECKPOINT || x == c::FINISH => track::Surface::Wall as u32,
         _ => gfx::kind::ROCK,
     }
 }

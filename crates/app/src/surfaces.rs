@@ -11,7 +11,7 @@ use crate::car_model::{Image, decode_png};
 use crate::gfx::Gpu;
 
 /// (name, colour PNG, relief PNG), in the order of the `L_*` layers of `scene.wgsl`.
-const LAYERS: [(&str, &[u8], &[u8]); 12] = [
+const LAYERS: [(&str, &[u8], &[u8]); 13] = [
     ("tarp", include_bytes!("../assets/textures/tarp_albedo.png"), include_bytes!("../assets/textures/tarp_normal.png")),
     ("dirt", include_bytes!("../assets/textures/dirt_albedo.png"), include_bytes!("../assets/textures/dirt_normal.png")),
     ("earth", include_bytes!("../assets/textures/earth_albedo.png"), include_bytes!("../assets/textures/earth_normal.png")),
@@ -24,6 +24,8 @@ const LAYERS: [(&str, &[u8], &[u8]); 12] = [
     ("webbing", include_bytes!("../assets/textures/webbing_albedo.png"), include_bytes!("../assets/textures/webbing_normal.png")),
     ("galvanized", include_bytes!("../assets/textures/galvanized_albedo.png"), include_bytes!("../assets/textures/galvanized_normal.png")),
     ("rust", include_bytes!("../assets/textures/rust_albedo.png"), include_bytes!("../assets/textures/rust_normal.png")),
+    // Lettering of the gates, drawn by tools/textures/signs.py (ink in the alpha channel).
+    ("signs", include_bytes!("../assets/textures/signs_albedo.png"), include_bytes!("../assets/textures/signs_normal.png")),
 ];
 
 pub struct SurfaceTextures {

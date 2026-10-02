@@ -93,5 +93,8 @@ Mis en œuvre le 2 octobre 2026. Les blocs, leurs variantes et leur construction
   en sacs, et des sangles orange retiennent la dalle au sol.
 - **Les textures** : `tarp`, `sandbag` (toile kaki) et `webbing` (sangle orange).
 
-Reste à faire : les portiques de départ, de checkpoint et d'arrivée en tubes et toile, le camp
-autour du départ, les LED de nuit.
+- **Les portiques** de départ, de checkpoint et d'arrivée : une arche de gros tubes rouges, des
+  manchons blancs, une banderole à damier « PLANET TRACKS », des sacs et des sangles au pied ; la
+  ligne et le mot (« DÉPART », « CHECKPOINT », « ARRIVÉE ») peints sur la bâche.
+
+Reste à faire : le camp autour du départ.

@@ -5,12 +5,14 @@
 //! style. Two layouts as in the menu: wide (1280 × 720 design space) and tall for phones
 //! (390 × 844), where the buggy accelerates by itself: the bottom strip brakes, holding the left or
 //! right half of the screen steers (the brake strip and the two halves show during the countdown),
-//! the speed is a thin gauge on the right edge, and a settings button pauses the race (camera,
-//! sound, last checkpoint, restart, menu). On a computer Escape (or the pad's Start) opens the
-//! same sheet, and the arrows move through it. The wide layout takes the same touch controls once
+//! the speed is a thin gauge on the right edge, and three round buttons in the top right corner go
+//! back to the last checkpoint, restart, and open the settings, which pause the race: a sheet from
+//! the bottom on a phone, a card in the middle of a computer's screen (the two race actions, the
+//! camera, sound, debug, menu). On a computer Escape (or the pad's Start) opens the same
+//! settings, and the arrows move through them. The wide layout takes the same touch controls once
 //! the screen has been touched. The shading and the touch zones reach the screen's edges, behind
 //! the notch and the home indicator; the text keeps to the safe area. Debug (FPS, profile,
-//! tuning) only shows with Tab.
+//! tuning) only shows with Tab or the settings' debug switch.
 
 use std::collections::BTreeMap;
 
@@ -106,9 +108,25 @@ pub struct Hud {
     requests: Vec<HudRequest>,
 }
 
-/// The sheet's items for the keyboard and pad: the camera, the four rows, then "Reprendre".
-const SHEET_CAMERA: usize = 0;
-const SHEET_RESUME: usize = 5;
+/// The sheet's items for the keyboard and pad, in reading order: the two tiles, the camera, the
+/// two switches, then "Menu" and "Reprendre" side by side.
+const SHEET_CHECKPOINT: usize = 0;
+const SHEET_RESTART: usize = 1;
+const SHEET_CAMERA: usize = 2;
+const SHEET_SOUND: usize = 3;
+const SHEET_DEBUG: usize = 4;
+const SHEET_MENU: usize = 5;
+const SHEET_RESUME: usize = 6;
+/// The camera picker's columns: its cells in rows of two.
+const CAMERA_COLUMNS: usize = 2;
+/// Heights in the sheet, points: the action tiles, the switch rows, the bottom buttons (all
+/// above iOS's 44 pt touch minimum).
+const TILE_H: f32 = 84.0;
+const ROW_H: f32 = 56.0;
+const BUTTON_H: f32 = 56.0;
+/// Between the round buttons in the top right corner, and the width they take with their margin.
+const CORNER_GAP: f32 = 8.0;
+const CORNER_W: f32 = 16.0 + 3.0 * 44.0 + 2.0 * CORNER_GAP;
 
 /// A vertical gradient band.
 fn band(p: &Painter, rect: Rect, top: Color32, bottom: Color32) {
@@ -387,7 +405,8 @@ impl Hud {
             // Above the brake strip when the touch controls are on.
             let lift = if touch { 96.0 } else { 0.0 };
             self.map_label(&p, pos2(r.left() + 30.0, r.top() + 24.0), game, a, 28.0);
-            self.times(&p, pos2(r.right() - if touch { 88.0 } else { 30.0 }, r.top() + 24.0), game, a, true);
+            // Left of the corner buttons when the touch controls are on.
+            self.times(&p, pos2(r.right() - if touch { CORNER_W + 28.0 } else { 30.0 }, r.top() + 24.0), game, a, true);
             self.split_line(&p, pos2(r.center().x, r.bottom() - 94.0 - lift), now, a, 22.0);
             self.chrono(&p, pos2(r.center().x, r.bottom() - 30.0 - lift), game, a, 46.0);
             let ring = Rect::from_min_size(pos2(r.right() - 30.0 - 132.0, r.bottom() - 24.0 - lift - 132.0), vec2(132.0, 132.0));
@@ -400,7 +419,7 @@ impl Hud {
             self.speed_gauge(&p, pos2(r.right() - 14.0, r.top() + 226.0), game, now, a);
         }
         if controls && self.sheet.is_none() {
-            self.settings_button(ui, &p, r, a, now);
+            self.corner_buttons(ui, &p, r, a, now);
         }
         if game.panel_open {
             let at = if wide { pos2(r.left() + 30.0, r.top() + 96.0) } else { pos2(r.left() + 18.0, r.top() + 144.0) };
@@ -794,25 +813,49 @@ impl Hud {
         Input { steer: (rt as i32 - l as i32) as f32, gas: 0.0, brake: b as i32 as f32 }
     }
 
-    /// The settings button in the top right corner: it opens the sheet and pauses the race.
-    fn settings_button(&mut self, ui: &Ui, p: &Painter, r: Rect, a: f32, now: f64) {
-        let rect = Rect::from_min_size(pos2(r.right() - 16.0 - 44.0, r.top() + 16.0), vec2(44.0, 44.0));
-        let resp = ui.interact(rect, Id::new("hud settings"), Sense::click());
-        p.circle_filled(rect.center(), 22.0, fade(GLASS, a));
-        p.circle_stroke(rect.center(), 21.5, Stroke::new(1.0, fade(GLASS_LINE, a)));
-        gear_icon(p, rect.center(), 22.0, fade(if resp.hovered() { Color32::WHITE } else { col::DUST }, a));
-        if resp.clicked() {
-            self.sheet = Some(now);
-            self.focus = None;
-            self.cues.push(Cue::SheetOpen);
+    /// The round glass buttons in the top right corner, from the right: settings (it opens the
+    /// sheet and pauses the race), restart and last checkpoint, which act at once. They sit in
+    /// the band above the steering halves, out of the thumbs' way.
+    fn corner_buttons(&mut self, ui: &Ui, p: &Painter, r: Rect, a: f32, now: f64) {
+        for i in 0..3 {
+            let rect = Rect::from_min_size(pos2(r.right() - 16.0 - 44.0 - i as f32 * (44.0 + CORNER_GAP), r.top() + 16.0), vec2(44.0, 44.0));
+            let resp = ui.interact(rect, Id::new(("hud corner", i)), Sense::click());
+            p.circle_filled(rect.center(), 22.0, fade(GLASS, a));
+            p.circle_stroke(rect.center(), 21.5, Stroke::new(1.0, fade(GLASS_LINE, a)));
+            let c = fade(if resp.hovered() { Color32::WHITE } else { col::DUST }, a);
+            match i {
+                0 => gear_icon(p, rect.center(), 22.0, c),
+                1 => paint::icon_at(p, rect.center(), 22.0, Icon::Restart, c),
+                _ => paint::icon_at(p, rect.center(), 22.0, Icon::Flag, c),
+            }
+            if !resp.clicked() {
+                continue;
+            }
+            match i {
+                0 => {
+                    self.sheet = Some(now);
+                    self.focus = None;
+                    self.cues.push(Cue::SheetOpen);
+                }
+                1 => {
+                    self.requests.push(HudRequest::Restart);
+                    self.cues.push(Cue::Confirm);
+                }
+                _ => {
+                    self.requests.push(HudRequest::Respawn);
+                    self.cues.push(Cue::Confirm);
+                }
+            }
         }
     }
 
-    /// Keyboard and pad in the sheet: up and down move the focus (shown from the first move when
-    /// the sheet was opened by touch), left and right change the camera, confirm acts on the item
-    /// with the focus, back resumes. Returns the item to act on and whether to resume.
+    /// Keyboard and pad in the sheet: the arrows move the focus between its rows (the two tiles,
+    /// the camera grid, the two switches, "Menu" and "Reprendre"), shown from the first move when
+    /// the sheet was opened by touch, and on the camera grid between its cells first; confirm acts
+    /// on the item with the focus, back resumes. Returns the item to act on and whether to resume.
     fn sheet_nav(&mut self, game: &mut Game) -> (Option<usize>, bool) {
         let modes = crate::camera::MODES.len();
+        let cols = CAMERA_COLUMNS;
         let (mut pressed, mut resume) = (None, false);
         for nav in std::mem::take(&mut self.navs) {
             let Some(f) = self.focus else {
@@ -827,12 +870,39 @@ impl Hud {
                 }
                 continue;
             };
-            match nav {
-                Nav::Up if f > SHEET_CAMERA => self.focus = Some(f - 1),
-                Nav::Down if f < SHEET_RESUME => self.focus = Some(f + 1),
-                Nav::Left if f == SHEET_CAMERA && game.camera.mode > 0 => game.camera.mode -= 1,
-                Nav::Right if f == SHEET_CAMERA && game.camera.mode + 1 < modes => game.camera.mode += 1,
-                Nav::Confirm if f == SHEET_CAMERA => game.camera.mode = (game.camera.mode + 1) % modes,
+            let mode = game.camera.mode;
+            // The next focus and camera.
+            let (focus, camera) = match nav {
+                Nav::Up => match f {
+                    SHEET_CAMERA if mode >= cols => (f, mode - cols),
+                    // The tile above the camera's column.
+                    SHEET_CAMERA => (SHEET_CHECKPOINT + (mode % cols).min(1), mode),
+                    SHEET_SOUND => (SHEET_CAMERA, mode),
+                    SHEET_DEBUG => (SHEET_SOUND, mode),
+                    SHEET_MENU | SHEET_RESUME => (SHEET_DEBUG, mode),
+                    _ => (f, mode),
+                },
+                Nav::Down => match f {
+                    SHEET_CHECKPOINT | SHEET_RESTART => (SHEET_CAMERA, mode),
+                    SHEET_CAMERA if mode + cols < modes => (f, mode + cols),
+                    SHEET_CAMERA => (SHEET_SOUND, mode),
+                    SHEET_SOUND => (SHEET_DEBUG, mode),
+                    SHEET_DEBUG => (SHEET_RESUME, mode),
+                    _ => (f, mode),
+                },
+                Nav::Left => match f {
+                    SHEET_RESTART => (SHEET_CHECKPOINT, mode),
+                    SHEET_RESUME => (SHEET_MENU, mode),
+                    SHEET_CAMERA if mode % cols > 0 => (f, mode - 1),
+                    _ => (f, mode),
+                },
+                Nav::Right => match f {
+                    SHEET_CHECKPOINT => (SHEET_RESTART, mode),
+                    SHEET_MENU => (SHEET_RESUME, mode),
+                    SHEET_CAMERA if mode % cols + 1 < cols && mode + 1 < modes => (f, mode + 1),
+                    _ => (f, mode),
+                },
+                Nav::Confirm if f == SHEET_CAMERA => (f, (mode + 1) % modes),
                 Nav::Confirm => {
                     pressed = Some(f);
                     continue;
@@ -841,14 +911,20 @@ impl Hud {
                     resume = true;
                     continue;
                 }
-                _ => continue,
+                Nav::Any => continue,
+            };
+            if (focus, camera) != (f, mode) {
+                self.focus = Some(focus);
+                game.camera.mode = camera;
+                self.cues.push(Cue::Select);
             }
-            self.cues.push(Cue::Select);
         }
         (pressed, resume)
     }
 
-    /// The settings sheet, from the bottom: camera, sound, last checkpoint, restart, menu, resume.
+    /// The settings: a sheet from the bottom on a phone, a card in the middle of the screen on a
+    /// computer. The two race actions as tiles, the camera, the sound and debug switches, then
+    /// "Menu" and "Reprendre" as on the finish card.
     #[allow(clippy::too_many_arguments)]
     fn settings_sheet(&mut self, ui: &Ui, r: Rect, wide: bool, game: &mut Game, muted: bool, now: f64, since: f64) {
         let (pressed, back) = self.sheet_nav(game);
@@ -856,115 +932,165 @@ impl Hud {
         let mut p = ui.ctx().layer_painter(LayerId::new(Order::Tooltip, Id::new("hud sheet")));
         p.set_clip_rect(full);
         let k = paint::ease_out(((now - since) as f32 / 0.25).min(1.0));
-        let h = 427.0;
-        let w = if wide { 420.0 } else { r.width() };
-        let card = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.bottom() - h + (1.0 - k) * h), vec2(w, h));
-        // The scrim covers the whole screen and the card runs down past the safe area, under
-        // the home indicator. The scene above the card slides up to show the car (the app reads
-        // `car_frame`), under a light scrim, so a camera change shows on it.
+        // The camera grid: rows of 48 pt cells, 4 pt apart and inside.
+        let modes = crate::camera::MODES.len();
+        let grid_h = 4.0 + modes.div_ceil(CAMERA_COLUMNS) as f32 * 52.0;
+        // On a phone the top holds the sheet's grip.
+        let (pad_top, pad_x, pad_bottom) = if wide { (22.0, 26.0, 26.0) } else { (30.0, 18.0, 18.0) };
+        let h = pad_top + 30.0 + 14.0 + TILE_H + 14.0 + 25.0 + grid_h + 14.0 + 2.0 * ROW_H + 14.0 + BUTTON_H + pad_bottom;
+        let w = if wide { 520.0 } else { r.width() };
         let scrim = ui.interact(full, Id::new("hud sheet scrim"), Sense::click());
-        p.rect_filled(full, 0.0, fade(col::SCRIM, 0.4 * k));
-        self.car_frame = Some((k, ((full.top() + card.top()) / 2.0 - full.top()) / full.height()));
-        let top = CornerRadius { nw: 24, ne: 24, sw: 0, se: 0 };
-        let sheet = card.with_max_y(card.bottom() + full.bottom() - r.bottom());
-        p.rect_filled(sheet, top, fade(col::PANEL, 0.97));
-        p.hline(card.shrink2(vec2(20.0, 0.0)).x_range(), card.top(), Stroke::new(1.0, col::LINE));
+        let sheet;
+        let card;
+        if wide {
+            // The card fades in at the middle, the scene left as it is under a darker scrim.
+            p.rect_filled(full, 0.0, fade(col::SCRIM, 0.6 * k));
+            card = Rect::from_center_size(r.center() + vec2(0.0, (1.0 - k) * 18.0), vec2(w, h));
+            sheet = card;
+            p.set_opacity(k);
+            p.rect_filled(card, 24.0, fade(col::PANEL, 0.97));
+            p.rect_stroke(card, 24.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        } else {
+            // The scrim covers the whole screen and the card runs down past the safe area,
+            // under the home indicator. The scene above the card slides up to show the car (the
+            // app reads `car_frame`), under a light scrim, so a camera change shows on it.
+            p.rect_filled(full, 0.0, fade(col::SCRIM, 0.4 * k));
+            card = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.bottom() - h + (1.0 - k) * h), vec2(w, h));
+            sheet = card.with_max_y(card.bottom() + full.bottom() - r.bottom());
+            self.car_frame = Some((k, ((full.top() + card.top()) / 2.0 - full.top()) / full.height()));
+            let top = CornerRadius { nw: 24, ne: 24, sw: 0, se: 0 };
+            p.rect_filled(sheet, top, fade(col::PANEL, 0.97));
+            p.hline(card.shrink2(vec2(20.0, 0.0)).x_range(), card.top(), Stroke::new(1.0, col::LINE));
+        }
+        let ring = |p: &Painter, rect: Rect, radius: f32| {
+            p.rect_stroke(rect.expand(3.0), radius + 3.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Outside);
+        };
 
-        let pad = 18.0;
-        let (x, iw) = (card.left() + pad, w - 2.0 * pad);
-        let mut y = card.top() + 12.0;
-        p.rect_filled(Rect::from_center_size(pos2(card.center().x, y + 2.0), vec2(40.0, 4.0)), 2.0, col::LINE);
-        y += 4.0 + 14.0;
+        let (x, iw) = (card.left() + pad_x, w - 2.0 * pad_x);
+        let mut y = card.top() + if wide { pad_top } else { 12.0 };
+        if !wide {
+            p.rect_filled(Rect::from_center_size(pos2(card.center().x, y + 2.0), vec2(40.0, 4.0)), 2.0, col::LINE);
+            y += 4.0 + 14.0;
+        }
         let head = paint::text(&p, pos2(x, y), Align2::LEFT_TOP, "RÉGLAGES", Font::heading(26.0).weight(800.0), col::DUST);
         paint::text(&p, pos2(x + iw, head.bottom() - 6.0), Align2::RIGHT_BOTTOM, "COURSE EN PAUSE", tag_font(), col::DUST_2);
         y += 30.0 + 14.0;
-        paint::text(&p, pos2(x, y), Align2::LEFT_TOP, "CAMÉRA", Font::label(12.0, 0.2).weight(700.0), col::DUST_3);
-        y += 15.0 + 14.0;
+        let mut close = false;
 
-        // Camera: three segments.
-        let seg = Rect::from_min_size(pos2(x, y), vec2(iw, 44.0));
-        p.rect_filled(seg, 12.0, col::VOID);
-        p.rect_stroke(seg, 12.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
-        if self.focus == Some(SHEET_CAMERA) {
-            p.rect_stroke(seg.expand(3.0), 15.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Outside);
+        // The race actions, with their keys on a computer.
+        let tw = (iw - 10.0) / 2.0;
+        let tiles = [
+            (SHEET_CHECKPOINT, "CHECKPOINT", Icon::Flag, "Entrée", HudRequest::Respawn),
+            (SHEET_RESTART, "RECOMMENCER", Icon::Restart, "Retour", HudRequest::Restart),
+        ];
+        for (i, (item, name, icon, key, request)) in tiles.into_iter().enumerate() {
+            let tile = Rect::from_min_size(pos2(x + i as f32 * (tw + 10.0), y), vec2(tw, TILE_H));
+            let resp = ui.interact(tile, Id::new(("hud tile", i)), Sense::click());
+            p.rect_filled(tile, 16.0, col::VOID);
+            p.rect_stroke(tile, 16.0, Stroke::new(1.0, if resp.hovered() { col::DUST_3 } else { col::LINE }), StrokeKind::Inside);
+            if self.focus == Some(item) {
+                ring(&p, tile, 16.0);
+            }
+            paint::icon_at(&p, pos2(tile.left() + 27.0, tile.top() + 27.0), 26.0, icon, col::DUST);
+            paint::text(&p, pos2(tile.left() + 14.0, tile.bottom() - 14.0), Align2::LEFT_BOTTOM, name, Font::label(15.0, 0.12).weight(800.0), col::DUST);
+            if wide {
+                let kw = (paint::text_size(&p, key, Font::data(11.0)).x + 14.0).max(28.0);
+                paint::keycap(&p, pos2(tile.right() - 12.0 - kw, tile.top() + 12.0 + 13.0), key, GLASS, Some(GLASS_LINE), col::DUST_2);
+            }
+            if resp.clicked() || pressed == Some(item) {
+                self.requests.push(request);
+                self.cues.push(Cue::Confirm);
+                close = true;
+            }
         }
-        let cw = (iw - 8.0 - 8.0) / 3.0;
+        y += TILE_H + 14.0;
+
+        // Camera: a grid of two columns.
+        paint::text(&p, pos2(x, y), Align2::LEFT_TOP, "CAMÉRA", Font::label(12.0, 0.2).weight(700.0), col::DUST_3);
+        y += 15.0 + 10.0;
+        let grid = Rect::from_min_size(pos2(x, y), vec2(iw, grid_h));
+        p.rect_filled(grid, 14.0, col::VOID);
+        p.rect_stroke(grid, 14.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        if self.focus == Some(SHEET_CAMERA) {
+            ring(&p, grid, 14.0);
+        }
+        let cols = CAMERA_COLUMNS;
+        let cw = (iw - 8.0 - 4.0 * (cols - 1) as f32) / cols as f32;
         for (i, name) in crate::camera::MODES.iter().enumerate() {
-            let cell = Rect::from_min_size(pos2(seg.left() + 4.0 + i as f32 * (cw + 4.0), seg.top() + 4.0), vec2(cw, 36.0));
+            let at = vec2((i % cols) as f32 * (cw + 4.0), (i / cols) as f32 * 52.0);
+            let cell = Rect::from_min_size(grid.min + vec2(4.0, 4.0) + at, vec2(cw, 48.0));
             let resp = ui.interact(cell, Id::new(("hud camera", i)), Sense::click());
             let on = game.camera.mode == i;
             if on {
-                p.rect_filled(cell, 9.0, col::PANEL_2);
-                p.hline(cell.shrink2(vec2(7.0, 0.0)).x_range(), cell.bottom() - 1.0, Stroke::new(2.0, col::LIVERY));
+                p.rect_filled(cell, 10.0, col::PANEL_2);
+                p.hline(cell.shrink2(vec2(12.0, 0.0)).x_range(), cell.bottom() - 1.0, Stroke::new(2.0, col::LIVERY));
             }
             let c = if on || resp.hovered() { col::DUST } else { col::DUST_3 };
-            paint::text(&p, cell.center(), Align2::CENTER_CENTER, &name.to_uppercase(), Font::label(13.0, 0.1).weight(700.0), c);
+            paint::text(&p, cell.center(), Align2::CENTER_CENTER, &name.to_uppercase(), Font::label(14.0, 0.1).weight(700.0), c);
             if resp.clicked() && !on {
                 game.camera.mode = i;
                 self.cues.push(Cue::Select);
             }
         }
-        y += 44.0 + 14.0;
+        y += grid_h + 14.0;
 
-        // Sound and the actions.
-        let acts = Rect::from_min_size(pos2(x, y), vec2(iw, 4.0 * 44.0));
-        p.rect_filled(acts, 14.0, col::VOID);
-        p.rect_stroke(acts, 14.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
-        let rows: [(&str, Option<HudRequest>); 4] = [
-            ("Son", None),
-            ("Dernier checkpoint", Some(HudRequest::Respawn)),
-            ("Recommencer", Some(HudRequest::Restart)),
-            ("Quitter vers le menu", Some(HudRequest::Menu)),
-        ];
-        let lf = Font::label(15.0, 0.08).weight(600.0);
-        let mut close = false;
-        for (i, (name, request)) in rows.iter().enumerate() {
-            let row = Rect::from_min_size(pos2(acts.left() + 12.0, acts.top() + i as f32 * 44.0), vec2(iw - 24.0, 44.0));
+        // The switches: sound, and the debug overlay Tab shows on a computer (the only way to
+        // it on a phone).
+        let group = Rect::from_min_size(pos2(x, y), vec2(iw, 2.0 * ROW_H));
+        p.rect_filled(group, 16.0, col::VOID);
+        p.rect_stroke(group, 16.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        let switches = [(SHEET_SOUND, "Son", None, !muted), (SHEET_DEBUG, "Mode debug", Some("FPS, profil, télémétrie, réglages physiques"), game.panel_open)];
+        for (i, (item, name, note, on)) in switches.into_iter().enumerate() {
+            let row = Rect::from_min_size(pos2(group.left() + 14.0, group.top() + i as f32 * ROW_H), vec2(iw - 28.0, ROW_H));
             if i > 0 {
                 p.hline(row.x_range(), row.top(), Stroke::new(1.0, col::LINE));
             }
-            let resp = ui.interact(row, Id::new(("hud setting", i)), Sense::click());
-            let focused = self.focus == Some(1 + i);
-            if focused {
-                let ring = Rect::from_min_max(pos2(acts.left() + 4.0, row.top() + 4.0), pos2(acts.right() - 4.0, row.bottom() - 4.0));
-                p.rect_stroke(ring, 10.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Inside);
+            let resp = ui.interact(row, Id::new(("hud switch", i)), Sense::click());
+            if self.focus == Some(item) {
+                let inner = Rect::from_min_max(pos2(group.left() + 4.0, row.top() + 4.0), pos2(group.right() - 4.0, row.bottom() - 4.0));
+                p.rect_stroke(inner, 12.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Inside);
             }
-            let clicked = resp.clicked() || pressed == Some(1 + i);
-            let colour = if *request == Some(HudRequest::Menu) {
-                SLOW
-            } else if resp.hovered() || focused {
-                Color32::WHITE
-            } else {
-                col::DUST
-            };
-            paint::text(&p, pos2(row.left() + 4.0, row.center().y), Align2::LEFT_CENTER, name, lf, colour);
-            match request {
+            let colour = if resp.hovered() || self.focus == Some(item) { Color32::WHITE } else { col::DUST };
+            let lf = Font::label(16.0, 0.06).weight(600.0);
+            match note {
+                Some(note) => {
+                    paint::text(&p, pos2(row.left(), row.center().y - 1.0), Align2::LEFT_BOTTOM, name, lf, colour);
+                    paint::text(&p, pos2(row.left(), row.center().y + 3.0), Align2::LEFT_TOP, note, Font::body(12.0), col::DUST_3);
+                }
                 None => {
-                    // The sound switch.
-                    let sw = Rect::from_center_size(pos2(row.right() - 4.0 - 23.0, row.center().y), vec2(46.0, 26.0));
-                    let on = !muted;
-                    p.rect_filled(sw, 13.0, if on { col::LIVERY } else { col::LINE });
-                    let knob = if on { sw.right() - 13.0 } else { sw.left() + 13.0 };
-                    p.circle_filled(pos2(knob, sw.center().y), 10.0, if on { col::LIVERY_INK } else { col::DUST_3 });
-                    if clicked {
-                        game.mute_requested = true;
-                        self.cues.push(Cue::Select);
-                    }
+                    paint::text(&p, pos2(row.left(), row.center().y), Align2::LEFT_CENTER, name, lf, colour);
                 }
-                Some(req) => {
-                    paint::icon_at(&p, pos2(row.right() - 10.0, row.center().y), 16.0, Icon::ChevronRight, col::DUST_3);
-                    if clicked {
-                        self.requests.push(*req);
-                        self.cues.push(if *req == HudRequest::Menu { Cue::Back } else { Cue::Confirm });
-                        close = true;
-                    }
+            }
+            let sw = Rect::from_center_size(pos2(row.right() - 25.0, row.center().y), vec2(50.0, 30.0));
+            p.rect_filled(sw, 15.0, if on { col::LIVERY } else { col::LINE });
+            let knob = if on { sw.right() - 15.0 } else { sw.left() + 15.0 };
+            p.circle_filled(pos2(knob, sw.center().y), 12.0, if on { col::LIVERY_INK } else { col::DUST_3 });
+            if resp.clicked() || pressed == Some(item) {
+                if item == SHEET_SOUND {
+                    game.mute_requested = true;
+                } else {
+                    game.panel_open = !game.panel_open;
                 }
+                self.cues.push(Cue::Select);
             }
         }
-        y += 4.0 * 44.0 + 14.0;
+        y += 2.0 * ROW_H + 14.0;
 
-        // Resume.
-        let cta = Rect::from_min_size(pos2(x, y), vec2(iw, 54.0));
+        // "Menu" and "Reprendre", as on the finish card.
+        let lf = Font::label(18.0, 0.14).weight(800.0);
+        let menu = Rect::from_min_size(pos2(x, y), vec2((iw - 10.0) / 2.7, BUTTON_H));
+        let cta = Rect::from_min_max(pos2(menu.right() + 10.0, y), pos2(x + iw, y + BUTTON_H));
+        let rm = ui.interact(menu, Id::new("hud sheet menu"), Sense::click());
+        p.rect_stroke(menu, 14.0, Stroke::new(1.5, if rm.hovered() { col::DUST_3 } else { col::LINE }), StrokeKind::Inside);
+        if self.focus == Some(SHEET_MENU) {
+            ring(&p, menu, 14.0);
+        }
+        paint::text(&p, menu.center(), Align2::CENTER_CENTER, "MENU", lf, if rm.hovered() { col::DUST } else { col::DUST_2 });
+        if rm.clicked() || pressed == Some(SHEET_MENU) {
+            self.requests.push(HudRequest::Menu);
+            self.cues.push(Cue::Back);
+            close = true;
+        }
         let resp = ui.interact(cta, Id::new("hud resume"), Sense::click());
         let focused = self.focus == Some(SHEET_RESUME);
         p.rect_filled(cta, 14.0, if resp.hovered() || focused { Color32::from_rgb(255, 128, 64) } else { col::LIVERY });
@@ -973,7 +1099,6 @@ impl Hud {
         }
         paint::stripes(&p.with_clip_rect(cta.shrink(0.5)), Rect::from_min_max(pos2(cta.right() - 70.0, cta.top()), cta.max), col::INK_STRIPE);
         // On a computer the key that resumes, as on the finish card.
-        let lf = Font::label(18.0, 0.14).weight(800.0);
         let key_w = if wide { 52.0 } else { 0.0 };
         let lw = paint::text_size(&p, "REPRENDRE", lf).x;
         let lx = cta.center().x - (lw + key_w) / 2.0;

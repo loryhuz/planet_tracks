@@ -2,7 +2,7 @@
 
 use glam::{Mat4, Quat, Vec3};
 
-pub const MODES: [&str; 4] = ["Poursuite", "Grand angle", "Proche", "Capot"];
+pub const MODES: [&str; 4] = ["Poursuite", "Large", "Proche", "Capot"];
 /// The wide-angle chase camera (the touch screens' first).
 pub const WIDE: usize = 1;
 const HOOD: usize = 3;

@@ -254,6 +254,10 @@ pub enum Icon {
     Lock,
     SoundOn,
     SoundOff,
+    /// The last checkpoint.
+    Flag,
+    /// Restart: an arrow going round.
+    Restart,
 }
 
 /// A line icon about `size` points across, centred on `c`.
@@ -298,6 +302,22 @@ pub fn icon_at(p: &Painter, c: Pos2, size: f32, icon: Icon, colour: Color32) {
                 p.line_segment([pt(17.0, 9.5), pt(22.0, 14.5)], stroke);
                 p.line_segment([pt(22.0, 9.5), pt(17.0, 14.5)], stroke);
             }
+        }
+        Icon::Flag => {
+            p.line_segment([pt(6.0, 21.0), pt(6.0, 3.5)], stroke);
+            let flag = vec![pt(6.0, 4.0), pt(17.0, 4.0), pt(14.4, 8.2), pt(17.0, 12.4), pt(6.0, 12.4)];
+            p.add(Shape::line(flag, PathStroke::new(stroke.width, colour)));
+        }
+        Icon::Restart => {
+            // From the left, down and round to the top left, the arrow's head on the left.
+            let pts: Vec<Pos2> = (0..=24)
+                .map(|i| {
+                    let a = (180.0 - 313.5 * i as f32 / 24.0).to_radians();
+                    pt(12.0 + 8.0 * a.cos(), 12.0 + 8.0 * a.sin())
+                })
+                .collect();
+            p.add(Shape::line(pts, PathStroke::new(stroke.width, colour)));
+            p.add(Shape::line(vec![pt(4.0, 3.8), pt(4.0, 8.5), pt(8.7, 8.5)], PathStroke::new(stroke.width, colour)));
         }
     }
 }

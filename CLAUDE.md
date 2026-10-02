@@ -74,13 +74,14 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 - `crates/app/src/hud.rs` — the race HUD, light like Trackmania's (map name, record and time to
   beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
   countdown and the finish card in the menu's style; wide and tall like the menu. On phones the
-  buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and a settings
-  button pauses the race and slides the scene up so the car shows above its sheet; on a
-  computer Escape or the pad's Start opens the same sheet (`MARS_HUD_SETTINGS=seconds` opens it
-  in a self-test; a hidden run draws the HUD only on its screenshot frames, so the sheet opens
-  on one and needs another shot 0.3 s later). Everything for
-  debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
-  `MARS_DEBUG_PANEL=1`.
+  buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and three
+  round buttons in the top right corner go back to the last checkpoint, restart, and open the
+  settings, a sheet that pauses the race and slides the scene up so the car shows above it; on a
+  computer Escape or the pad's Start opens the same settings as a card in the middle of the
+  screen (`MARS_HUD_SETTINGS=seconds` opens them in a self-test; a hidden run draws the HUD only
+  on its screenshot frames, so they open on one and need another shot 0.3 s later). Everything
+  for debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, the
+  settings' debug switch, or `MARS_DEBUG_PANEL=1`.
 - `crates/app/src/weather.rs` — the weather, render only (the wind never pushes the car): a
   `Climate` per planet (Mars: a breeze blowing from the sandstorm, light sand drifting in the
   air, a gust every few seconds) that every map gets, the gusts being placed on the track's route

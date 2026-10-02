@@ -1,8 +1,9 @@
 //! Vehicle sound: the combustion engine from two recordings (engine_sound.rs) and the Martian
 //! ambience from a third, the whoosh of a booster pad from a fourth, plus synthesized wind, tyre
 //! squeal at the grip limit, gravel on dirt and thumps on impacts. The game writes a few values per frame; the audio thread reads them through
-//! atomics and smooths them per sample. The menu's cues and ambiences (ui_sound.rs) play on the
-//! same stream, while the car and the race ambience are silent.
+//! atomics and smooths them per sample. The menu's cues (ui_sound.rs) play on the same stream,
+//! while the car and the race ambience are silent. The music (music.rs) is the menu's theme in
+//! the menu and the planet's tracks in a race.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -10,7 +11,8 @@ use std::sync::mpsc::{Sender, channel};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use crate::ui_sound::{Ambience, Cue, UiSynth};
+use crate::music::Music;
+use crate::ui_sound::{Cue, UiSynth};
 
 /// What the game tells the synth each frame.
 #[derive(Clone, Copy, Debug, Default)]
@@ -50,8 +52,6 @@ struct Shared {
     muted: AtomicBool,
     /// The car is heard (a race is on); off in the menu.
     race: AtomicBool,
-    /// The menu screen's background loop, an [`Ambience`].
-    ambience: AtomicU32,
 }
 
 fn store(a: &AtomicU32, v: f32) {
@@ -86,7 +86,7 @@ impl Audio {
         let shared = Arc::new(Shared::default());
         let started = std::time::Instant::now();
         let (cues, rx) = channel();
-        let mut synth = Synth::new(rate, shared.clone(), UiSynth::new(rate, Some(rx)));
+        let mut synth = Synth::new(rate, shared.clone(), UiSynth::new(rate, Some(rx)), true);
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 config,
@@ -140,10 +140,9 @@ impl Audio {
         }
     }
 
-    /// Whether the car is heard (a race is on), and the menu's background loop.
-    pub fn set_scene(&self, race: bool, ambience: Ambience) {
+    /// Whether a race is on (the car and the race's music) or the menu (its theme).
+    pub fn set_scene(&self, race: bool) {
         self.shared.race.store(race, Ordering::Relaxed);
-        self.shared.ambience.store(ambience as u32, Ordering::Relaxed);
     }
 }
 
@@ -152,7 +151,7 @@ impl Audio {
 pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], boosts: &[usize], rate: u32) -> Vec<f32> {
     let shared = Arc::new(Shared::default());
     shared.race.store(true, Ordering::Relaxed);
-    let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None));
+    let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None), false);
     let per_tick = (rate / 100) as usize;
     let mut out = vec![0.0f32; frames.len() * per_tick];
     for (i, f) in frames.iter().enumerate() {
@@ -206,6 +205,14 @@ const AMBIENCE_WAV: &[u8] = include_bytes!("../assets/audio/ambience_mars.wav");
 const BOOSTER_WAV: &[u8] = include_bytes!("../assets/audio/booster.wav");
 /// Level of the booster's whoosh in the mix.
 const BOOSTER_GAIN: f32 = 0.55;
+/// Level of the menu's theme, the menu's only background (the tracks leave tools/audio/music.py
+/// at -16 LUFS; this plays it at -19).
+const MENU_MUSIC_GAIN: f32 = 1.0;
+/// Level of the race music: about as loud as the car (the engine demo's lap, `MARS_ENGINE_DEMO`,
+/// measures -25 LUFS).
+const RACE_MUSIC_GAIN: f32 = 0.5;
+/// Seconds the music takes to fade in or out between the menu and a race.
+const MUSIC_FADE: f32 = 1.5;
 
 struct Synth {
     rate: f32,
@@ -242,11 +249,32 @@ struct Synth {
     ui: UiSynth,
     /// How much of the car is heard, smoothed (0 in the menu).
     race: f32,
+    /// The menu's theme and the race's tracks (none when rendering offline), and how much of
+    /// each is heard, fading linearly.
+    menu_music: Option<Music>,
+    race_music: Option<Music>,
+    menu_music_level: f32,
+    race_music_level: f32,
+}
+
+/// The next sample of a player heard at `level`; one that is not heard is not read, so it waits
+/// where it was.
+fn play(music: &mut Option<Music>, level: f32) -> (f32, f32) {
+    match music {
+        Some(m) if level > 0.0 => {
+            let (l, r) = m.next();
+            (l * level, r * level)
+        }
+        _ => (0.0, 0.0),
+    }
 }
 
 impl Synth {
-    fn new(rate: f32, shared: Arc<Shared>, ui: UiSynth) -> Self {
+    fn new(rate: f32, shared: Arc<Shared>, ui: UiSynth, music: bool) -> Self {
         let race = if shared.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+        // Every circuit is on Mars for now.
+        let (menu_music, race_music) =
+            if music { (Some(Music::new(crate::music::MENU, rate)), Some(Music::new(crate::music::MARS, rate))) } else { (None, None) };
         Self {
             rate,
             shared,
@@ -277,6 +305,10 @@ impl Synth {
             hp_y: 0.0,
             ui,
             race,
+            menu_music,
+            race_music,
+            menu_music_level: 0.0,
+            race_music_level: 0.0,
         }
     }
 
@@ -300,7 +332,6 @@ impl Synth {
             if s.muted.load(Ordering::Relaxed) { 0.0 } else { 0.7 },
         );
         let race_target = if s.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
-        let ambience = Ambience::from_u32(s.ambience.load(Ordering::Relaxed));
         let gear = s.gear.load(Ordering::Relaxed);
         let revs = crate::engine_sound::revs(target.0, gear, target.1);
         if gear > self.seen_gear && target.1 > 0.3 {
@@ -320,6 +351,7 @@ impl Synth {
         }
         let rate = self.rate;
         let k = 1.0 - (-1.0 / (0.03 * rate)).exp();
+        let fade = 1.0 / (MUSIC_FADE * rate);
         for frame in out.chunks_mut(channels) {
             self.load += (target.1 - self.load) * k;
             self.speed += (target.2 - self.speed) * k;
@@ -374,7 +406,7 @@ impl Synth {
                 self.thump *= (-1.0 / (0.08 * rate)).exp();
             }
 
-            let ui = self.ui.next(ambience);
+            let ui = self.ui.next();
             let raw = ((engine + gravel + wind + squeal + thump) * self.race + ui * 1.2) * self.master;
             // ~30 Hz high-pass: nothing below what speakers can play.
             let a = (-std::f32::consts::TAU * 30.0 / rate).exp();
@@ -384,10 +416,18 @@ impl Synth {
             // The ambience and the booster's whoosh are the stereo sounds.
             let (al, ar) = self.ambience.next(1.0);
             let (bl, br) = self.booster.next();
-            // The menu has ambiences of its own.
+            // The Martian ambience is the race's; the menu has its theme.
             let amb = 0.35 * self.master * self.race;
             let whoosh = BOOSTER_GAIN * self.master * self.race;
-            let (l, r) = ((mix + al * amb + bl * whoosh).tanh(), (mix + ar * amb + br * whoosh).tanh());
+            // The theme fades out as a race starts and the race's tracks fade in, and back.
+            self.menu_music_level = (self.menu_music_level + fade.copysign(0.5 - race_target)).clamp(0.0, 1.0);
+            self.race_music_level = (self.race_music_level + fade.copysign(race_target - 0.5)).clamp(0.0, 1.0);
+            let (ml, mr) = play(&mut self.menu_music, self.menu_music_level * MENU_MUSIC_GAIN * self.master);
+            let (rl, rr) = play(&mut self.race_music, self.race_music_level * RACE_MUSIC_GAIN * self.master);
+            let (l, r) = (
+                (mix + al * amb + bl * whoosh + ml + rl).tanh(),
+                (mix + ar * amb + br * whoosh + mr + rr).tanh(),
+            );
             match frame {
                 [mono] => *mono = 0.5 * (l + r),
                 [left, right, rest @ ..] => {
@@ -400,5 +440,31 @@ impl Synth {
                 [] => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn music_follows_the_scene() {
+        let rate = 48_000;
+        let shared = Arc::new(Shared::default());
+        let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None), true);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        // One second in the menu: the theme, still fading in.
+        let mut out = vec![0.0; 2 * rate];
+        synth.fill(&mut out, 2);
+        assert!((synth.menu_music_level - 1.0 / MUSIC_FADE).abs() < 1e-3);
+        assert_eq!(synth.race_music_level, 0.0);
+        let half = &out[rate / 2..rate];
+        let rms = (half.iter().map(|s| s * s).sum::<f32>() / half.len() as f32).sqrt();
+        assert!(rms > 0.002, "theme rms {rms}");
+        // Two seconds into a race: the theme is out, the race's tracks in.
+        shared.race.store(true, Ordering::Relaxed);
+        synth.fill(&mut out, 2);
+        synth.fill(&mut out, 2);
+        assert_eq!((synth.menu_music_level, synth.race_music_level), (0.0, 1.0));
     }
 }

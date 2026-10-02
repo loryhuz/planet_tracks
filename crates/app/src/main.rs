@@ -17,6 +17,7 @@ mod ios;
 mod marks;
 mod menu;
 mod menu_gfx;
+mod music;
 mod particles;
 mod race;
 mod sample;
@@ -454,7 +455,7 @@ impl App {
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
-            audio.set_scene(!self.menu.active, self.menu.ambience());
+            audio.set_scene(!self.menu.active);
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }

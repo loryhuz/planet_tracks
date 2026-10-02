@@ -1,7 +1,6 @@
 //! Menu sounds, synthesized on the audio thread: short cues (a click on hover, two rising notes
-//! to confirm, a buzz when something is locked, the electric drive winding up before a race) and
-//! a looping ambience per screen (Martian wind, a slow pad in space, the hum of the base).
-//! Each cue is a few enveloped oscillators and filtered noise bursts, like a tiny modular synth.
+//! to confirm, a buzz when something is locked, the electric drive winding up before a race).
+//! Behind them the menu plays its theme (music.rs). Each cue is a few enveloped oscillators and filtered noise bursts, like a tiny modular synth.
 
 use std::f32::consts::{PI, TAU};
 use std::sync::mpsc::Receiver;
@@ -45,41 +44,6 @@ pub enum Cue {
     Finish,
     /// A new record at the finish.
     Record,
-}
-
-/// Looping background of the menu screens.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[repr(u32)]
-pub enum Ambience {
-    #[default]
-    Off = 0,
-    /// Title screen: wind and a far pad.
-    Title = 1,
-    /// Planet choice: a slow breathing pad, lighter wind.
-    Space = 2,
-    /// Modes and circuits: stronger wind and the hum of the installations.
-    Base = 3,
-}
-
-impl Ambience {
-    pub fn from_u32(v: u32) -> Self {
-        match v {
-            1 => Self::Title,
-            2 => Self::Space,
-            3 => Self::Base,
-            _ => Self::Off,
-        }
-    }
-
-    /// Levels of wind, whistle, pad and hum.
-    fn levels(self) -> [f32; 4] {
-        match self {
-            Self::Off => [0.0; 4],
-            Self::Title => [0.5, 0.5, 0.1, 0.0],
-            Self::Space => [0.35, 0.6, 0.13, 0.0],
-            Self::Base => [0.6, 0.3, 0.0, 0.06],
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -188,20 +152,7 @@ pub struct UiSynth {
     rx: Option<Receiver<Cue>>,
     voices: Vec<Voice>,
     seed: u32,
-    // ambience
-    levels: [f32; 4],
-    brown: [f32; 2],
-    wind_lp: Svf,
-    whistle_bp: Svf,
-    pad_lp: Svf,
-    lfo: [f32; 2],
-    pad_phase: [f32; 4],
-    tremolo: [f32; 4],
-    hum_phase: [f32; 3],
 }
-
-const PAD: [(f32, Wave, f32); 4] =
-    [(110.0, Wave::Sine, -9.0), (164.81, Wave::Triangle, -3.0), (220.6, Wave::Sine, 3.0), (277.18, Wave::Triangle, 9.0)];
 
 impl UiSynth {
     pub fn new(rate: f32, rx: Option<Receiver<Cue>>) -> Self {
@@ -210,15 +161,6 @@ impl UiSynth {
             rx,
             voices: Vec::with_capacity(64),
             seed: 0x9e37_79b9,
-            levels: [0.0; 4],
-            brown: [0.0; 2],
-            wind_lp: Svf::default(),
-            whistle_bp: Svf::default(),
-            pad_lp: Svf::default(),
-            lfo: [0.0; 2],
-            pad_phase: [0.0; 4],
-            tremolo: [0.0; 4],
-            hum_phase: [0.0; 3],
         }
     }
 
@@ -392,9 +334,8 @@ impl UiSynth {
         }
     }
 
-    /// The next sample of cues and ambience (`ambience` is the screen's background, faded in and
-    /// out over about a second).
-    pub fn next(&mut self, ambience: Ambience) -> f32 {
+    /// The next sample of the cues.
+    pub fn next(&mut self) -> f32 {
         if let Some(rx) = &self.rx {
             let mut cues = [None; 8];
             for slot in cues.iter_mut() {
@@ -445,52 +386,7 @@ impl UiSynth {
             v.t += dt;
             i += 1;
         }
-        out + self.ambience(ambience) * 0.55
-    }
-
-    fn ambience(&mut self, ambience: Ambience) -> f32 {
-        let target = ambience.levels();
-        let k = 1.0 - (-1.0 / (0.6 * self.rate)).exp();
-        for (l, t) in self.levels.iter_mut().zip(target) {
-            *l += (t - *l) * k;
-        }
-        if self.levels.iter().all(|&l| l < 1e-4) {
-            return 0.0;
-        }
-        let rate = self.rate;
-        let dt = 1.0 / rate;
-        // Brown noise: a leaky integral of white noise (two of them, one brighter).
-        let w1 = self.noise();
-        let w2 = self.noise();
-        self.brown[0] = (self.brown[0] + 0.02 * w1) / 1.02;
-        self.brown[1] = (self.brown[1] + 0.034 * w2) / 1.034;
-        self.lfo[0] = (self.lfo[0] + 0.07 * dt).fract();
-        self.lfo[1] = (self.lfo[1] + 0.045 * dt).fract();
-        let wind_f = 420.0 + 260.0 * (self.lfo[0] * TAU).sin();
-        let wind = self.wind_lp.run(self.brown[0] * 8.0, wind_f, 0.8, rate, Filter::Low);
-        let whistle_f = 900.0 + 380.0 * (self.lfo[1] * TAU).sin();
-        let whistle = self.whistle_bp.run(self.brown[1] * 8.0, whistle_f, 9.0, rate, Filter::Band);
-        let mut pad = 0.0;
-        for (i, (f, wave, cents)) in PAD.iter().enumerate() {
-            let f = f * 2f32.powf(cents / 1200.0);
-            self.pad_phase[i] = (self.pad_phase[i] + f * dt).fract();
-            self.tremolo[i] = (self.tremolo[i] + (0.11 + 0.05 * i as f32) * dt).fract();
-            let p = self.pad_phase[i];
-            let s = match wave {
-                Wave::Triangle => 4.0 * (p - 0.5).abs() - 1.0,
-                _ => (p * TAU).sin(),
-            };
-            let gain = (0.25 + 0.12 * (self.tremolo[i] * TAU).sin()) / (i as f32 + 1.0);
-            pad += s * gain;
-        }
-        let pad = self.pad_lp.run(pad, 900.0, 0.7, rate, Filter::Low);
-        let mut hum = 0.0;
-        for (i, (f, g)) in [(50.0, 0.5), (100.0, 0.22), (150.0, 0.08)].into_iter().enumerate() {
-            self.hum_phase[i] = (self.hum_phase[i] + f * dt).fract();
-            hum += (self.hum_phase[i] * TAU).sin() * g;
-        }
-        let [lw, lh, lp, lu] = self.levels;
-        wind * lw + whistle * lh + pad * lp + hum * lu
+        out
     }
 }
 
@@ -498,8 +394,8 @@ impl UiSynth {
 mod tests {
     use super::*;
 
-    fn render(synth: &mut UiSynth, ambience: Ambience, seconds: f32) -> Vec<f32> {
-        (0..(seconds * synth.rate) as usize).map(|_| synth.next(ambience)).collect()
+    fn render(synth: &mut UiSynth, seconds: f32) -> Vec<f32> {
+        (0..(seconds * synth.rate) as usize).map(|_| synth.next()).collect()
     }
 
     #[test]
@@ -532,26 +428,12 @@ mod tests {
         for cue in cues {
             let mut synth = UiSynth::new(44_100.0, None);
             synth.trigger(cue);
-            let out = render(&mut synth, Ambience::Off, 3.5);
+            let out = render(&mut synth, 3.5);
             let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs()));
             assert!(out.iter().all(|s| s.is_finite()), "{cue:?} produced NaN");
             assert!(peak > 0.005, "{cue:?} is silent (peak {peak})");
             assert!(peak < 1.2, "{cue:?} is too loud (peak {peak})");
             assert!(synth.voices.is_empty(), "{cue:?} still playing after 3.5 s");
         }
-    }
-
-    #[test]
-    fn ambiences_are_quiet_beds() {
-        for ambience in [Ambience::Title, Ambience::Space, Ambience::Base] {
-            let mut synth = UiSynth::new(44_100.0, None);
-            let out = render(&mut synth, ambience, 4.0);
-            let tail = &out[out.len() / 2..];
-            let rms = (tail.iter().map(|s| s * s).sum::<f32>() / tail.len() as f32).sqrt();
-            assert!(out.iter().all(|s| s.is_finite()));
-            assert!(rms > 0.002 && rms < 0.2, "{ambience:?} rms {rms}");
-        }
-        let mut synth = UiSynth::new(44_100.0, None);
-        assert!(render(&mut synth, Ambience::Off, 1.0).iter().all(|&s| s == 0.0));
     }
 }

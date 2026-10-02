@@ -47,7 +47,11 @@ impl ChaseCamera {
         };
         let up = if self.mode == 2 { rotation * Vec3::Y } else { Vec3::Y };
         let view = glam::camera::rh::view::look_at_mat4(eye, look, up);
-        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(self.fov, aspect, 0.1);
+        // On a portrait screen the field of view is widened so the road ahead keeps some width
+        // (at least 58° across).
+        let min_across = 58f32.to_radians();
+        let fov = self.fov.max(2.0 * ((min_across * 0.5).tan() / aspect.max(0.1)).atan());
+        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(fov, aspect, 0.1);
         (view, proj, eye)
     }
 }

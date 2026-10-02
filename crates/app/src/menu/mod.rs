@@ -7,8 +7,8 @@
 //! The menu keeps its own state and tells the app what to do through [`Request`]s, and what to
 //! play through [`Cue`]s.
 
-mod catalog;
-mod paint;
+pub(crate) mod catalog;
+pub(crate) mod paint;
 mod screens;
 
 use egui::{Id, Pos2, Rect, Response, Sense};

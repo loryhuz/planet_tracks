@@ -9,6 +9,7 @@ mod debug;
 mod engine_sound;
 mod game;
 mod gfx;
+mod hud;
 mod input;
 mod marks;
 mod menu;
@@ -34,6 +35,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 use crate::game::{CarMeshes, CornerMeshes, Game};
 use crate::gfx::{Gpu, MeshData, SceneRenderer, Shading, Vertex, View};
 use crate::input::Action;
+use crate::hud::HudRequest;
 use crate::menu::{Layout, Menu, MenuInput, Request};
 
 struct Graphics {
@@ -51,6 +53,7 @@ struct App {
     gfx: Option<Graphics>,
     game: Game,
     menu: Menu,
+    hud: hud::Hud,
     egui_ctx: egui::Context,
     last_frame: Instant,
     accumulator: f32,
@@ -259,10 +262,11 @@ impl App {
             (None, None) => return,
         };
 
-        // The menu is laid out in a fixed design space that egui's zoom fits to the window.
+        // The menu and the HUD are laid out in a fixed design space that egui's zoom fits to the
+        // window.
         let size = g.window.inner_size();
         let scale = g.window.scale_factor() as f32;
-        let zoom = if self.menu.shows() { Layout::zoom(size.width as f32 / scale, size.height as f32 / scale) } else { 1.0 };
+        let zoom = Layout::zoom(size.width as f32 / scale, size.height as f32 / scale);
         if (self.egui_ctx.zoom_factor() - zoom).abs() > 1e-4 {
             // Straight into the options, so this frame is laid out with it (`set_zoom_factor`
             // waits for the next one).
@@ -278,6 +282,7 @@ impl App {
         }
         let fps = &self.fps;
         let menu = &mut self.menu;
+        let hud = &mut self.hud;
         let bests: Vec<Option<u32>> =
             game.maps.iter().map(|m| game.session.profile().best(&session::map_key(m)).map(|b| b.ticks)).collect();
         let muted = self.audio.as_ref().is_some_and(|a| a.muted());
@@ -287,7 +292,11 @@ impl App {
                 sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted }).clone());
             }
             if !menu.shows() {
-                ui::draw(ui, game, fps);
+                hud.ui(ui, game, fps);
+                if game.panel_open {
+                    let t = game.telemetry();
+                    ui::panel(ui.ctx(), game, t);
+                }
             }
         });
         g.egui_state.handle_platform_output(&g.window, full.platform_output);
@@ -298,6 +307,16 @@ impl App {
                 Request::Build(_) => {}
                 Request::Start(_) => game.restart(),
                 Request::ToggleMute => game.mute_requested = true,
+            }
+        }
+        for request in self.hud.take_requests() {
+            match request {
+                HudRequest::Respawn => game.apply(Action::Respawn),
+                HudRequest::Restart => game.restart(),
+                HudRequest::Menu => {
+                    game.restart();
+                    self.menu.open_from_race(game.map_index);
+                }
             }
         }
         game.session.autosave();
@@ -337,7 +356,7 @@ impl App {
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
             audio.set_scene(!self.menu.active, self.menu.ambience());
-            for cue in self.menu.take_cues() {
+            for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }
             audio.update(&if self.menu.active { audio::SoundFrame::default() } else { game.sound_frame() });
@@ -350,6 +369,7 @@ impl App {
         } else {
             game.impacts.clear();
             self.menu.take_cues();
+            self.hud.take_cues();
         }
         let right = view.row(0).truncate();
         let up = view.row(1).truncate();
@@ -683,8 +703,9 @@ fn main() {
     if let Some(p) = debug.profile {
         game.select_profile(p);
     }
-    if std::env::var("MARS_HIDE_UI").is_ok() {
-        game.panel_open = false;
+    // The debug panel (Tab) open from the start, for checks.
+    if std::env::var("MARS_DEBUG_PANEL").is_ok() {
+        game.panel_open = true;
     }
     // Surface textures on (1) or off (0) for this run, whatever the session says.
     if let Ok(v) = std::env::var("MARS_TEXTURES") {
@@ -707,10 +728,12 @@ fn main() {
     }
     let egui_ctx = egui::Context::default();
     egui_ctx.set_fonts(menu::fonts());
+    let hud = hud::Hud::new(&game.maps);
     let mut app = App {
         gfx: None,
         game,
         menu,
+        hud,
         egui_ctx,
         last_frame: Instant::now(),
         accumulator: 0.0,

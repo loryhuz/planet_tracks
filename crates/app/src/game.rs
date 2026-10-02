@@ -1,7 +1,5 @@
 //! Game state: the track, the player's run, its ghost, the tuning session.
 
-use std::time::{Duration, Instant};
-
 use glam::{Mat4, Quat, Vec3, Vec4};
 use physics::{CarParams, CarState, Telemetry, World};
 use track::Track;
@@ -10,15 +8,16 @@ use crate::camera::ChaseCamera;
 use crate::car_model::{CornerRig, Look};
 use crate::gfx::{DrawItem, MeshId};
 use crate::input::{Action, Controls};
-use crate::race::{Frame, RaceEvent, Run, format_delta, format_time};
+use crate::race::{Frame, RaceEvent, Run, format_time};
 use crate::session::{Best, Session, map_key};
 
-pub struct Popup {
-    pub title: String,
-    pub time: String,
-    /// Ticks versus the record (negative = faster).
-    pub delta: Option<i64>,
-    pub until: Instant,
+/// The last finish: its time, the record it was measured against (with that record's
+/// checkpoints), and whether it beat it.
+pub struct RaceResult {
+    pub ticks: u32,
+    pub previous: Option<u32>,
+    pub previous_splits: Vec<u32>,
+    pub record: bool,
 }
 
 /// One corner's suspension parts on the GPU.
@@ -56,7 +55,7 @@ pub struct Game {
     pub controls: Controls,
     pub camera: ChaseCamera,
     pub panel_open: bool,
-    pub popup: Option<Popup>,
+    pub result: Option<RaceResult>,
     pub fullscreen_requested: bool,
     pub marks: crate::marks::Marks,
     pub dust: crate::particles::Dust,
@@ -88,8 +87,8 @@ impl Game {
             ghost: None,
             controls: Controls::new(),
             camera: ChaseCamera::new(),
-            panel_open: true,
-            popup: None,
+            panel_open: false,
+            result: None,
             fullscreen_requested: false,
             marks: crate::marks::Marks::new(),
             dust: crate::particles::Dust::new(),
@@ -122,7 +121,7 @@ impl Game {
             pilot.reset();
         }
         self.pending_respawn = false;
-        self.popup = None;
+        self.result = None;
     }
 
     pub fn map_key(&self) -> String {
@@ -258,21 +257,8 @@ impl Game {
         }
         for event in events {
             match event {
-                RaceEvent::Checkpoint { index: _, tick } => {
-                    let n = self.run.splits.len();
-                    let delta = self
-                        .session
-                        .profile()
-                        .current_best(&self.map_key())
-                        .and_then(|b| b.splits.get(n - 1))
-                        .map(|&best| tick as i64 - best as i64);
-                    self.popup = Some(Popup {
-                        title: format!("Checkpoint {}/{}", n, self.track.checkpoints.len()),
-                        time: format_time(tick),
-                        delta,
-                        until: Instant::now() + Duration::from_millis(2500),
-                    });
-                }
+                // The HUD shows the checkpoints from the run's splits.
+                RaceEvent::Checkpoint { .. } => {}
                 RaceEvent::Finish { tick } => self.finish(tick),
                 RaceEvent::Fell => {
                     if self.run.racing() {
@@ -291,7 +277,9 @@ impl Game {
     fn finish(&mut self, tick: u32) {
         let params_json = self.session.profile().params_json();
         let key = self.map_key();
-        let previous = self.session.profile().current_best(&key).map(|b| b.ticks);
+        let best = self.session.profile().current_best(&key);
+        let previous = best.map(|b| b.ticks);
+        let previous_splits = best.map(|b| b.splits.clone()).unwrap_or_default();
         let record = previous.is_none_or(|p| tick < p);
         let profile = self.session.profile_mut();
         profile.finishes += 1;
@@ -300,12 +288,7 @@ impl Game {
             profile.bests.insert(key, Best { ticks: tick, splits: self.run.splits.clone(), params_json, frames: self.run.frames.clone() });
         }
         self.session.mark_dirty();
-        self.popup = Some(Popup {
-            title: if record { "Record !".into() } else { "Arrivée".into() },
-            time: format_time(tick),
-            delta: previous.map(|p| tick as i64 - p as i64),
-            until: Instant::now() + Duration::from_secs(3600),
-        });
+        self.result = Some(RaceResult { ticks: tick, previous, previous_splits, record });
     }
 
     /// Sound parameters for this frame. The engine fakes gear changes at the speeds where
@@ -360,10 +343,6 @@ impl Game {
 
     pub fn telemetry(&self) -> Telemetry {
         self.run.car.telemetry()
-    }
-
-    pub fn delta_text(delta: i64) -> String {
-        format_delta(delta)
     }
 
     /// Render state of the player's car and the ghost, interpolated between ticks.

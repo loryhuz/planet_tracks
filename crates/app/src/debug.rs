@@ -10,7 +10,7 @@
 //! - `MARS_EYE=x,y,z,tx,ty,tz`: look from a fixed point at another (scenery checks);
 //! - `MARS_STORM_TIME=seconds`: start the sandstorm that far into its approach (read by the
 //!   renderer);
-//! - `MARS_MAP=name`: start on that map; `MARS_HIDE_UI=1`: settings panel closed;
+//! - `MARS_MAP=name`: start on that map; `MARS_DEBUG_PANEL=1`: the debug panel (Tab) open;
 //!   `MARS_TEXTURES=0|1`: surface textures off or on for the run (read by `main`);
 //! - `MARS_BENCH=from,to`: between those seconds every frame renders off screen (so a hidden
 //!   window is measured too, without the display's frame cap) and waits for the GPU; the GPU time

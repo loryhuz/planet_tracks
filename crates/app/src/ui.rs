@@ -1,12 +1,12 @@
-//! HUD and the tuning panel (egui). Every changing number uses a monospace font.
+//! The debug panel (egui, shown with Tab): profiles, records, telemetry and the live tuning; and
+//! the frame counter. The race HUD itself is hud.rs.
 
 use std::time::Instant;
 
-use egui::{Align2, Color32, FontId, RichText, vec2};
+use egui::{Align2, Color32, RichText, vec2};
 
-use crate::camera::MODES;
 use crate::game::Game;
-use crate::race::{COUNTDOWN_TICKS, format_time};
+use crate::race::format_time;
 
 pub struct Fps {
     frames: u32,
@@ -32,98 +32,8 @@ impl Fps {
     }
 }
 
-fn hud_frame() -> egui::Frame {
-    egui::Frame::new().fill(Color32::from_black_alpha(110)).corner_radius(6.0).inner_margin(8.0)
-}
-
-fn mono(text: impl Into<String>, size: f32) -> RichText {
-    RichText::new(text).font(FontId::monospace(size)).color(Color32::WHITE)
-}
-
-pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
-    let ctx = ui.ctx().clone();
-    let telemetry = game.telemetry();
-
-    // Top left: FPS (always), profile, camera.
-    egui::Area::new(egui::Id::new("fps")).anchor(Align2::LEFT_TOP, vec2(12.0, 10.0)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.add(egui::Label::new(mono(format!("{:>4.0} FPS {:>5.1} ms", fps.fps, fps.frame_ms), 15.0)).extend());
-            let p = game.session.profile();
-            ui.label(RichText::new(format!("{} · Profil {} · {}", game.map_name(), game.session.current + 1, p.params.name)).color(Color32::WHITE).size(14.0));
-            ui.label(RichText::new(format!("Caméra : {}", MODES[game.camera.mode])).color(Color32::from_gray(200)).size(12.0));
-        });
-    });
-
-    // Top centre: race time.
-    let run = &game.run;
-    let time = run.finished.unwrap_or(run.tick);
-    egui::Area::new(egui::Id::new("timer")).anchor(Align2::CENTER_TOP, vec2(0.0, 12.0)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.label(mono(format_time(time), 34.0));
-            let n = game.track.checkpoints.len();
-            if n > 0 {
-                ui.label(mono(format!("CP {}/{}", run.splits.len(), n), 14.0));
-            }
-        });
-    });
-
-    // Checkpoint / finish popup.
-    if let Some(p) = &game.popup {
-        if Instant::now() < p.until {
-            egui::Area::new(egui::Id::new("popup")).anchor(Align2::CENTER_TOP, vec2(0.0, 110.0)).interactable(false).show(&ctx, |ui| {
-                hud_frame().show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label(RichText::new(&p.title).color(Color32::WHITE).size(18.0));
-                        ui.label(mono(&p.time, 28.0));
-                        if let Some(d) = p.delta {
-                            let color = if d <= 0 { Color32::from_rgb(90, 160, 255) } else { Color32::from_rgb(255, 90, 80) };
-                            ui.label(mono(Game::delta_text(d), 20.0).color(color));
-                        }
-                        if game.run.finished.is_some() {
-                            ui.label(RichText::new("Entrée ou Retour arrière pour recommencer").color(Color32::from_gray(210)).size(13.0));
-                        }
-                    });
-                });
-            });
-        }
-    }
-
-    // Countdown.
-    if run.countdown > 0 || (run.tick < 60 && run.finished.is_none()) {
-        let text = if run.countdown > 0 { format!("{}", 1 + run.countdown * 3 / COUNTDOWN_TICKS) } else { "GO".into() };
-        egui::Area::new(egui::Id::new("countdown")).anchor(Align2::CENTER_CENTER, vec2(0.0, -60.0)).interactable(false).show(&ctx, |ui| {
-            ui.add(egui::Label::new(mono(text, 72.0)).extend());
-        });
-    }
-
-    // Bottom centre: speed.
-    egui::Area::new(egui::Id::new("speed")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -18.0)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(mono(format!("{:>3.0}", telemetry.speed_kmh), 40.0));
-                ui.label(RichText::new("km/h").color(Color32::from_gray(210)).size(14.0));
-            });
-        });
-    });
-
-    // Bottom left: keys.
-    egui::Area::new(egui::Id::new("help")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -10.0)).interactable(false).show(&ctx, |ui| {
-        hud_frame().show(ui, |ui| {
-            let c = Color32::from_gray(215);
-            ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer · Échap : menu").color(c).size(12.0));
-            ui.label(RichText::new("1-8 : profil · PgUp/PgDn : profil suivant · X : éliminer · Tab : réglages · C : caméra · F : plein écran · M : son · N : map suivante · T : textures").color(c).size(12.0));
-            if let Some(name) = &game.controls.gamepad_name {
-                ui.label(RichText::new(format!("Manette : {name} (RT gaz, LT frein, B dernier CP, Y recommencer, LB/RB profil, Start menu)")).color(c).size(12.0));
-            }
-        });
-    });
-
-    if game.panel_open {
-        panel(&ctx, game, telemetry);
-    }
-}
-
-fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
+/// The debug panel (Tab): profiles, records, telemetry and the live tuning.
+pub fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     let mut select = None;
     let mut select_map = None;
     let mut toggle = None;

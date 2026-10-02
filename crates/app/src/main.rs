@@ -212,7 +212,7 @@ fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu) -> CarMeshes {
             tierod: p.tierod.as_ref().map(&mut up),
         })
         .collect();
-    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius }
+    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius, headlight: buggy.headlight }
 }
 
 impl App {
@@ -414,7 +414,7 @@ impl App {
 
         if std::mem::take(&mut game.track_changed) {
             g.scene.replace(&g.gpu.device, g.track_mesh, &track_render_data(&game.track));
-            g.scene.set_track(&g.gpu, &game.track, g.track_mesh);
+            g.scene.set_track(&g.gpu, &game.track, g.track_mesh, game.time_of_day());
         }
 
         let target = target_texture.create_view(&Default::default());
@@ -486,7 +486,8 @@ impl App {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
             _ => {
                 let blur = if self.hud.paused() { 0.0 } else { game.camera.blur };
-                g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur }, &items)
+                let headlights = Some(game.headlights(alpha, &g.car));
+                g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur, headlights }, &items)
             }
         }
 
@@ -588,7 +589,7 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
-        scene.set_track(&gpu, &self.game.track, track_mesh);
+        scene.set_track(&gpu, &self.game.track, track_mesh, self.game.time_of_day());
         let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(

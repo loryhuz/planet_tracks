@@ -23,7 +23,8 @@
 //! ```
 //!
 //! `landforms` (optional) are mesas, buttes and escarpments standing close to the track, cut and
-//! filled around the blocks (see [`crate::landform`]).
+//! filled around the blocks (see [`crate::landform`]). `"time": "night"` (optional, day by
+//! default) races the map by night ([`TimeOfDay`]).
 //!
 //! # Blocks
 //!
@@ -118,6 +119,8 @@ pub struct Map {
     pub version: u32,
     #[serde(default)]
     pub terrain: TerrainSettings,
+    #[serde(default, skip_serializing_if = "TimeOfDay::is_day")]
+    pub time: TimeOfDay,
     pub blocks: Vec<BlockPlacement>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub landforms: Vec<Landform>,
@@ -126,6 +129,22 @@ pub struct Map {
     pub structures: Vec<Structure>,
     #[serde(default)]
     pub scenery: Vec<Prop>,
+}
+
+/// When the map is raced: by day under the sun, or by night under a moon, the cars' headlights
+/// lighting the road (the renderer's; the physics are the same).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeOfDay {
+    #[default]
+    Day,
+    Night,
+}
+
+impl TimeOfDay {
+    pub fn is_day(&self) -> bool {
+        *self == TimeOfDay::Day
+    }
 }
 
 /// One block on the grid.
@@ -496,13 +515,15 @@ impl Map {
         } else {
             format!("  \"structures\": {},\n", list(self.structures.iter().map(compact).collect()))
         };
+        let time = if self.time.is_day() { String::new() } else { format!("  \"time\": {},\n", compact(&self.time)) };
         format!(
-            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n  \"blocks\": {},\n{}{}  \"scenery\": {}\n}}\n",
+            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n{}  \"blocks\": {},\n{}{}  \"scenery\": {}\n}}\n",
             self.format,
             compact(&self.name),
             compact(&self.author),
             self.version,
             compact(&self.terrain),
+            time,
             list(self.blocks.iter().map(compact).collect()),
             landforms,
             structures,

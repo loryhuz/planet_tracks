@@ -10,6 +10,8 @@ name Olympus
 seed 31337
 # 4: the technical finish lined with bumpers, the tarp strapped (the start keeps its sandbags).
 version 4
+# Raced by night: the moon low over the plateau, the buggy's headlights on the road.
+time night
 start 0 0 0 0
 turn2_right
 slope3_up1

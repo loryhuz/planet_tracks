@@ -16,6 +16,7 @@
 //! landform butte 430 -400 46 18.5 24 90   # kind x z radius height [length yaw]
 //! structure post 480 -185 200               # camp: kind x z yaw [variant]
 //! terrain hills 10          # any other terrain setting
+//! time night                # raced by night (day by default)
 //! version 2                 # revision of the map (records are kept per version)
 //! ```
 //!
@@ -27,7 +28,7 @@
 use std::collections::BTreeMap;
 
 use track::kit::{CELL, Connector, Heading, Layout};
-use track::map::{Map, blocks_from_layout, parse_block};
+use track::map::{Map, TimeOfDay, blocks_from_layout, parse_block};
 use track::terrain::TerrainSettings;
 
 fn main() {
@@ -40,6 +41,7 @@ fn main() {
     let mut landforms = Vec::new();
     let mut structures = Vec::new();
     let mut version = 1;
+    let mut time = TimeOfDay::Day;
 
     for (n, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -55,6 +57,9 @@ fn main() {
             "name" => name = words[1..].join(" "),
             "seed" => terrain.seed = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad seed")),
             "version" => version = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad version")),
+            "time" => {
+                time = words.get(1).and_then(|w| serde_json::from_value(w.to_string().into()).ok()).unwrap_or_else(|| fail("time is day or night"))
+            }
             "terrain" => {
                 let mut t = serde_json::to_value(&terrain).expect("terrain");
                 let value: serde_json::Value = words.get(2).and_then(|v| serde_json::from_str(v).ok()).unwrap_or_else(|| fail("terrain needs: setting value"));
@@ -153,6 +158,7 @@ fn main() {
         author: "mars-racer".into(),
         version,
         terrain,
+        time,
         blocks,
         landforms: serde_json::from_value(serde_json::Value::Array(landforms)).expect("landforms"),
         structures: serde_json::from_value(serde_json::Value::Array(structures)).unwrap_or_else(|e| fail_any(&format!("structures: {e}"))),

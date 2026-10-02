@@ -14,6 +14,8 @@
 //! - `MARS_EYE=x,y,z,tx,ty,tz`: look from a fixed point at another (scenery checks);
 //! - `MARS_STORM_TIME=seconds`: start the sandstorm that far into its approach (read by the
 //!   renderer);
+//! - `MARS_TIME=day|night`: race every map at that time, whatever its file says (read by the
+//!   renderer);
 //! - `MARS_MAP=name`: start on that map; `MARS_DEBUG_PANEL=1`: the debug panel (Tab) open;
 //!   `MARS_HUD_SETTINGS=seconds`: the settings sheet opened that far into the race (read by
 //!   the HUD);

@@ -14,7 +14,8 @@ struct Frame {
     // x: density per metre, y: start distance
     fog: vec4<f32>,
     // x: near shadow map texel size in uv; y: the far map's; z: how far lookups in the far map
-    // are lifted off surfaces (metres, half one of its texels)
+    // are lifted off surfaces (metres, half one of its texels); w: 0 by day, 1 by night (the
+    // sun is then a moon)
     misc: vec4<f32>,
     // xy: circuit centre (x, z), zw: unit direction from the centre to the storm (x, z)
     storm_a: vec4<f32>,
@@ -31,6 +32,12 @@ struct Frame {
     // and the shade's strength (0: none); the axle and the footprint's half width; the heading
     // and its half length.
     contacts: array<vec4<f32>, 12>,
+    // The headlights by night (headlight): where the beam starts (w: its strength, 0 off), its
+    // axis (w: its reach, metres), the car's up axis; their shadow map's matrix.
+    lamp_pos: vec4<f32>,
+    lamp_dir: vec4<f32>,
+    lamp_up: vec4<f32>,
+    lamp_view_proj: mat4x4<f32>,
 };
 
 struct Object {
@@ -55,6 +62,7 @@ struct Object {
 @group(0) @binding(6) var surf_relief: texture_2d_array<f32>;
 @group(0) @binding(7) var surf_sampler: sampler;
 @group(0) @binding(8) var far_shadow_map: texture_depth_2d;
+@group(0) @binding(9) var lamp_shadow_map: texture_depth_2d;
 @group(1) @binding(0) var<uniform> object: Object;
 
 // Vertex kinds: 0 road, 1 dirt, 2 ground, 3 wall (painted gates), 10 car paint, 11 rubber,
@@ -610,6 +618,73 @@ fn shadow_factor(world: vec3<f32>, n: vec3<f32>) -> f32 {
     return sun;
 }
 
+// The headlights' beam (gfx.rs LAMP_*), in radians off its axis: full across `x` to either side,
+// gone at `y`; above the axis it is cut off sharply (low beams), below it it spreads wide.
+const BEAM_WIDE: vec2<f32> = vec2<f32>(0.34, 0.72);
+const BEAM_TOP: vec2<f32> = vec2<f32>(0.04, 0.2);
+const BEAM_LOW: vec2<f32> = vec2<f32>(0.4, 0.72);
+// Distance at which the beam has lost half its light, metres.
+const BEAM_HALF: f32 = 34.0;
+// Colour and strength of the lamps (white LEDs, a touch warm against the moonlight).
+const BEAM_COLOUR: vec3<f32> = vec3<f32>(1.0, 0.95, 0.86);
+const BEAM_STRENGTH: f32 = 6.0;
+
+// How much of the headlights' light reaches `world` (0 out of the beam, or in the shadow of the
+// track: a raised road over the ground, a rock in front of the car).
+fn lamp_shadow(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let to_lamp = normalize(frame.lamp_pos.xyz - world);
+    let c = frame.lamp_view_proj * vec4<f32>(world + n * 0.08 + to_lamp * 0.2, 1.0);
+    if c.w <= 0.0 {
+        return 1.0;
+    }
+    let ndc = c.xyz / c.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z >= 1.0 {
+        return 1.0;
+    }
+    let texel = 1.0 / vec2<f32>(textureDimensions(lamp_shadow_map));
+    var sum = 0.0;
+    for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+            sum += textureSampleCompareLevel(lamp_shadow_map, shadow_sampler, uv + (vec2<f32>(f32(x), f32(y)) - 0.5) * texel, ndc.z);
+        }
+    }
+    return sum * 0.25;
+}
+
+// The headlights' light on a surface of normal `n` at `world`: the direction to the lamps, and
+// the light's strength. It falls off gently with distance rather than with its square, and
+// wraps a little round surfaces it grazes, so the road stays lit far ahead.
+fn headlight(world: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
+    let strength = frame.lamp_pos.w;
+    let d = world - frame.lamp_pos.xyz;
+    let dist = length(d);
+    let reach = frame.lamp_dir.w;
+    if strength <= 0.0 || dist > reach || dist < 0.05 {
+        return vec4<f32>(0.0);
+    }
+    let dir = d / dist;
+    let axis = frame.lamp_dir.xyz;
+    let up = frame.lamp_up.xyz;
+    let z = dot(dir, axis);
+    if z <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let across = abs(atan2(dot(dir, cross(axis, up)), z));
+    let rise = atan2(dot(dir, up), z);
+    let wide = 1.0 - smoothstep(BEAM_WIDE.x, BEAM_WIDE.y, across);
+    let tall = select(1.0 - smoothstep(BEAM_LOW.x, BEAM_LOW.y, -rise), 1.0 - smoothstep(BEAM_TOP.x, BEAM_TOP.y, rise), rise > 0.0);
+    // Brighter along the axis, where it reaches the road far ahead.
+    let hot = 1.0 + 0.9 * exp(-(across * across * 14.0 + rise * rise * 70.0));
+    let fall = 1.0 / (1.0 + (dist / BEAM_HALF) * (dist / BEAM_HALF)) * (1.0 - smoothstep(0.4 * reach, reach, dist));
+    let ndl = clamp((dot(n, -dir) + 0.3) / 1.3, 0.0, 1.0);
+    let light = strength * wide * tall * hot * fall * ndl;
+    if light <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(-dir, light * lamp_shadow(world, n));
+}
+
 // ACES filmic fit (Narkowicz).
 fn tonemap(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -630,8 +705,24 @@ fn storm_dust(dir: vec3<f32>) -> f32 {
     return toward * low * (0.45 + 0.45 * frame.storm_b.w);
 }
 
-// Dusty orange: the far hills toward the storm fade into it, like the storm's own base.
+// Dusty orange: the far hills toward the storm fade into it, like the storm's own base; by night
+// a dark rust under the moon.
 const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
+const DUST_AIR_NIGHT: vec3<f32> = vec3<f32>(0.05, 0.028, 0.035);
+
+fn dust_air() -> vec3<f32> {
+    return mix(DUST_AIR, DUST_AIR_NIGHT, frame.misc.w);
+}
+
+// By night the eye loses colours: what the moon and the sky light is greyed toward blue (the
+// headlights, added after, bring the colours back).
+const NIGHT_TINT: vec3<f32> = vec3<f32>(0.8, 0.92, 1.25);
+const NIGHT_GREY: f32 = 0.45;
+
+fn night_grade(c: vec3<f32>) -> vec3<f32> {
+    let grey = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722)) * NIGHT_TINT;
+    return mix(c, grey, NIGHT_GREY * frame.misc.w);
+}
 
 // The storm's main wall, as in storm.wgsl: an arc of this radius, this wide, about this high.
 const STORM_ARC_RADIUS: f32 = 7000.0;
@@ -663,11 +754,83 @@ fn storm_ground(p: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(hidden, dust) * side * present;
 }
 
+// Three random numbers in [0, 1) for a cell.
+fn hash33(p: vec3<f32>) -> vec3<f32> {
+    var q = fract(p * vec3<f32>(0.1031, 0.1030, 0.0973));
+    q += dot(q, q.yxz + 33.33);
+    return fract((q.xxy + q.yxx) * q.zyx);
+}
+
+// The point of the unit sphere seen through `uv` (−1..1) on face `f` of a cube round it.
+fn cube_dir(f: f32, uv: vec2<f32>) -> vec3<f32> {
+    let s = select(-1.0, 1.0, fract(f * 0.5) > 0.25);
+    var p = vec3<f32>(s, uv.x, uv.y);
+    if f >= 2.0 && f < 4.0 {
+        p = vec3<f32>(uv.x, s, uv.y);
+    } else if f >= 4.0 {
+        p = vec3<f32>(uv.x, uv.y, s);
+    }
+    return normalize(p);
+}
+
+// Stars fixed in the sky: a grid on each face of a cube round the camera, one star in some of
+// its cells, a pixel or two wide (whatever the field of view), twinkling.
+fn stars(dir: vec3<f32>) -> vec3<f32> {
+    let a = abs(dir);
+    var f = select(0.0, 1.0, dir.x > 0.0);
+    var uv = dir.yz / a.x;
+    if a.y >= a.x && a.y >= a.z {
+        f = select(2.0, 3.0, dir.y > 0.0);
+        uv = dir.xz / a.y;
+    } else if a.z >= a.x && a.z >= a.y {
+        f = select(4.0, 5.0, dir.z > 0.0);
+        uv = dir.xy / a.z;
+    }
+    let pixel = 1.0 / max(frame.viewport.z, 1.0);
+    var col = vec3<f32>(0.0);
+    for (var layer = 0; layer < 2; layer++) {
+        let cells = 40.0 + 26.0 * f32(layer);
+        let id = floor((uv * 0.5 + 0.5) * cells);
+        let h = hash33(vec3<f32>(id, f * 7.0 + f32(layer) * 61.0));
+        if h.x > 0.42 {
+            continue;
+        }
+        let at = (id + 0.2 + 0.6 * hash33(vec3<f32>(id.yx, f * 3.0 + 17.0 + f32(layer))).xy) / cells * 2.0 - 1.0;
+        let d = length(dir - cube_dir(f, at));
+        let bright = pow(h.y, 3.0);
+        let r = (0.7 + 1.1 * bright) * pixel;
+        let twinkle = 0.75 + 0.25 * sin(frame.storm_b.y * (1.5 + 3.0 * h.z) + 40.0 * h.y);
+        let tint = mix(vec3<f32>(0.75, 0.85, 1.0), vec3<f32>(1.0, 0.85, 0.7), h.z);
+        col += tint * (0.25 + 2.2 * bright) * twinkle * (1.0 - smoothstep(0.3 * r, r, d));
+    }
+    return col;
+}
+
+// The moon by night, where the sun stands by day (`s`: the cosine of the angle to it): a small
+// pale disk, mottled, in a soft halo.
+fn moon(dir: vec3<f32>, s: f32) -> vec3<f32> {
+    let m = frame.sun_dir.xyz;
+    let east = normalize(cross(vec3<f32>(0.0, 1.0, 0.0), m));
+    let north = cross(m, east);
+    let p = vec2<f32>(dot(dir, east), dot(dir, north)) / 0.022;
+    let mottle = 0.8 + 0.2 * value_noise(p * 2.3 + 7.0) - 0.15 * smoothstep(0.55, 0.8, value_noise(p * 4.1 + 2.0));
+    let disk = select(0.0, 1.0 - smoothstep(0.92, 1.0, length(p)), s > 0.0);
+    var col = vec3<f32>(0.95, 0.93, 0.88) * 2.2 * mottle * disk;
+    col += vec3<f32>(0.32, 0.4, 0.62) * (pow(s, 300.0) * 0.35 + pow(s, 24.0) * 0.08);
+    return col;
+}
+
 fn sky_color(dir: vec3<f32>) -> vec3<f32> {
     let t = clamp(dir.y, 0.0, 1.0);
     var col = mix(frame.sky_horizon.rgb, frame.sky_top.rgb, pow(t, 0.55));
-    col = mix(col, DUST_AIR, storm_dust(dir));
+    let dust = storm_dust(dir);
+    col = mix(col, dust_air(), dust);
     let s = max(dot(dir, frame.sun_dir.xyz), 0.0);
+    if frame.misc.w > 0.5 {
+        // By night: stars fading into the haze low over the horizon and into the storm's dust.
+        let clear = smoothstep(0.02, 0.3, dir.y) * (1.0 - dust);
+        return col + stars(dir) * clear + moon(dir, s) * (1.0 - 0.8 * dust);
+    }
     // Martian skies turn bluish around the sun.
     col += vec3<f32>(0.45, 0.6, 0.85) * pow(s, 48.0) * 0.9;
     col += vec3<f32>(1.0, 0.97, 0.92) * smoothstep(0.99955, 0.9998, s) * 10.0;
@@ -1151,7 +1314,10 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         hemi *= tyre_shade(in.world);
     }
     let storm = storm_ground(in.world);
-    var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi) + emit;
+    // By night the headlights (the direction to them, their light).
+    let lamp = headlight(in.world, n);
+    let beam = BEAM_COLOUR * BEAM_STRENGTH * lamp.w;
+    var col = night_grade(base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi)) + base * beam + emit;
 
     let to_eye = frame.camera_pos.xyz - in.world;
     let dist = length(to_eye);
@@ -1160,6 +1326,9 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let h = normalize(l + v);
         col += frame.sun_color.rgb * pow(max(dot(n, h), 0.0), sheen.y) * sh * sheen.x;
         col += frame.sky_horizon.rgb * pow(1.0 - max(dot(n, v), 0.0), 4.0) * sheen.x * 0.3;
+        if lamp.w > 0.0 {
+            col += beam * pow(max(dot(n, normalize(lamp.xyz + v)), 0.0), sheen.y) * sheen.x;
+        }
     }
     if metal > 0.0 {
         // Bare metal: the sky above the horizon and the darker Martian ground below it, mirrored
@@ -1201,9 +1370,9 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     }
 
     // Near the storm the ground sinks into its dust.
-    col = mix(col, DUST_AIR, 0.9 * storm.y);
+    col = mix(col, dust_air(), 0.9 * storm.y);
     let fog = 1.0 - exp(-max(dist - frame.fog.y, 0.0) * frame.fog.x);
-    let air = mix(frame.sky_horizon.rgb, DUST_AIR, storm_dust(-to_eye / max(dist, 1e-3)));
+    let air = mix(frame.sky_horizon.rgb, dust_air(), storm_dust(-to_eye / max(dist, 1e-3)));
     col = mix(col, air, fog);
     return vec4<f32>(to_srgb(tonemap(col)), 1.0);
 }

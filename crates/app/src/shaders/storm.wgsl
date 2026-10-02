@@ -208,6 +208,22 @@ fn storm_dust(dir: vec3<f32>) -> f32 {
 }
 
 const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
+// By night (frame.misc.w), as in scene.wgsl.
+const DUST_AIR_NIGHT: vec3<f32> = vec3<f32>(0.05, 0.028, 0.035);
+
+fn dust_air() -> vec3<f32> {
+    return mix(DUST_AIR, DUST_AIR_NIGHT, frame.misc.w);
+}
+
+// By night the eye loses colours: what the moon and the sky light is greyed toward blue, as in
+// scene.wgsl.
+const NIGHT_TINT: vec3<f32> = vec3<f32>(0.8, 0.92, 1.25);
+const NIGHT_GREY: f32 = 0.45;
+
+fn night_grade(c: vec3<f32>) -> vec3<f32> {
+    let grey = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722)) * NIGHT_TINT;
+    return mix(c, grey, NIGHT_GREY * frame.misc.w);
+}
 
 @fragment
 fn fs_storm(in: VsOut) -> @location(0) vec4<f32> {
@@ -259,7 +275,7 @@ fn fs_storm(in: VsOut) -> @location(0) vec4<f32> {
 
     let albedo = vec3<f32>(0.76, 0.24, 0.055);
     let ambient = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, 0.6) * 0.45;
-    var col = albedo * (frame.sun_color.rgb * (lit + glow) + ambient * hollow);
+    var col = night_grade(albedo * (frame.sun_color.rgb * (lit + glow) + ambient * hollow));
 
     // Haze: the storm is dense enough to show through the distance fog the hills fade into;
     // thinner still for rays that climb toward the plumes. Its foot, though, sinks into the
@@ -269,7 +285,7 @@ fn fs_storm(in: VsOut) -> @location(0) vec4<f32> {
     let path = max(dist - frame.fog.y, 0.0) * frame.fog.x;
     let haze = 1.0 - exp(-path * HAZE_SHARE * thinning);
     let foot = 1.0 - smoothstep(FOOT_HEIGHT, FOOT_HEIGHT + FOOT_FADE, in.world.y - frame.storm_b.z);
-    let air = mix(frame.sky_horizon.rgb, DUST_AIR, storm_dust(view));
+    let air = mix(frame.sky_horizon.rgb, dust_air(), storm_dust(view));
     col = mix(col, air, max(haze, foot));
 
     let a = clamp(alpha, 0.0, 1.0);

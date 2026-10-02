@@ -63,6 +63,9 @@ pub struct Buggy {
     pub parts: Vec<CornerParts>,
     /// Wheel radius the model was built for, m.
     pub wheel_radius: f32,
+    /// Between the headlights (the white lights at the front), in the car frame: where the
+    /// renderer's headlight beam starts by night.
+    pub headlight: Vec3,
     /// The livery texture (sRGB RGBA8), for kind::LIVERY vertices.
     pub livery: Image,
 }
@@ -493,7 +496,20 @@ fn parse(bytes: &[u8]) -> Result<Buggy, String> {
             tierod: if front { Some(part("tierod")?) } else { None },
         });
     }
-    Ok(Buggy { body, rigs: rigs.try_into().map_err(|_| "corners")?, parts, wheel_radius, livery: Image { width: 1, height: 1, rgba: vec![255; 4] } })
+    let headlight = headlight(&body).ok_or("no headlights (white glow at the front)")?;
+    Ok(Buggy { body, rigs: rigs.try_into().map_err(|_| "corners")?, parts, wheel_radius, headlight, livery: Image { width: 1, height: 1, rgba: vec![255; 4] } })
+}
+
+/// The middle of the headlights: the white lights (the red and amber ones are tail and roof
+/// lamps) in front of the front axle.
+fn headlight(body: &MeshData) -> Option<Vec3> {
+    let lamps: Vec<Vec3> = body
+        .vertices
+        .iter()
+        .filter(|v| v.kind == kind::GLOW && v.color.iter().all(|&c| c > 0.5) && v.pos[2] > 0.5)
+        .map(|v| Vec3::from_array(v.pos))
+        .collect();
+    (!lamps.is_empty()).then(|| lamps.iter().sum::<Vec3>() / lamps.len() as f32)
 }
 
 #[cfg(test)]
@@ -515,6 +531,8 @@ mod tests {
             assert!(close(Vec3::new(rig.wheel.x, 0.0, rig.wheel.z), Vec3::new(0.9 * sx, 0.0, 1.3 * sz)), "{:?}", rig.wheel);
         }
         assert!(b.rigs[0].tie.is_some() && b.rigs[2].tie.is_none());
+        // The headlights: in the middle, ahead of the front axle, above it.
+        assert!(b.headlight.x.abs() < 0.02 && b.headlight.z > 1.4 && b.headlight.y > b.rigs[0].wheel.y, "{:?}", b.headlight);
     }
 
     #[test]

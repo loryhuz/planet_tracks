@@ -46,6 +46,10 @@ link the main checkout's `track` (missing a new block or surface).
   geometry by `cargo run -p track --release --example shapes`: rerun it when a shape changes.
   The `booster` variant paints arrows on any road block (a `Surface::Booster` deck: the physics'
   `boost_accel`/`boost_time` push along the path).
+  `time night` in a `.chain` (`"time": "night"` in the map) races it by night (Olympus): a low
+  moon and stars (`Lighting` in `gfx.rs`), colours greyed toward blue out of the light, and the
+  buggy's headlights lighting the road, with a shadow map of their own so raised roads and crests
+  cut the beam (`headlight` in `scene.wgsl`). `MARS_TIME=day|night` forces it on every map.
   The colony's scenery (supply caches, observation posts, field and base camps, comms masts, a
   landing zone with its mine, the colony with its giant domes, tower and rocket) is
   `crates/track/src/camp.rs`, placed by a map's `structures` list (`structure kind x z yaw` in a

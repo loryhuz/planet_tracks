@@ -61,6 +61,19 @@
     {"landform":"butte","position":[-268.0,-430.0],"radius":40.0,"height":46.0},
     {"landform":"butte","position":[-235.0,-110.0],"radius":18.0,"height":50.0}
   ],
+  "structures": [
+    {"structure":"colony","position":[-380.0,1000.0],"yaw":90.0},
+    {"structure":"landing_zone","position":[-480.0,-400.0],"yaw":30.0},
+    {"structure":"base_camp","position":[60.0,-470.0],"yaw":-90.0},
+    {"structure":"field_camp","position":[-70.0,-150.0],"yaw":-90.0},
+    {"structure":"post","position":[-235.0,-110.0],"yaw":0.0},
+    {"structure":"post","position":[-528.0,-10.0],"yaw":180.0},
+    {"structure":"post","position":[-268.0,-430.0],"yaw":90.0},
+    {"structure":"mast","position":[-610.0,-520.0],"yaw":0.0},
+    {"structure":"cache","position":[-300.0,150.0],"yaw":0.0},
+    {"structure":"cache","position":[-60.0,-640.0],"yaw":90.0},
+    {"structure":"cache","position":[-600.0,280.0],"yaw":180.0}
+  ],
   "scenery": [
     {"prop":"spire","position":[70.0,0.0,-60.0],"yaw":20.0,"scale":8.0},
     {"prop":"boulder","position":[64.0,0.0,30.0],"yaw":140.0,"scale":7.0},

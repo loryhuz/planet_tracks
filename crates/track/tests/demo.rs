@@ -112,11 +112,13 @@ fn triangle_budget() {
     // guard against a runaway mesh. The decoration (sandbags, the bumpers' tubes, stakes,
     // straps) is drawn only, and costs the GPU little next to the pixels (2 October 2026, Jezero
     // with about 485 000 triangles drawn: 6.3 ms median at 3200 x 1800 on a Mac along the
-    // sandbags, 8.2 ms over the raised road, as without most of them).
+    // sandbags, 8.2 ms over the raised road, as without most of them). The camps and the colony
+    // add about 65 000 (2 October 2026: 9.0 ms median at the start, where they all show, with
+    // and without them alike).
     let t = demo_track();
     assert!(t.mesh.triangle_count() < 300_000, "{} triangles", t.mesh.triangle_count());
     let n = t.mesh.triangle_count() + t.decor.triangle_count();
-    assert!(n < 550_000, "{n} triangles drawn");
+    assert!(n < 600_000, "{n} triangles drawn");
     let blocks = layout().pieces_mesh().triangle_count();
     assert!(blocks < 100_000, "{blocks} block triangles");
 }

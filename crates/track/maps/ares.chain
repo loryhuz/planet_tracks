@@ -29,3 +29,14 @@ whoops2 dirt
 checkpoint dirt
 straight2 dirt
 finish dirt
+
+# The colony's scenery (crates/track/src/camp.rs): a base camp beside the start, a field camp in
+# the loop, a post over the jump, a mast to the east, two caches along the dirt, and the landing
+# zone with its mine to the north.
+structure base_camp -90 60 90
+structure field_camp 80 170 0
+structure post 170 330 0
+structure mast 480 330 0
+structure cache -200 330 90
+structure cache 300 160 -90
+structure landing_zone -20 540 0

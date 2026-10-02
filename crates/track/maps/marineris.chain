@@ -100,3 +100,19 @@ prop boulder -28 0 -320 160 7
 prop spire -158 0 -300 90 6
 prop spire -438 0 120 30 6
 prop boulder -318 0 -60 250 6
+# The colony's scenery: the colony beyond the north wall (its tower over the canyon from most of
+# the circuit), the landing zone and its rocket in the field inside the loop, a base camp south
+# of the summit (ahead along the south side), a field camp at the summit's foot, posts on the
+# needle, the table and the south butte, a mast, and supply caches under the chicane, by the
+# south-west corner and below the landing hill.
+structure colony -380 1000 90
+structure landing_zone -480 -400 30
+structure base_camp 60 -470 -90
+structure field_camp -70 -150 -90
+structure post -235 -110 0
+structure post -528 -10 180
+structure post -268 -430 90
+structure mast -610 -520 0
+structure cache -300 150 0
+structure cache -60 -640 90
+structure cache -600 280 180

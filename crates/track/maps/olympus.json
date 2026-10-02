@@ -30,5 +30,17 @@
     {"block":"berm2_right","cell":[-31,12],"level":0,"rotation":3,"variant":"bumpers"},
     {"block":"finish","cell":[-32,10],"level":0,"rotation":2,"variant":"bumpers"}
   ],
+  "landforms": [
+    {"landform":"mesa","position":[-880.0,960.0],"radius":90.0,"height":50.0,"length":460.0,"yaw":90.0}
+  ],
+  "structures": [
+    {"structure":"base_camp","position":[110.0,40.0],"yaw":-90.0},
+    {"structure":"post","position":[-150.0,300.0],"yaw":0.0},
+    {"structure":"mast","position":[-430.0,230.0],"yaw":0.0},
+    {"structure":"field_camp","position":[-450.0,560.0],"yaw":0.0},
+    {"structure":"cache","position":[-330.0,510.0],"yaw":180.0},
+    {"structure":"cache","position":[-960.0,300.0],"yaw":90.0},
+    {"structure":"colony","position":[-880.0,960.0],"yaw":90.0}
+  ],
   "scenery": []
 }

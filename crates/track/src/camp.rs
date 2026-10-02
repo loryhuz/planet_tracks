@@ -17,10 +17,19 @@
 //!   mast, masts with pennants, a windsock, a rover;
 //! - `colony`: about 460 m long along its yaw, meant to be seen from afar: a giant dome held by a
 //!   net of straps over stacks of sandbags, two domes, glass greenhouses, a tank farm, a 170 m
-//!   lattice tower with beacons, a rocket on its landing pad.
+//!   lattice tower with beacons, a rocket on its landing pad;
+//! - `cache`: a supply cache, about 14 m across: crates and drums under a lean-to of tarp on red
+//!   tubes, a windsock, a solar panel, a coil of hose, survey stakes with flags;
+//! - `field_camp`: about 35 m across: three dome tents, a container, solar panels, pennants, a
+//!   windsock, crates, a low sandbag wall;
+//! - `mast`: a communications mast, 80 to 100 m: a guyed lattice of red tubes, dishes and panel
+//!   antennas, red beacons, a shelter at its foot;
+//! - `landing_zone`: about 120 m across: a rocket on its pad, tanks, containers, solar panels, and
+//!   a mine: a crawler rig whose conveyor boom pours ore onto a pile, a conveyor on trestles to a
+//!   second pile.
 //!
-//! The terrain is levelled under them ([`Structure::pads`]). Posts and camps stand within reach
-//! of a car and collide; the colony only draws. Everything placed by hand varies with the
+//! The terrain is levelled under them ([`Structure::pads`]). What stands within reach of a car
+//! collides (posts, camps, caches, masts); the colony and the landing zone only draw. Everything placed by hand varies with the
 //! structure's seed: sizes, angles, spacing, never one thing repeated at fixed intervals.
 
 use core::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -29,7 +38,7 @@ use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::kit::{color, stake};
-use crate::mesh::{MeshBuilder, add_box, add_post, add_sandbag, add_tube};
+use crate::mesh::{MeshBuilder, add_box, add_hose, add_post, add_sandbag, add_tube};
 use crate::noise::{hash2, unit};
 use crate::stilts::bag_stack;
 use crate::terrain::Terrain;
@@ -44,6 +53,14 @@ pub enum StructureKind {
     BaseCamp,
     /// The colony: giant domes, a tower, a rocket, seen from afar.
     Colony,
+    /// A supply cache: crates and drums under a lean-to.
+    Cache,
+    /// A field camp: a few dome tents.
+    FieldCamp,
+    /// A communications mast.
+    Mast,
+    /// A landing zone with its rocket, and a mine.
+    LandingZone,
 }
 
 /// A structure placed by the map author.
@@ -86,8 +103,12 @@ enum Piece {
     Solar { rows: u32, per_row: u32 },
     /// The lattice tower: height.
     Tower { h: f32 },
-    /// The rocket on its landing pad: pad radius.
-    Rocket { pad: f32 },
+    /// The rocket on its landing pad: pad radius, rocket height.
+    Rocket { pad: f32, h: f32 },
+    /// The mining rig, its boom toward the layout's `x`.
+    Mine,
+    /// A pile of ore: radius, height.
+    Pile { r: f32, h: f32 },
 }
 
 /// The colony: pieces at `[x, z]` in its frame, with the radius of ground each one levels.
@@ -100,11 +121,23 @@ const COLONY: [(Piece, [f32; 2], f32); 13] = [
     (Piece::Tanks { n: 5, r: 2.8, len: 15.0 }, [30.0, 36.0], 17.0),
     (Piece::Tanks { n: 4, r: 2.4, len: 12.0 }, [-33.0, -42.0], 14.0),
     (Piece::Containers { n: 9 }, [32.0, -40.0], 15.0),
-    (Piece::Solar { rows: 5, per_row: 7 }, [-26.0, -120.0], 22.0),
-    (Piece::Solar { rows: 4, per_row: 6 }, [22.0, -122.0], 18.0),
+    (Piece::Solar { rows: 4, per_row: 6 }, [-26.0, -120.0], 20.0),
+    (Piece::Solar { rows: 3, per_row: 5 }, [22.0, -122.0], 16.0),
     (Piece::Tower { h: 170.0 }, [0.0, -186.0], 14.0),
-    (Piece::Rocket { pad: 22.0 }, [2.0, 190.0], 27.0),
+    (Piece::Rocket { pad: 22.0, h: 48.0 }, [2.0, 190.0], 27.0),
     (Piece::Containers { n: 6 }, [-30.0, 40.0], 12.0),
+];
+
+/// The landing zone, in its frame (`x` to the left, `z` forward): the rocket at the back, the mine
+/// in front, its boom pouring onto the first pile.
+const LANDING: [(Piece, [f32; 2], f32); 7] = [
+    (Piece::Rocket { pad: 18.0, h: 42.0 }, [0.0, 36.0], 23.0),
+    (Piece::Tanks { n: 3, r: 2.2, len: 11.0 }, [34.0, 26.0], 12.0),
+    (Piece::Containers { n: 6 }, [-30.0, 32.0], 10.0),
+    (Piece::Solar { rows: 2, per_row: 4 }, [-34.0, 4.0], 15.0),
+    (Piece::Mine, [0.0, -28.0], 16.0),
+    (Piece::Pile { r: 11.0, h: 7.5 }, [33.0, -28.0], 14.0),
+    (Piece::Pile { r: 8.0, h: 5.5 }, [-34.0, -37.0], 11.0),
 ];
 
 /// Radius of the base camp's levelled ground, metres.
@@ -126,6 +159,10 @@ impl Structure {
             StructureKind::Post => Vec::new(),
             StructureKind::BaseCamp => vec![Pad { c: site.o, r: CAMP_PAD, blend: 16.0 }],
             StructureKind::Colony => COLONY.iter().map(|&(_, [x, z], r)| Pad { c: site.at(x, z), r, blend: 8.0 }).collect(),
+            StructureKind::Cache => vec![Pad { c: site.o, r: 8.0, blend: 6.0 }],
+            StructureKind::FieldCamp => vec![Pad { c: site.o, r: 22.0, blend: 10.0 }],
+            StructureKind::Mast => vec![Pad { c: site.o, r: 8.0, blend: 6.0 }],
+            StructureKind::LandingZone => LANDING.iter().map(|&(_, [x, z], r)| Pad { c: site.at(x, z), r, blend: 8.0 }).collect(),
         }
     }
 
@@ -137,6 +174,10 @@ impl Structure {
             StructureKind::Post => p.distance(site.o) < 9.0 + r,
             StructureKind::BaseCamp => p.distance(site.o) < CAMP_PAD + 8.0 + r,
             StructureKind::Colony => COLONY.iter().any(|&(_, [x, z], pr)| p.distance(site.at(x, z)) < pr + 6.0 + r),
+            StructureKind::Cache => p.distance(site.o) < 12.0 + r,
+            StructureKind::FieldCamp => p.distance(site.o) < 30.0 + r,
+            StructureKind::Mast => p.distance(site.o) < 12.0 + r,
+            StructureKind::LandingZone => LANDING.iter().any(|&(_, [x, z], pr)| p.distance(site.at(x, z)) < pr + 6.0 + r),
         }
     }
 }
@@ -309,6 +350,22 @@ pub(crate) fn build(structures: &[Structure], terrain: &Terrain) -> (TrackMesh, 
                 camp.collide = false;
                 camp.colony(site, seed);
             }
+            StructureKind::Cache => {
+                camp.collide = true;
+                camp.cache(site, seed);
+            }
+            StructureKind::FieldCamp => {
+                camp.collide = true;
+                camp.field_camp(site, seed);
+            }
+            StructureKind::Mast => {
+                camp.collide = true;
+                camp.mast(site, seed);
+            }
+            StructureKind::LandingZone => {
+                camp.collide = false;
+                camp.landing_zone(site, seed);
+            }
         }
     }
     (camp.solid.finish(), camp.decor.finish())
@@ -360,9 +417,10 @@ impl Camp<'_> {
     #[allow(clippy::too_many_arguments)]
     fn dome(&mut self, c: Vec3, r: f32, h: f32, gores: u32, girdles: &[f32], door: Option<Vec3>, seed: u32) {
         let giant = r > 30.0;
+        let far = !self.collide;
         // Up close its fabric shows its weave; from afar a smooth white coat.
         let skin = if self.collide { color::FABRIC } else { color::PAINT_WHITE };
-        let per = if giant { 3 } else { 4 };
+        let per = if giant || far { 3 } else { 4 };
         let gores_n = if gores == 0 { 8 } else { gores };
         let sides = gores_n * per;
         let rings = if giant { 12 } else { 9 };
@@ -414,7 +472,7 @@ impl Camp<'_> {
         let w = if giant { 1.1 } else { 0.22 };
         let lift = if giant { 0.12 } else { 0.03 };
         let crown = elevation(rings - 1) - 0.02;
-        let steps = 2 * rings;
+        let steps = if self.collide { 2 * rings } else { rings };
         for g in 0..gores_n {
             let theta = TAU * g as f32 / gores_n as f32;
             let side = ring_dir(phase + theta + FRAC_PI_2);
@@ -428,7 +486,7 @@ impl Camp<'_> {
             ribbon(&mut self.decor, &pts, side, w, inside);
         }
         let girdle = |phi: f32, decor: &mut MeshBuilder| {
-            let ring_steps = sides * 2;
+            let ring_steps = if far { sides } else { sides * 2 };
             let pts: Vec<(Vec3, Vec3)> = (0..=ring_steps)
                 .map(|k| {
                     let theta = TAU * k as f32 / ring_steps as f32;
@@ -445,28 +503,17 @@ impl Camp<'_> {
         for &f in girdles {
             girdle(libm::asinf(f.clamp(0.0, 0.95)), &mut self.decor);
         }
-        // The straps' feet: stakes and a sandbag, or a stack of bags.
-        for g in 0..gores_n {
+        // The straps' feet (every other one): stakes and a sandbag, or a pile of bags.
+        for g in (0..gores_n).step_by(2) {
             let theta = TAU * g as f32 / gores_n as f32;
             let out = ring_dir(phase + theta);
             let foot_p = flat(c + out * (r * 1.02));
             let s = hash2(seed, 40 + g as i32, 3);
             if giant {
-                // A pile of big bags: three side by side, two across them on top.
+                // A pile of big bags.
                 let bag = Vec3::new(4.2, 1.5, 2.3) * (0.9 + 0.2 * rnd(s, 1));
                 let base = Vec3::new(foot_p.x, self.foot(foot_p, 4.0), foot_p.y) + out * 2.0;
-                let across = ring_dir(phase + theta + FRAC_PI_2);
-                let mut k = 0;
-                for (layer, offsets) in [[-0.5f32, 0.5].as_slice(), [0.0f32].as_slice()].into_iter().enumerate() {
-                    for &o in offsets {
-                        k += 1;
-                        let (lie, step) = if layer == 0 { (out, across * (0.92 * bag.z)) } else { (across, out * (0.92 * bag.z)) };
-                        let yaw = 0.12 * jit(s, 20 + k);
-                        let lie = (lie * libm::cosf(yaw) + Vec3::Y.cross(lie) * libm::sinf(yaw)).normalize();
-                        let foot = base + step * o + Vec3::Y * (layer as f32 * 0.8 * bag.y - 0.1);
-                        add_sandbag(&mut self.decor, foot, lie, Vec3::Y, bag * (1.0 + 0.1 * jit(s, 30 + k)), hash2(s, k, 4), false, Surface::Wall, color::SANDBAG, [0.24 + 0.24 * rnd(s, 40 + k), 0.3 + 0.7 * rnd(s, 50 + k)]);
-                    }
-                }
+                self.bag_pile(base, out, bag, s);
             } else if self.collide {
                 let p = Vec3::new(foot_p.x, self.ground(foot_p), foot_p.y);
                 let across = ring_dir(phase + theta + FRAC_PI_2);
@@ -620,7 +667,7 @@ impl Camp<'_> {
             let a = FRAC_PI_2 * i as f32 / cap_steps as f32;
             prof.push((body_end + cap * libm::sinf(a), r * libm::cosf(a), color::PAINT_WHITE));
         }
-        let sides = if self.collide { 14 } else { 12 };
+        let sides = if self.collide { 14 } else { 10 };
         lathe(self.body(), start, dir, &prof, sides, Surface::Wall);
         // The cradles: a saddle of red tubes under each third.
         let side = Vec3::Y.cross(dir).normalize();
@@ -650,7 +697,7 @@ impl Camp<'_> {
         let c = Vec3::new(p.x, y, p.y);
         let side = Vec3::Y.cross(dir).normalize();
         // Ribs on the long sides (up close only), the frame at the corners, the doors' bars.
-        let n = if self.collide { 14 } else { 0 };
+        let n = if self.collide { 9 } else { 0 };
         let b = self.body();
         add_box(b, c + Vec3::Y * (0.5 * h), Vec3::new(hw, 0.5 * h, hl), dir, Surface::Wall, colour, false);
         for s in [-1.0f32, 1.0] {
@@ -1059,7 +1106,16 @@ impl Camp<'_> {
     /// The colony, along the site's forward.
     fn colony(&mut self, site: Site, seed: u32) {
         let fwd = site.dir(0.0);
-        for (i, &(piece, [x, z], pad)) in COLONY.iter().enumerate() {
+        self.layout(site, &COLONY, seed);
+        // Tunnels between the domes.
+        self.tunnel(site.at(-3.0, 44.0), fwd, 14.0, 3.6, hash2(seed, 1, 210));
+        self.tunnel(site.at(5.0, -44.0), site.dir(180.0), 14.0, 3.4, hash2(seed, 2, 210));
+    }
+
+    /// The pieces of a layout (the colony's, the landing zone's), each at its place in the site.
+    fn layout(&mut self, site: Site, pieces: &[(Piece, [f32; 2], f32)], seed: u32) {
+        let fwd = site.dir(0.0);
+        for (i, &(piece, [x, z], _)) in pieces.iter().enumerate() {
             let p = site.at(x, z);
             let s = hash2(seed, i as i32, 200);
             match piece {
@@ -1096,20 +1152,370 @@ impl Camp<'_> {
                     }
                 }
                 Piece::Tower { h } => self.tower(p, fwd, h, s),
-                Piece::Rocket { pad: pr } => self.rocket(p, pr),
+                Piece::Rocket { pad, h } => self.rocket(p, pad, h),
+                Piece::Mine => self.mine_rig(p, site.dir(90.0), s),
+                Piece::Pile { r, h } => self.ore_pile(p, r, h),
             }
-            let _ = pad;
         }
-        // Tunnels between the domes.
-        self.tunnel(site.at(-3.0, 44.0), fwd, 14.0, 3.6, hash2(seed, 1, 210));
-        self.tunnel(site.at(5.0, -44.0), site.dir(180.0), 14.0, 3.4, hash2(seed, 2, 210));
+    }
+
+    /// A pile of three big bags on the ground at `base`: two side by side across `out`, one on top
+    /// along it, each askew.
+    fn bag_pile(&mut self, base: Vec3, out: Vec3, bag: Vec3, seed: u32) {
+        let across = Vec3::Y.cross(out).normalize_or(Vec3::X);
+        let mut k = 0;
+        for (layer, offsets) in [[-0.5f32, 0.5].as_slice(), [0.0f32].as_slice()].into_iter().enumerate() {
+            for &o in offsets {
+                k += 1;
+                let (lie, step) = if layer == 0 { (out, across * (0.92 * bag.z)) } else { (across, out * (0.92 * bag.z)) };
+                let yaw = 0.12 * jit(seed, 20 + k);
+                let lie = (lie * libm::cosf(yaw) + Vec3::Y.cross(lie) * libm::sinf(yaw)).normalize();
+                let foot = base + step * o + Vec3::Y * (layer as f32 * 0.8 * bag.y - 0.1);
+                add_sandbag(&mut self.decor, foot, lie, Vec3::Y, bag * (1.0 + 0.1 * jit(seed, 30 + k)), hash2(seed, k, 4), false, Surface::Wall, color::SANDBAG, [0.24 + 0.24 * rnd(seed, 40 + k), 0.3 + 0.7 * rnd(seed, 50 + k)]);
+            }
+        }
+        if self.collide {
+            add_box(&mut self.solid, base + Vec3::Y * (0.8 * bag.y), Vec3::new(0.95 * bag.z, 0.8 * bag.y, 0.5 * bag.x), across, Surface::Wall, color::HULL, false);
+        }
+    }
+
+    /// A truss of red tubes from `a` to `c` (its bottom middle): `w` wide, `h` tall, four chords,
+    /// verticals and diagonals in panels about `panel` metres long, a diagonal across its top and
+    /// its bottom in each.
+    #[allow(clippy::too_many_arguments)]
+    fn truss(&mut self, a: Vec3, c: Vec3, w: f32, h: f32, panel: f32, chord_r: f32, brace_r: f32, sides: u32) {
+        let len = a.distance(c);
+        let d = (c - a) / len;
+        let side = Vec3::Y.cross(d).normalize_or(Vec3::X);
+        let up = d.cross(side).normalize();
+        let corner = |k: usize| {
+            let (x, y) = [(-0.5f32, 0.0f32), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)][k];
+            side * (x * w) + up * (y * h)
+        };
+        let n = libm::roundf(len / panel).max(1.0) as u32;
+        let b = self.body();
+        for k in 0..4 {
+            tube(b, a + corner(k), c + corner(k), chord_r, sides);
+        }
+        for i in 0..n {
+            let (p0, p1) = (a + d * (len * i as f32 / n as f32), a + d * (len * (i + 1) as f32 / n as f32));
+            for (lo, hi) in [(0usize, 3usize), (1, 2)] {
+                tube(b, p1 + corner(lo), p1 + corner(hi), brace_r, sides);
+                let (x, y) = if i % 2 == 0 { (lo, hi) } else { (hi, lo) };
+                tube(b, p0 + corner(x), p1 + corner(y), brace_r, sides);
+            }
+            tube(b, p0 + corner(3), p1 + corner(2), brace_r, sides);
+            tube(b, p0 + corner(0), p1 + corner(1), brace_r, sides);
+        }
+        if a.distance(c) > 0.0 {
+            tube(b, a + corner(0), a + corner(3), brace_r, sides);
+            tube(b, a + corner(1), a + corner(2), brace_r, sides);
+        }
+    }
+
+    /// A dark conveyor belt along the top of a truss from `a` to `c`, `w` wide.
+    fn belt(&mut self, a: Vec3, c: Vec3, w: f32, h: f32) {
+        let d = (c - a).normalize();
+        let side = Vec3::Y.cross(d).normalize_or(Vec3::X);
+        let up = d.cross(side).normalize();
+        let lift = up * (h + 0.12);
+        let q = [a + lift - side * (0.5 * w), a + lift + side * (0.5 * w), c + lift + side * (0.5 * w), c + lift - side * (0.5 * w)];
+        let b = self.body();
+        let v = q.map(|p| b.vertex_facing(p, up, color::PAINT_BLACK, [0.0, 0.0]));
+        tri_out(b, v[0], v[1], v[2], a, Surface::Wall);
+        tri_out(b, v[0], v[2], v[3], a, Surface::Wall);
+    }
+
+    /// A conveyor from `a` up to `c` (the bottom middle of its truss): a truss with its belt,
+    /// standing on A-frame trestles of red tubes every 8 m or so.
+    fn conveyor(&mut self, a: Vec3, c: Vec3, seed: u32) {
+        self.truss(a, c, 1.3, 1.0, 3.0, 0.1, 0.05, 4);
+        self.belt(a, c, 0.9, 1.0);
+        let side = Vec3::Y.cross(c - a).normalize_or(Vec3::X);
+        let n = libm::floorf(a.distance(c) / 8.0) as i32;
+        for i in 1..=n {
+            let t = i as f32 / (n + 1) as f32 + 0.03 * jit(seed, i);
+            let q = a.lerp(c, t);
+            let mut feet = Vec::new();
+            for s in [-1.0f32, 1.0] {
+                let f = flat(q + side * (s * 1.9));
+                let foot = Vec3::new(f.x, self.ground(f) - 0.2, f.y);
+                tube(self.body(), foot, q + side * (s * 0.65), 0.1, 6);
+                feet.push(foot);
+            }
+            if q.y - feet[0].y > 3.0 {
+                let mid = |k: usize| feet[k].lerp(q + side * (if k == 0 { -0.65 } else { 0.65 }), 0.45);
+                tube(self.body(), mid(0), mid(1), 0.06, 6);
+            }
+        }
+    }
+
+    /// A conical pile of ore at `p`, `r` in radius, `h` tall.
+    fn ore_pile(&mut self, p: Vec2, r: f32, h: f32) {
+        let g = self.foot(p, 0.7 * r);
+        lathe(self.body(), Vec3::new(p.x, g - 0.4, p.y), Vec3::Y, &[(0.0, r, color::ORE), (0.3 * h, 0.78 * r, color::ORE), (0.7 * h, 0.4 * r, color::ORE), (h, 0.1 * r, color::ORE), (h + 0.15, 0.0, color::ORE)], 20, Surface::Wall);
+    }
+
+    /// The mining rig at `p`, its boom along `fwd`: two crawlers, a turntable, a white body
+    /// girdled with orange, a cab, an A-frame holding a conveyor boom of red truss up at 18°, ore
+    /// pouring from its chute 33 m out.
+    fn mine_rig(&mut self, p: Vec2, fwd: Vec3, seed: u32) {
+        let lat = Vec3::Y.cross(fwd);
+        let g = self.foot(p, 5.5);
+        let c = Vec3::new(p.x, g, p.y);
+        {
+            let b = self.body();
+            for s in [-1.0f32, 1.0] {
+                let tc = c + lat * (s * 3.2) + Vec3::Y * 0.85;
+                add_box(b, tc, Vec3::new(0.85, 0.75, 4.2), fwd, Surface::Wall, color::PAINT_BLACK, false);
+                for e in [-1.0f32, 1.0] {
+                    lathe(b, tc + fwd * (e * 4.2) - lat * 0.86, lat, &[(0.0, 0.0, color::PAINT_GREY), (0.0, 0.78, color::PAINT_GREY), (1.72, 0.78, color::PAINT_GREY), (1.72, 0.0, color::PAINT_GREY)], 12, Surface::Wall);
+                }
+            }
+            lathe(b, c + Vec3::Y * 1.6, Vec3::Y, &[(0.0, 0.0, color::PAINT_GREY), (0.0, 3.0, color::PAINT_GREY), (0.8, 3.0, color::PAINT_GREY), (0.8, 0.0, color::PAINT_GREY)], 20, Surface::Wall);
+            add_box(b, c + Vec3::Y * 4.5, Vec3::new(3.0, 2.1, 4.0), fwd, Surface::Wall, color::PAINT_WHITE, true);
+            add_box(b, c + Vec3::Y * 3.7, Vec3::new(3.03, 0.32, 4.03), fwd, Surface::Wall, color::PAINT_ORANGE, false);
+            let cab = c + lat * 1.8 + fwd * 3.0 + Vec3::Y * 7.4;
+            add_box(b, cab, Vec3::new(1.0, 0.8, 0.9), fwd, Surface::Wall, color::PAINT_WHITE, false);
+            add_box(b, cab + Vec3::Y * 0.12, Vec3::new(1.02, 0.4, 0.92), fwd, Surface::Wall, color::WINDOW, false);
+        }
+        for s in [-0.4f32, 0.3] {
+            let foot = c + lat * (s - 1.2) - fwd * 2.9 + Vec3::Y * 6.5;
+            add_post(&mut self.decor, foot, foot + Vec3::Y * 1.8, 0.16, 8, 0.0, Surface::Wall, color::PAINT_BLACK);
+        }
+        // Grilles on its flanks, a door, a railing round its roof.
+        for s in [-1.0f32, 1.0] {
+            add_box(&mut self.decor, c + lat * (s * 3.02) - fwd * 2.2 + Vec3::Y * 5.3, Vec3::new(0.03, 0.75, 1.1), fwd, Surface::Wall, color::PAINT_GREY, false);
+        }
+        add_box(&mut self.decor, c - lat * 3.02 + fwd * 1.4 + Vec3::Y * 4.9, Vec3::new(0.03, 1.05, 0.5), fwd, Surface::Wall, color::PAINT_GREY, false);
+        let roof = c + Vec3::Y * 6.6;
+        let corners = [(2.9f32, 3.9f32), (-2.9, 3.9), (-2.9, -3.9), (2.9, -3.9)].map(|(x, z)| roof + lat * x + fwd * z);
+        for k in 0..4 {
+            let (a, b) = (corners[k], corners[(k + 1) % 4]);
+            tube(&mut self.decor, a + Vec3::Y * 1.0, b + Vec3::Y * 1.0, 0.04, 5);
+            tube(&mut self.decor, a, a + Vec3::Y * 1.0, 0.045, 5);
+            tube(&mut self.decor, a.lerp(b, 0.5), a.lerp(b, 0.5) + Vec3::Y * 1.0, 0.04, 5);
+        }
+        // The A-frame and the boom it holds by cables.
+        let apex = c - fwd * 1.2 + Vec3::Y * 14.0;
+        for s in [-1.0f32, 1.0] {
+            tube(self.body(), c + lat * (s * 1.7) - fwd * 2.6 + Vec3::Y * 6.6, apex, 0.2, 6);
+        }
+        let rise = 18f32.to_radians();
+        let b0 = c + fwd * 4.0 + Vec3::Y * 5.4;
+        let b1 = b0 + (fwd * libm::cosf(rise) + Vec3::Y * libm::sinf(rise)) * 30.0;
+        self.truss(b0, b1, 1.7, 1.3, 2.5, 0.16, 0.08, 4);
+        self.belt(b0, b1, 1.1, 1.3);
+        for t in [0.5f32, 1.0] {
+            add_tube(&mut self.decor, apex, b0.lerp(b1, t) + Vec3::Y * 1.3, 0.05, 4, Surface::Wall, color::STEEL);
+        }
+        // The chute at its tip, and the ore falling from it.
+        add_box(self.body(), b1 + fwd * 0.5 - Vec3::Y * 0.5, Vec3::new(0.9, 0.8, 0.8), fwd, Surface::Wall, color::PAINT_GREY, true);
+        let fall_top = b1 + fwd * 0.9 - Vec3::Y * 1.3;
+        lathe(&mut self.decor, fall_top, -Vec3::Y, &[(0.0, 0.0, color::ORE), (0.0, 0.45, color::ORE), (4.0, 0.7, color::ORE), (4.0, 0.0, color::ORE)], 8, Surface::Wall);
+        let _ = seed;
+    }
+
+    /// The supply cache: crates and drums under a lean-to of tarp on red tubes (its open side
+    /// toward the site's forward), pinned by straps, stakes and sandbags; a windsock, a solar
+    /// panel, a coil of hose, survey stakes with flags.
+    fn cache(&mut self, site: Site, seed: u32) {
+        let fwd = site.dir(0.0);
+        let side = Vec3::Y.cross(fwd);
+        let g0 = self.foot(site.o, 3.5);
+        let (hw, hd) = (3.2f32, 2.1f32);
+        let (front_h, back_h) = (2.4 + 0.3 * rnd(seed, 1), 1.3 + 0.2 * rnd(seed, 2));
+        let (nu, nv) = (8usize, 4usize);
+        let point = |i: usize, j: usize| -> Vec3 {
+            let (u, v) = (-hw + 2.0 * hw * i as f32 / nu as f32, hd - 2.0 * hd * j as f32 / nv as f32);
+            let t = j as f32 / nv as f32;
+            let sag = 0.18 * libm::sinf(PI * i as f32 / nu as f32) * libm::sinf(PI * t);
+            let q = site.at(u, v);
+            Vec3::new(q.x, g0 + front_h + (back_h - front_h) * t - sag, q.y)
+        };
+        {
+            let b = self.body();
+            // Both faces of the tarp.
+            for face in [1.0f32, -1.0] {
+                let mut ids = Vec::new();
+                for j in 0..=nv {
+                    for i in 0..=nu {
+                        ids.push(b.vertex(point(i, j) + Vec3::Y * (0.008 * face), color::FABRIC));
+                    }
+                }
+                for j in 0..nv {
+                    for i in 0..nu {
+                        let k = j * (nu + 1) + i;
+                        let (a, bq, c, d) = (ids[k], ids[k + 1], ids[k + nu + 2], ids[k + nu + 1]);
+                        let mid = 0.5 * (b.position(a) + b.position(c)) - Vec3::Y * face;
+                        tri_out(b, a, bq, c, mid, Surface::Wall);
+                        tri_out(b, a, c, d, mid, Surface::Wall);
+                    }
+                }
+            }
+        }
+        // Its poles, and the straps from its corners out to stakes.
+        for (i, j) in [(0usize, 0usize), (nu / 2, 0), (nu, 0), (0, nv), (nu, nv)] {
+            let top = point(i, j);
+            let foot = Vec3::new(top.x, self.ground(flat(top)) - 0.2, top.z);
+            tube(self.body(), foot, top - Vec3::Y * 0.02, 0.055, 8);
+        }
+        for (k, (i, j)) in [(0usize, 0usize), (nu, 0), (0, nv), (nu, nv)].into_iter().enumerate() {
+            let top = point(i, j);
+            let out = (fwd * (if j == 0 { 0.8 } else { -0.8 }) + side * (if i == 0 { 0.6 } else { -0.6 })).normalize();
+            let spot = flat(top + out * (1.8 + 0.4 * rnd(seed, 10 + k as i32)));
+            let g = self.ground(spot);
+            strap(&mut self.decor, top, Vec3::new(spot.x, g + 0.06, spot.y), 0.025);
+            stake(&mut self.decor, Vec3::new(spot.x, g, spot.y), out, Vec3::Y.cross(out), hash2(seed, k as i32, 11));
+        }
+        // Sandbags along its back edge.
+        for k in 0..3 {
+            let s = hash2(seed, k, 12);
+            let q = site.at(-2.0 + 2.0 * k as f32 + 0.3 * jit(s, 1), -hd - 0.5);
+            let g = self.ground(q);
+            add_sandbag(&mut self.decor, Vec3::new(q.x, g - 0.04, q.y), side, Vec3::Y, Vec3::new(1.2, 0.4, 0.7) * (1.0 + 0.1 * jit(s, 2)), s, false, Surface::Wall, color::SANDBAG, [0.24 + 0.24 * rnd(s, 3), 0.3 + 0.7 * rnd(s, 4)]);
+        }
+        // Crates under it, two rows, a few on top.
+        for k in 0..8i32 {
+            let s = hash2(seed, k, 3);
+            let (col, row, level) = if k < 6 { (k % 3, k / 3, 0) } else { (k - 5, 0, 1) };
+            let half = Vec3::new(0.5 + 0.08 * rnd(s, 1), 0.32 + 0.05 * rnd(s, 2), 0.38 + 0.06 * rnd(s, 3));
+            let q = site.at(-2.2 + 1.1 * col as f32 + 0.08 * jit(s, 4), -0.9 + 0.85 * row as f32 + 0.06 * jit(s, 5));
+            let g = self.ground(q) + level as f32 * 0.68;
+            let yaw = 0.08 * jit(s, 6);
+            let d = (fwd * libm::cosf(yaw) + side * libm::sinf(yaw)).normalize();
+            let colour = if rnd(s, 7) < 0.75 { color::PAINT_ORANGE } else { color::PAINT_GREY };
+            add_box(self.body(), Vec3::new(q.x, g + half.y, q.y), half, d, Surface::Wall, colour, false);
+            add_box(self.body(), Vec3::new(q.x, g + 2.0 * half.y + 0.025, q.y), Vec3::new(half.x - 0.04, 0.025, half.z - 0.04), d, Surface::Wall, color::PAINT_GREY, false);
+        }
+        // Drums strapped together beside it.
+        let drums = site.at(4.6, 0.4);
+        for (k, (dx, dz)) in [(-0.31f32, -0.31f32), (0.31, -0.31), (-0.31, 0.31), (0.31, 0.31)].into_iter().enumerate() {
+            let q = drums + flat(side) * dx + flat(fwd) * dz + Vec2::new(0.03 * jit(seed, 20 + k as i32), 0.03 * jit(seed, 30 + k as i32));
+            let foot = Vec3::new(q.x, self.ground(q) - 0.02, q.y);
+            lathe(self.body(), foot, Vec3::Y, &[(0.0, 0.29, color::PAINT_ORANGE), (0.88, 0.29, color::PAINT_ORANGE), (0.88, 0.25, color::PAINT_GREY), (0.9, 0.0, color::PAINT_GREY)], 12, Surface::Wall);
+        }
+        let dg = self.ground(drums);
+        for y in [0.25f32, 0.62] {
+            let pts: Vec<Vec3> = (0..=20).map(|k| Vec3::new(drums.x, dg + y, drums.y) + ring_dir(TAU * k as f32 / 20.0) * 0.74).collect();
+            add_hose(&mut self.decor, &pts, 0.02, 4, Surface::Wall, color::STRAP);
+        }
+        // A coil of hose on the ground.
+        let coil = site.at(1.4, 3.3);
+        let cg = self.ground(coil);
+        let pts: Vec<Vec3> = (0..=40)
+            .map(|k| {
+                let t = k as f32 / 40.0;
+                Vec3::new(coil.x, cg + 0.05 + 0.06 * t, coil.y) + ring_dir(2.0 * TAU * t) * (0.52 - 0.1 * t)
+            })
+            .collect();
+        add_hose(&mut self.decor, &pts, 0.035, 6, Surface::Wall, color::TYRE);
+        // A windsock, a solar panel, survey stakes with flags.
+        let wind = site.dir(70.0 + 30.0 * jit(seed, 40));
+        self.windsock(site.at(-5.4, 1.0), wind, hash2(seed, 1, 41));
+        self.solar_table(site.at(-5.8, -2.6), fwd, 2, hash2(seed, 2, 41));
+        for k in 0..4 {
+            let s = hash2(seed, k, 42);
+            let q = site.at(-6.5 + 4.2 * k as f32 + 0.6 * jit(s, 1), 6.5 + 1.5 * rnd(s, 2));
+            let g = self.ground(q);
+            let foot = Vec3::new(q.x, g - 0.2, q.y);
+            let lean = Vec3::new(0.05 * jit(s, 3), 1.0, 0.05 * jit(s, 4)).normalize();
+            let top = foot + lean * 1.45;
+            add_post(&mut self.decor, foot, top, 0.014, 4, 0.0, Surface::Wall, color::STEEL);
+            flag(&mut self.decor, top - lean * 0.02, top - lean * 0.22, top - lean * 0.1 + wind * 0.32, wind);
+        }
+    }
+
+    /// A field camp: three dome tents round a yard, their doors toward it; a container, solar
+    /// panels, pennants, a windsock, crates and a low wall of sandbags in front.
+    fn field_camp(&mut self, site: Site, seed: u32) {
+        let fwd = site.dir(0.0);
+        let yard = site.at(0.0, -2.0);
+        for (i, (x, z, r)) in [(-9.0f32, 6.0f32, 5.2f32), (4.0, 10.0, 4.4), (12.5, -1.0, 3.8)].into_iter().enumerate() {
+            let s = hash2(seed, i as i32, 1);
+            let p = site.at(x + 0.8 * jit(s, 1), z + 0.8 * jit(s, 2));
+            let g = self.foot(p, 0.7 * r);
+            let to_yard = (yard - p).normalize_or(flat(fwd));
+            self.dome(Vec3::new(p.x, g, p.y), r, 0.78 * r, 6, &[0.3], Some(Vec3::new(to_yard.x, 0.0, to_yard.y)), s);
+        }
+        self.container(site.at(-13.0, -7.0), site.dir(80.0 + 4.0 * jit(seed, 3)), 0, color::PAINT_ORANGE, hash2(seed, 2, 2));
+        for (k, x) in [5.0f32, 12.0].into_iter().enumerate() {
+            self.solar_table(site.at(x, -10.0), fwd, 4, hash2(seed, k as i32, 4));
+        }
+        let wind = site.dir(70.0 + 25.0 * jit(seed, 5));
+        self.pennant(site.at(-4.0, -12.0), 6.0, wind, hash2(seed, 1, 6));
+        self.pennant(site.at(16.0, 8.0), 5.0, wind, hash2(seed, 2, 6));
+        self.windsock(site.at(-15.0, 4.0), wind, hash2(seed, 3, 6));
+        self.clutter(site.at(-3.0, -4.0), site.dir(15.0), hash2(seed, 4, 7));
+        self.bag_wall(site.at(-10.0, -17.0), site.at(8.0, -17.5), 2, hash2(seed, 5, 8));
+    }
+
+    /// A communications mast, 80 to 100 m: a lattice of red tubes guyed at three heights in three
+    /// directions to piles of sandbags, dishes and panel antennas, red beacons, a shelter (a
+    /// container, solar panels) at its foot.
+    fn mast(&mut self, site: Site, seed: u32) {
+        let fwd = site.dir(0.0);
+        let h = 80.0 + 20.0 * rnd(seed, 1);
+        let g = self.foot(site.o, 2.0);
+        let c = Vec3::new(site.o.x, g, site.o.y);
+        let tops = self.lattice(c, fwd, 2.8, 2.0, h, (h / 4.5) as u32, 0.17, 0.085, 4);
+        let top = (tops[0] + tops[1] + tops[2] + tops[3]) / 4.0;
+        let at_height = |corner: Vec3, t: f32| {
+            let q = c.lerp(corner, 0.85 + 0.15 * t);
+            Vec3::new(q.x, c.y + h * t, q.z)
+        };
+        for &corner in &tops {
+            Self::beacon(&mut self.decor, corner + Vec3::Y * 0.15, 0.25, color::BEACON_RED);
+        }
+        for k in [0usize, 2] {
+            Self::beacon(&mut self.decor, at_height(tops[k], 0.5) + Vec3::Y * 0.1, 0.22, color::BEACON_RED);
+        }
+        lathe(&mut self.decor, top, Vec3::Y, &[(0.0, 0.12, color::PAINT_WHITE), (7.0, 0.05, color::PAINT_WHITE), (7.0, 0.0, color::PAINT_WHITE)], 6, Surface::Wall);
+        Self::beacon(&mut self.decor, top + Vec3::Y * 7.0, 0.25, color::BEACON_RED);
+        for (k, t, r) in [(0usize, 0.62f32, 1.5f32), (2, 0.74, 1.2), (1, 0.84, 1.0)] {
+            let q = at_height(tops[k], t);
+            let out = Vec3::new(q.x - c.x, 0.0, q.z - c.z).normalize_or(fwd);
+            Self::dish(&mut self.decor, q + out * 0.6, (out + Vec3::Y * 0.1).normalize(), r);
+        }
+        for &corner in &tops[..3] {
+            let q = at_height(corner, 0.93);
+            let out = Vec3::new(q.x - c.x, 0.0, q.z - c.z).normalize_or(fwd);
+            add_box(&mut self.decor, q + out * 0.35, Vec3::new(0.24, 1.1, 0.08), out, Surface::Wall, color::PAINT_WHITE, true);
+        }
+        // Guy straps at three heights, in three directions, to piles of bags.
+        for (k, deg) in [30.0f32, 150.0, 270.0].into_iter().enumerate() {
+            let out = site.dir(deg + 10.0 * jit(seed, 50 + k as i32));
+            let spot = site.o + flat(out) * (0.5 * h);
+            let anchor = Vec3::new(spot.x, self.foot(spot, 1.5), spot.y);
+            self.bag_pile(anchor, out, Vec3::new(1.5, 0.55, 0.9), hash2(seed, k as i32, 51));
+            for t in [0.3f32, 0.6, 0.9] {
+                strap(&mut self.decor, c + Vec3::Y * (h * t) + out * 1.1, anchor + Vec3::Y * 0.7, 0.045);
+            }
+        }
+        // The shelter at its foot.
+        self.container(site.at(5.5, 1.0), site.dir(90.0), 0, color::PAINT_WHITE, hash2(seed, 1, 52));
+        self.solar_table(site.at(-5.0, -2.5), fwd, 4, hash2(seed, 2, 52));
+    }
+
+    /// The landing zone: its layout ([`LANDING`]), a conveyor from the mine to the second pile,
+    /// pennants, a windsock, a rover.
+    fn landing_zone(&mut self, site: Site, seed: u32) {
+        self.layout(site, &LANDING, seed);
+        let (a, b) = (site.at(-6.0, -29.0), site.at(-30.5, -36.0));
+        let (ga, gb) = (self.ground(a), self.ground(b));
+        self.conveyor(Vec3::new(a.x, ga + 2.2, a.y), Vec3::new(b.x, gb + 8.0, b.y), hash2(seed, 1, 60));
+        let wind = site.dir(80.0 + 20.0 * jit(seed, 61));
+        self.pennant(site.at(-20.0, 56.0), 7.0, wind, hash2(seed, 1, 62));
+        self.pennant(site.at(18.0, 58.0), 6.0, wind, hash2(seed, 2, 62));
+        self.windsock(site.at(26.0, 52.0), wind, hash2(seed, 3, 62));
+        self.rover(site.at(16.0, 2.0), site.dir(200.0), hash2(seed, 4, 62));
     }
 
     /// A glass greenhouse dome on the ground at `c`: faceted panes in a white frame, plants
     /// glowing green behind them.
     fn greenhouse(&mut self, c: Vec3, r: f32, h: f32, seed: u32) {
-        let sides = 14u32;
-        let rings = 5u32;
+        let sides = 10u32;
+        let rings = 4u32;
         let phase = TAU * rnd(seed, 1);
         let point = |j: u32, k: u32| -> Vec3 {
             if j == rings {
@@ -1155,7 +1561,7 @@ impl Camp<'_> {
     fn tower(&mut self, p: Vec2, fwd: Vec3, h: f32, seed: u32) {
         let g = self.foot(p, 8.0);
         let c = Vec3::new(p.x, g, p.y);
-        let tops = self.lattice(c, fwd, 14.0, 3.6, h, 22, 0.42, 0.2, 6);
+        let tops = self.lattice(c, fwd, 14.0, 3.6, h, 22, 0.42, 0.2, 4);
         // Beacons at the corners of three levels, a platform and an antenna on top.
         let corner_at = |k: usize, t: f32| c + (tops[k] - c) * t;
         for t in [0.36f32, 0.68, 1.0] {
@@ -1181,7 +1587,7 @@ impl Camp<'_> {
     /// The rocket standing on its landing pad at `p`: a pad of white tiles with orange marks and a
     /// ring of sandbags, scorched under the rocket; the rocket white with orange bands, sooty at
     /// its base, on four legs.
-    fn rocket(&mut self, p: Vec2, pad: f32) {
+    fn rocket(&mut self, p: Vec2, pad: f32, h: f32) {
         let g = self.foot(p, 0.8 * pad);
         let c = Vec3::new(p.x, g, p.y);
         let b = &mut self.decor;
@@ -1200,7 +1606,7 @@ impl Camp<'_> {
         // The ring of sandbags round the pad (seen from afar: one low rounded wall).
         lathe(&mut self.decor, c - Vec3::Y * 0.2, Vec3::Y, &[(0.0, pad + 1.6, color::SANDBAG), (0.6, pad + 1.55, color::SANDBAG), (0.95, pad + 0.9, color::SANDBAG), (0.6, pad + 0.25, color::SANDBAG), (0.0, pad + 0.2, color::SANDBAG)], 48, Surface::Wall);
         // The rocket.
-        let (h, r) = (48.0, 4.2);
+        let r = 4.2 * h / 48.0;
         let base_y = 4.2;
         let b = &mut self.decor;
         let foot = c + Vec3::Y * base_y;
@@ -1309,15 +1715,21 @@ fn flag(b: &mut MeshBuilder, a: Vec3, c: Vec3, tip: Vec3, wind: Vec3) {
 mod tests {
     use super::*;
 
-    /// Every triangle of every structure on Jezero, solid and drawn only: finite, not degenerate,
-    /// its vertex normals on its visible side.
+    /// Every triangle of every structure on the shipped maps, solid and drawn only: finite, not
+    /// degenerate, its vertex normals on its visible side.
     #[test]
     fn camps_are_valid() {
-        let map = crate::builtin_maps().into_iter().find(|m| m.name == "Jezero").expect("Jezero");
-        assert!(!map.structures.is_empty(), "Jezero has structures");
-        let built = map.build_detailed().expect("build");
-        let (solid, decor) = build(&map.structures, &built.terrain);
-        for (name, m) in [("solid", &solid), ("decor", &decor)] {
+        for map in crate::builtin_maps() {
+            assert!(!map.structures.is_empty(), "{} has structures", map.name);
+            let built = map.build_detailed().expect("build");
+            let (solid, decor) = build(&map.structures, &built.terrain);
+            check(&map.name, &solid, &decor);
+        }
+    }
+
+    fn check(map: &str, solid: &TrackMesh, decor: &TrackMesh) {
+        for (part, m) in [("solid", solid), ("decor", decor)] {
+            let name = format!("{map} {part}");
             for (i, (p, n)) in m.positions.iter().zip(&m.normals).enumerate() {
                 assert!(p.is_finite() && n.is_finite(), "{name} vertex {i}");
                 assert!((n.length() - 1.0).abs() < 1e-3, "{name} normal {i} has length {}", n.length());
@@ -1334,7 +1746,7 @@ mod tests {
                 // What collides as strictly as the track (tests/demo.rs); what only draws may bend
                 // its normals (sandbags tuck theirs under) but never shows its back.
                 let face = cross.normalize();
-                let least = if name == "solid" { 0.5 } else { 0.0 };
+                let least = if part == "solid" { 0.5 } else { 0.0 };
                 for k in 0..3 {
                     let n = m.normals[m.indices[3 * i + k] as usize];
                     assert!(n.dot(face) > least, "{name} triangle {i} at {a} ({:?}) winding disagrees with its normals", m.colors[m.indices[3 * i] as usize]);

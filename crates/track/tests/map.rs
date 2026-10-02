@@ -607,7 +607,7 @@ fn triangle_budget_by_part() {
     assert_eq!(t.blocks + t.terrain + t.scenery + t.structures, b.track.mesh.triangle_count());
     assert!(b.track.mesh.triangle_count() < 300_000);
     assert!(t.scenery < 60_000);
-    assert!(t.structures + t.structures_drawn < 70_000);
+    assert!(t.structures + t.structures_drawn < 75_000);
 }
 
 #[test]
@@ -682,17 +682,18 @@ fn format_constant() {
 fn builtin_maps_load_and_build() {
     // The budget is per kilometre of route, counted from 2 km: the circuits of the easy series
     // are 1.4 to 2 km long, those of the hard series (45 s to a minute) up to 3.5 km, at the same
-    // density (about 230 000 triangles drawn per km). Marineris draws twice Noctis's triangles
-    // for 8 % more GPU time (8.4 against 7.8 ms a frame at 3200 × 1800 on an M-series Mac): the
-    // frame is bound by its pixels.
+    // density (about 230 000 triangles drawn per km before the camps). Marineris draws twice
+    // Noctis's triangles for 8 % more GPU time (8.4 against 7.8 ms a frame at 3200 × 1800 on an
+    // M-series Mac): the frame is bound by its pixels.
     for map in track::builtin_maps() {
         let built = map.build_detailed().unwrap_or_else(|e| panic!("{}: {e}", map.name));
         let (mesh, decor) = (built.track.mesh.triangle_count(), built.track.decor.triangle_count());
         let km = built.layout.length() / 1000.0;
         println!("{}: {km:.2} km, {mesh} triangles, {decor} more drawn", map.name);
         assert!(!built.track.checkpoints.is_empty(), "{} has no checkpoint", map.name);
+        // As the demo's budget (tests/demo.rs), camps and colony included, per km from 2 km.
         let km = km.max(2.0);
         assert!((mesh as f32) < 150_000.0 * km, "{} is over budget", map.name);
-        assert!(((mesh + decor) as f32) < 275_000.0 * km, "{} draws too much", map.name);
+        assert!(((mesh + decor) as f32) < 300_000.0 * km, "{} draws too much", map.name);
     }
 }

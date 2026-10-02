@@ -69,16 +69,36 @@ Générés avec Higgsfield (GPT Image 2.5), dans `moodboard/` :
 
 `crates/track/src/camp.rs` construit les décors depuis la liste `structures` d'une carte
 (`{"structure":"post","position":[x,z],"yaw":degrés}`, ou `structure post x z yaw` dans un fichier
-`.chain`). Premiers décors, sur Jezero :
+`.chain`) :
 
-- `post` : le poste d'observation, sur la petite butte qui domine les premiers virages ;
-- `base_camp` : le camp de base, dans la première boucle, face au départ ;
-- `colony` : la colonie, sur la longue mesa au nord (élargie à 82 m de rayon pour elle), vue du
-  départ, de la ligne droite surélevée et de la terre.
+| Décor | Ce qu'il est |
+|---|---|
+| `cache` | dépôt : caisses et fûts sous un appentis de bâche, manche à air, panneau solaire, tuyau, jalons |
+| `post` | poste d'observation sur sa tour en treillis |
+| `field_camp` | camp de terrain : trois tentes-dômes, conteneur, panneaux, fanions, muret de sacs |
+| `base_camp` | camp de base : dômes, tunnels, citernes, conteneurs, champ solaire, mât, rover |
+| `mast` | mât de communication de 80 à 100 m, haubané, paraboles, balises |
+| `landing_zone` | zone d'atterrissage (fusée, citernes, conteneurs) et mine (engin à chenilles, flèche convoyeuse sur treillis, tas de minerai, convoyeur sur chevalets) |
+| `colony` | la colonie : dôme géant, dômes, serres, citernes, tour de 170 m, fusée |
+
+Sur les cartes :
+
+- **Jezero** : un poste sur la butte des premiers virages, le camp de base dans la première
+  boucle, un mât au nord-ouest, un dépôt dans le demi-tour en terre, un camp de terrain le long de
+  la terre, la zone d'atterrissage et sa mine au nord de la ligne droite, la colonie sur la longue
+  mesa au nord (élargie à 82 m de rayon pour elle).
+- **Olympus** : le camp de base au départ, un poste près du lacet surélevé, un mât, un camp de
+  terrain dans la boucle en terre, deux dépôts, et la colonie sur une mesa ajoutée pour elle au
+  nord-est, devant la longue montée vers le kicker.
+- **Ares Vallis** : le camp de base au départ, un camp de terrain dans la boucle, un poste au-dessus
+  du saut, un mât, deux dépôts, et la zone d'atterrissage avec sa mine au nord.
+- **Noctis** : des postes sur la butte de 64 m du départ et sur une butte à l'ouest, un camp de
+  terrain et un dépôt dans la plaine, et un mât sur la mesa nord, droit devant vers l'arrivée.
 
 Le terrain est aplani sous les camps (le relief des buttes et des mesas est gardé). Ce qui est à
-portée de la voiture est solide ; la colonie n'est que dessinée. Les dômes proches montrent le
-grain de leur toile, les lointains un enduit blanc lisse. Captures : `in-game/`.
+portée de la voiture est solide ; la colonie et la zone d'atterrissage ne sont que dessinées. Les
+dômes proches montrent le grain de leur toile, les lointains un enduit blanc lisse. Environ 65 000
+triangles par carte, sans effet mesurable sur le temps GPU. Captures : `in-game/`.
 
-À faire : la zone d'atterrissage avec sa mine, le dépôt, le camp de terrain, le mât de
-communication, puis les autres cartes.
+À faire : des variantes (une colonie qui ne soit pas la même d'une carte à l'autre), et le
+crépuscule du moodboard quand il y aura des cartes de nuit.

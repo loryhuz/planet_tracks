@@ -85,3 +85,12 @@ prop boulder -300 0 392 80 8
 prop spire -158 0 392 120 6
 prop spire -110 0 384 70 8
 prop boulder -96 0 372 10 6
+
+# The colony's scenery (crates/track/src/camp.rs): posts on top of the 64 m butte by the start and
+# of a butte to the west, a field camp and a cache out on the plain, and a mast on the north mesa,
+# straight ahead on the run to the finish.
+structure post 150 80 0
+structure post -377 138 90
+structure field_camp -100 430 -90
+structure cache -345 10 90
+structure mast -200 760 0

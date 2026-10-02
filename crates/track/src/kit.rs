@@ -207,6 +207,8 @@ pub mod color {
     pub const BEACON_AMBER: [f32; 3] = [1.0, 0.42, 0.04];
     /// Rubber of the rovers' tyres, and the pads' scorch marks.
     pub const TYRE: [f32; 3] = [0.05, 0.045, 0.04];
+    /// Ore heaped by the mines (drawn as rock).
+    pub const ORE: [f32; 3] = [0.33, 0.17, 0.10];
 }
 
 /// Half the width of a deck of this surface.

@@ -731,8 +731,12 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     let target = if grounded { (vf.abs() / vmax + wheelspin * gas * 0.3).min(1.0) } else { gas.max(s.engine * 0.98) };
     s.engine += (target - s.engine).clamp(-3.0 * dt, 5.0 * dt);
 
+    // Hard braking at speed skids the braking tyres, for the eye and the ear only.
+    s.skid = if grounded { smoothstep(0.3, 1.0, brake) * smoothstep(3.0, 12.0, vf) } else { 0.0 };
+
     // Wheels for the renderer. Tyre marks: none while gripping, rising near the limit (still
-    // aligned), full once drifting or spinning/locking; smear = how sideways each tyre moves.
+    // aligned), full once drifting, spinning or skidding under the brakes; smear = how sideways
+    // each tyre moves.
     s.grip_usage = usage;
     let mark_from = p.mark_start.clamp(0.0, 0.99);
     let mark = smoothstep(mark_from, 1.0, usage).max(smoothstep(mark_from, 1.0, long_usage)).max(wheelspin);
@@ -757,10 +761,12 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
                 let slip_angle = if i < 2 { s.drift_angle + steer_angle - kinematic } else { s.drift_angle };
                 w.smear = libm::fabsf(sinf(slip_angle));
                 let sg = p.surface(c.hit.surface);
-                w.mark = mark.max(sg.trail);
+                // Skis never brake.
+                let skid = if p.front_skis && i < 2 { 0.0 } else { s.skid };
+                w.mark = mark.max(sg.trail).max(skid);
                 let sink = if p.front_skis && i < 2 { sg.sink * SKI_SINK } else { sg.sink };
                 w.sink += (sink - w.sink) * (dt / SINK_TIME).min(1.0);
-                w.slip = w.smear.max(wheelspin);
+                w.slip = w.smear.max(wheelspin).max(skid);
             }
             None => {
                 w.contact = false;

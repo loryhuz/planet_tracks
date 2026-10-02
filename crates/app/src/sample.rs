@@ -1,6 +1,18 @@
 //! Recordings: a minimal reader for the 16-bit PCM WAV files the app embeds (assets/audio/, made
 //! by tools/audio/prepare.py), a loop played at a variable rate, and a sound played once.
 
+/// A file of assets/audio/ the app embeds, or `DIR/<file>` when `MARS_SOUNDS=DIR` is set and the
+/// file is there: to try other takes in the game, or in `MARS_AUDIO_WAV`'s render, without
+/// rebuilding.
+pub fn asset(file: &str, embedded: &'static [u8]) -> std::borrow::Cow<'static, [u8]> {
+    if let Some(dir) = std::env::var_os("MARS_SOUNDS") {
+        if let Ok(bytes) = std::fs::read(std::path::Path::new(&dir).join(file)) {
+            return bytes.into();
+        }
+    }
+    embedded.into()
+}
+
 /// Reads a 16-bit PCM WAV: returns (interleaved samples, channels, rate).
 fn decode_wav(bytes: &[u8]) -> (Vec<f32>, usize, u32) {
     let u16le = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);

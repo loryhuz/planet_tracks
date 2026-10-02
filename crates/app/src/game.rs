@@ -344,16 +344,21 @@ impl Game {
         // In the air the wheels spin freely: the whine follows the throttle.
         let rpm = if airborne { (frac + 0.3 * input.gas).min(1.0) } else { frac };
         let (mut squeal, mut scrub, mut loose, mut on) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        // Skidding under the brakes sounds like sliding: a screech on the road, the spray of a drift
+        // on dirt.
+        let skid = car.state.skid;
         for w in &car.state.wheels {
             if !w.contact {
                 continue;
             }
             on += 1.0;
             match w.surface {
-                Some(track::Surface::Road) | Some(track::Surface::Booster) => squeal = squeal.max(((w.mark - 0.3) / 0.7).clamp(0.0, 1.0) * (0.4 + 0.6 * w.smear)),
+                Some(track::Surface::Road) | Some(track::Surface::Booster) => {
+                    squeal = squeal.max(((w.mark - 0.3) / 0.7).clamp(0.0, 1.0) * (0.4 + 0.6 * w.smear)).max(0.8 * skid)
+                }
                 Some(track::Surface::Dirt) | Some(track::Surface::Ground) => {
                     loose += 1.0;
-                    scrub = scrub.max(w.smear.max(w.mark * 0.3));
+                    scrub = scrub.max(w.smear.max(w.mark * 0.3)).max(skid);
                 }
                 _ => {}
             }

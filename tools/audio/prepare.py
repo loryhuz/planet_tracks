@@ -24,27 +24,58 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = {
-    # Combustion engine, two layers the game crossfades and pitches to the revs. Loop on, 8 s,
-    # prompt influence 50 %. The mid one runs at about 46 % of the high one's firing frequency
-    # (108 Hz against 236 Hz), which `engine_sound.rs` relies on.
-    "engine_mid": dict(
-        loop=True, fade=0.15, rms=-16.0,
-        prompt="Onboard recording of an off-road racing buggy driving at a steady medium speed: "
-        "raspy four-cylinder engine held at constant RPM, throaty open exhaust and a light intake "
-        "growl. Continuous and steady, no revving, no gear shifts, no tire noise, no wind.",
-    ),
-    "engine_high": dict(
-        loop=True, fade=0.15, rms=-16.0,
-        prompt="Onboard recording of an off-road racing buggy flat out at high speed: raspy "
-        "four-cylinder engine screaming at constant high RPM near the redline, throaty open exhaust "
-        "and a loud intake growl. Continuous and steady, no revving up or down, no gear shifts, no "
-        "tire noise, no wind.",
-    ),
     # Loop on, 30 s, prompt influence 40 %.
     "ambience_mars": dict(
         loop=True, fade=2.0, rms=-20.0, stereo=True,
         prompt="Desolate Martian desert ambience: thin cold wind over rocky plains, faint distant "
         "low rumble, soft hiss of blowing dust, calm and empty, no birds, no insects, no voices.",
+    ),
+    # The buggy's electric drive, two loops (engine_sound.rs), loop on, 8 s, influence 60 %, made
+    # through the API (tools/audio/elevenlabs.py, which holds the other prompts tried). The whine,
+    # played faster with the motor's speed: take `ev_extreme_1`, steady, rich in harmonics over a
+    # hum near 120 Hz (the plain high whines of a Formula E sounded like a vacuum cleaner).
+    "drive_whine": dict(
+        loop=True, fade=0.15, rms=-16.0,
+        prompt="Onboard recording of an electric off-road racing car, like an Extreme E SUV, at a "
+        "steady speed: a deep, powerful electric motor whine rich in harmonics like a spinning "
+        "turbine, a straight-cut gear whine and the heavy mechanical hum of the drivetrain. "
+        "Constant pitch, continuous and steady, no acceleration, no combustion engine, no wind.",
+    ),
+    # The drivetrain's body under it: take `ev_racing_4`, a steady low rumble (95 % of it under
+    # 150 Hz) with a mechanical rattle.
+    "drive_body": dict(
+        loop=True, fade=0.15, rms=-16.0,
+        prompt="Onboard recording of a powerful electric racing buggy at a steady speed: an "
+        "aggressive electric motor whine like a turbine, a sharp straight-cut gear whine and a "
+        "mechanical rattle of the drivetrain. Constant pitch, continuous and steady, no "
+        "acceleration, no combustion engine, no wind.",
+    ),
+    # The tyres on dirt, two loops the game plays faster with speed (×0.7 to ×1.3) and levels by
+    # the wheels on dirt; they replace a synthesized gravel whose isolated grains crackled. Made
+    # through the API (tools/audio/elevenlabs.py, which holds the other prompts tried), sorted by
+    # tools/audio/analyse.py: rolling, take `roll_gravel_2`, loop on, 10 s, influence 50 %.
+    "roll_dirt": dict(
+        loop=True, fade=0.15, rms=-20.0,
+        prompt="Off-road racing buggy tyres rolling fast over a dirt track covered in fine gravel, "
+        "recorded close to the wheels: a continuous dense rush of gravel and sand under the tyres "
+        "over a low rumble, steady and even, no single stones, no engine, no skid, no wind.",
+    ),
+    # Sliding, take `slide_dirt_2`, loop on, 6 s, influence 50 %: a rough scrape and spray of
+    # sand. Prompts naming a buggy drifting gave an engine; this one describes only the tyre.
+    "slide_dirt": dict(
+        loop=True, fade=0.15, rms=-20.0,
+        prompt="Foley close-up of a big rubber tyre skidding sideways through loose dirt and sand: a "
+        "continuous rough scraping rush of soil with a spray of sand and fine gravel, steady and "
+        "even. Only the tyre and the ground, no engine, no motor, no wind.",
+    ),
+    # The tyres skidding on the road, at the grip limit or braking hard: take `skid_road_1`, loop
+    # on, 5 s, influence 50 %, a steady screech around 1-2 kHz over the scrub of the tread. Asked
+    # for a buggy's tyres squealing, every take had its engine in it.
+    "skid_road": dict(
+        loop=True, fade=0.15, rms=-20.0,
+        prompt="Foley close-up of rubber tyres skidding on a smooth hard road under hard braking: a "
+        "sustained rubbery screech with a rough scrub of the tread, steady intensity, continuous. "
+        "Only the tyres and the road, no engine, no motor, no crash, no wind.",
     ),
     # Played once when the wheels touch a booster pad. Loop off, 2 s, prompt influence 50 %, take
     # 4 of the user's. The take opens on a click and a silence, cut away: the sound starts on the

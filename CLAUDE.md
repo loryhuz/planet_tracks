@@ -132,6 +132,13 @@ link the main checkout's `track` (missing a new block or surface).
   `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`; the booster's
   whoosh is a one-shot cut from its take (`trim`), played by `audio.rs` when a pad is touched.
   `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer` renders the car's sound over a scripted lap.
+- The music — Suno tracks in `art/audio/music/` (art direction and prompts in its `prompts.md`:
+  one sound for the game, one colour per planet, Mars's being desert-rock guitar) —
+  `tools/audio/music.py` levels them to -16 LUFS, ends them cleanly and encodes them as AAC
+  (`crates/app/assets/music/`): `/usr/bin/python3 tools/audio/music.py art/audio/music crates/app/assets/music`.
+  `crates/app/src/music.rs` embeds them and streams them (symphonia, on a thread); `audio.rs`
+  plays the theme in the menu (its only background: the menu has no wind of its own) and the
+  planet's tracks in turn in a race, about as loud as the car, fading between the two.
 
 Conventions: metres, y up, right-handed; yaw 0 faces +Z and a positive yaw turns left; a car
 facing +Z has +X on its left. Wheel order: front-left, front-right, rear-left, rear-right.

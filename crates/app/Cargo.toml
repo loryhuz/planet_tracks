@@ -23,6 +23,8 @@ bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 cpal = "0.18"
 png = "0.18"
+# The music (src/music.rs): AAC in MP4, decoded in pure Rust on every platform.
+symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
 # Apple platforms: the menu's video background, decoded by the system (AVFoundation, src/video.rs),
 # and on iOS putting winit's window in the app's scene (src/ios.rs).

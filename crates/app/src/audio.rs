@@ -1,8 +1,8 @@
-//! Vehicle sound: the combustion engine from a recording replayed cycle by cycle, with the exhaust's
-//! brap on upshifts and pops on lifting off (engine_sound.rs), the tyres rolling and sliding on dirt
-//! from two more recordings, the Martian ambience, the whoosh of a booster pad, plus synthesized
-//! wind, tyre squeal at the grip limit and thumps on impacts. The game writes a few values per
-//! frame; the audio thread reads them through atomics and smooths them per sample. The menu's cues (ui_sound.rs) play on the same stream,
+//! Vehicle sound: the electric drive, a motor whine over a drivetrain rumble with pops on lifting
+//! off (engine_sound.rs), the tyres rolling and sliding on dirt and skidding on the road from three
+//! more recordings, the Martian ambience, the whoosh of a booster pad, plus synthesized wind and
+//! thumps on impacts. The game writes a few values per frame; the audio thread reads them through
+//! atomics and smooths them per sample. The menu's cues (ui_sound.rs) play on the same stream,
 //! while the car and the race ambience are silent. The music (music.rs) is the menu's theme in
 //! the menu and the planet's tracks in a race (its night track by night).
 
@@ -26,7 +26,7 @@ pub struct SoundFrame {
     pub load: f32,
     /// m/s.
     pub speed: f32,
-    /// Tyre squeal on road, 0..1.
+    /// Tyres skidding on the road (at the grip limit, or braking hard), 0..1.
     pub squeal: f32,
     /// Wheels rolling on dirt or ground, 0..1.
     pub gravel: f32,
@@ -189,31 +189,17 @@ impl LowPass {
     }
 }
 
-/// State-variable band-pass.
-#[derive(Default)]
-struct BandPass {
-    low: f32,
-    band: f32,
-}
-
-impl BandPass {
-    fn run(&mut self, x: f32, freq: f32, q: f32, rate: f32) -> f32 {
-        let f = 2.0 * (std::f32::consts::PI * freq / rate).sin();
-        let high = x - self.low - self.band / q;
-        self.band += f * high;
-        self.low += f * self.band;
-        self.band
-    }
-}
-
 const AMBIENCE_WAV: &[u8] = include_bytes!("../assets/audio/ambience_mars.wav");
 const BOOSTER_WAV: &[u8] = include_bytes!("../assets/audio/booster.wav");
 const ROLL_DIRT_WAV: &[u8] = include_bytes!("../assets/audio/roll_dirt.wav");
 const SLIDE_DIRT_WAV: &[u8] = include_bytes!("../assets/audio/slide_dirt.wav");
+const SKID_ROAD_WAV: &[u8] = include_bytes!("../assets/audio/skid_road.wav");
 /// Levels of the tyres on dirt, rolling at speed and sliding, in the car's mix (the engine at full
 /// throttle is about 0.45 of its recordings' level).
 const ROLL_DIRT_GAIN: f32 = 0.5;
 const SLIDE_DIRT_GAIN: f32 = 0.45;
+/// Level of the tyres skidding on the road.
+const SKID_ROAD_GAIN: f32 = 0.85;
 /// Level of the booster's whoosh in the mix.
 const BOOSTER_GAIN: f32 = 0.55;
 /// Level of the menu's theme, the menu's only background (the tracks leave tools/audio/music.py
@@ -244,10 +230,9 @@ struct Synth {
     seen_boosts: u32,
     roll_dirt: crate::sample::Looper,
     slide_dirt: crate::sample::Looper,
+    skid_road: crate::sample::Looper,
     // oscillators and filters
-    wobble: f32,
     wind_lp: LowPass,
-    squeal_bp: BandPass,
     seen_impacts: u32,
     thump: f32,
     thump_phase: f32,
@@ -305,9 +290,8 @@ impl Synth {
             seen_boosts: 0,
             roll_dirt: crate::sample::Looper::new(&crate::sample::asset("roll_dirt.wav", ROLL_DIRT_WAV), rate),
             slide_dirt: crate::sample::Looper::new(&crate::sample::asset("slide_dirt.wav", SLIDE_DIRT_WAV), rate),
-            wobble: 0.0,
+            skid_road: crate::sample::Looper::new(&crate::sample::asset("skid_road.wav", SKID_ROAD_WAV), rate),
             wind_lp: LowPass::default(),
-            squeal_bp: BandPass::default(),
             seen_impacts: 0,
             thump: 0.0,
             thump_phase: 0.0,
@@ -379,13 +363,14 @@ impl Synth {
             let engine = self.engine.next(revs, self.speed, self.load) * 0.45;
 
             // The tyres on dirt: the rolling loop rises with speed and plays faster (more grit
-            // per second), sliding adds the spray of sand. Both keep running when silent, so they
-            // never restart on a cut.
+            // per second), sliding adds the spray of sand, heard from the slightest slide (its
+            // level follows the square root). Both keep running when silent, so they never
+            // restart on a cut.
             let ground = self.gravel * (1.0 - self.air);
             let pace = (self.speed / 70.0).clamp(0.0, 1.0);
             let start = (self.speed / 30.0).clamp(0.0, 1.0);
             let roll = ground * start * (2.0 - start) * (0.6 + 0.4 * pace) * ROLL_DIRT_GAIN;
-            let slide = ground * self.scrub * (self.speed / 10.0).clamp(0.0, 1.0) * SLIDE_DIRT_GAIN;
+            let slide = ground * self.scrub.sqrt() * (self.speed / 10.0).clamp(0.0, 1.0) * SLIDE_DIRT_GAIN;
             let gravel = self.roll_dirt.next(0.7 + 0.6 * pace).0 * roll
                 + self.slide_dirt.next(0.85 + 0.3 * pace).0 * slide;
 
@@ -395,11 +380,13 @@ impl Synth {
             // Kept low and dark: a constant broadband whoosh gets tiring ("aspirateur").
             let wind = self.wind_lp.run(n, 150.0 + 350.0 * v, rate) * 0.05 * v * v;
 
-            // Tyre squeal on road, with a slow wobble.
-            self.wobble = (self.wobble + 6.0 / rate).fract();
-            let squeal_freq = 950.0 + 120.0 * (self.wobble * std::f32::consts::TAU).sin();
-            let n3 = self.noise();
-            let squeal = self.squeal_bp.run(n3, squeal_freq, 14.0, rate) * self.squeal * (1.0 - self.air) * 0.5;
+            // The tyres skidding on the road, a little higher as the speed rises, heard from the
+            // slightest slide near the grip limit (the square root again).
+            let squeal = self.skid_road.next(0.9 + 0.2 * pace).0
+                * self.squeal.sqrt()
+                * (1.0 - self.air)
+                * (self.speed / 8.0).clamp(0.0, 1.0)
+                * SKID_ROAD_GAIN;
 
             // Impact thump.
             let mut thump = 0.0;

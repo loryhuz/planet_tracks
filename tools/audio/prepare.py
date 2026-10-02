@@ -68,6 +68,15 @@ SOURCES = {
         "continuous rough scraping rush of soil with a spray of sand and fine gravel, steady and "
         "even. Only the tyre and the ground, no engine, no motor, no wind.",
     ),
+    # The tyres skidding on the road, at the grip limit or braking hard: take `skid_road_1`, loop
+    # on, 5 s, influence 50 %, a steady screech around 1-2 kHz over the scrub of the tread. Asked
+    # for a buggy's tyres squealing, every take had its engine in it.
+    "skid_road": dict(
+        loop=True, fade=0.15, rms=-20.0,
+        prompt="Foley close-up of rubber tyres skidding on a smooth hard road under hard braking: a "
+        "sustained rubbery screech with a rough scrub of the tread, steady intensity, continuous. "
+        "Only the tyres and the road, no engine, no motor, no crash, no wind.",
+    ),
     # Played once when the wheels touch a booster pad. Loop off, 2 s, prompt influence 50 %, take
     # 4 of the user's. The take opens on a click and a silence, cut away: the sound starts on the
     # whoosh building up (0.45 s) and ends once it has died out (1.6 s).

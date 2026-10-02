@@ -121,6 +121,9 @@ pub struct CarState {
     pub ground_normal: Vec3,
     /// Engine revs 0..1, for the sound.
     pub engine: f32,
+    /// How hard the braking tyres skid, 0..1: braking hard at speed. The brakes never pass the
+    /// grip, but the tyres leave marks, dust and a screech as if they locked.
+    pub skid: f32,
     /// Measured acceleration over the last tick, world, m/s².
     pub acceleration: Vec3,
     /// Hardest body impact during the last tick (speed into the wall or ground, m/s).
@@ -179,6 +182,7 @@ impl CarState {
             self.grip_usage.to_bits(),
             self.contact.to_bits(),
             self.engine.to_bits(),
+            self.skid.to_bits(),
         ]);
         v3(&mut words, self.ground_normal);
         v3(&mut words, self.acceleration);
@@ -344,6 +348,7 @@ fn rest_state(spawn: Pose) -> CarState {
         contact: 1.0,
         ground_normal: Vec3::Y,
         engine: 0.0,
+        skid: 0.0,
         acceleration: Vec3::ZERO,
         impact: 0.0,
         wall_contact: false,

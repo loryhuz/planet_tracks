@@ -151,7 +151,9 @@ link the main checkout's `track` (missing a new block or surface).
   whoosh is a one-shot cut from its take (`trim`), played by `audio.rs` when a pad is touched.
   The buggy is electric: its drive (`engine_sound.rs`) is a motor whine played faster with the
   motor's speed over a drivetrain rumble, never a combustion engine; the tyres on dirt roll and
-  slide on two more loops. `MARS_SOUNDS=DIR` loads `DIR/<file>` in place of an embedded sound (to
+  slide on two more loops, and skid on the road on a third. Braking hard at speed skids the
+  braking tyres (`CarState::skid`, render and sound only): marks, dust and that sound, as in a
+  drift. `MARS_SOUNDS=DIR` loads `DIR/<file>` in place of an embedded sound (to
   try takes in the game without rebuilding); `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer`
   renders the car's sound over a scripted lap, `MARS_AUDIO_WAV=out.wav` over 30 s of autopilot.
 - The music — Suno tracks in `art/audio/music/` (art direction and prompts in its `prompts.md`:

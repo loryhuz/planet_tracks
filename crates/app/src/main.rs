@@ -796,7 +796,8 @@ fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
 
 /// `MARS_ENGINE_DEMO=path.wav`: the car's sound over a scripted lap, at the game's level: idling
 /// on the line, pulling away through the gears to 300 km/h, a lift, cruising on dirt, a drift there,
-/// braking, then full throttle again.
+/// braking hard (the tyres skid), full throttle again, a fast road bend at the grip limit (the tyres
+/// slide a little), and a hard stop on the road.
 fn engine_demo(path: &str) {
     let params = physics::presets().remove(0);
     let gear_of = |kmh: f32| {
@@ -813,19 +814,23 @@ fn engine_demo(path: &str) {
         }
         (gear, ((kmh - lo) / (hi - lo).max(1.0)).clamp(0.0, 1.0))
     };
-    // (seconds, speed km/h at the end, throttle, share of the wheels on dirt, sliding on dirt)
+    // (seconds, speed km/h at the end, throttle, share of the wheels on dirt, sliding on dirt,
+    // skidding on the road)
     let script = [
-        (2.0, 0.0, 0.0, 0.0, 0.0),
-        (9.0, 300.0, 1.0, 0.0, 0.0),
-        (1.5, 280.0, 0.0, 0.0, 0.0),
-        (3.0, 150.0, 0.3, 1.0, 0.0),
-        (1.5, 130.0, 0.6, 1.0, 0.8),
-        (1.5, 90.0, 0.0, 1.0, 0.0),
-        (5.0, 260.0, 1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        (9.0, 300.0, 1.0, 0.0, 0.0, 0.0),
+        (1.5, 280.0, 0.0, 0.0, 0.0, 0.0),
+        (3.0, 150.0, 0.3, 1.0, 0.0, 0.0),
+        (1.5, 130.0, 0.6, 1.0, 0.8, 0.0),
+        (1.5, 90.0, 0.0, 1.0, 1.0, 0.0),
+        (5.0, 260.0, 1.0, 0.0, 0.0, 0.0),
+        (2.0, 240.0, 0.8, 0.0, 0.0, 0.15),
+        (2.5, 40.0, 0.0, 0.0, 0.0, 0.8),
+        (1.0, 40.0, 0.0, 0.0, 0.0, 0.0),
     ];
     let mut frames = Vec::new();
     let mut kmh = 0.0f32;
-    for (seconds, end, load, dirt, scrub) in script {
+    for (seconds, end, load, dirt, scrub, squeal) in script {
         let n = (seconds * 100.0) as usize;
         let start = kmh;
         for i in 0..n {
@@ -834,7 +839,7 @@ fn engine_demo(path: &str) {
             let shape = if end > start { 1.0 - (1.0 - t).powf(1.6) } else { t };
             kmh = start + (end - start) * shape;
             let (gear, rpm) = gear_of(kmh);
-            frames.push(audio::SoundFrame { rpm, gear, load, speed: kmh / 3.6, gravel: dirt, scrub, ..Default::default() });
+            frames.push(audio::SoundFrame { rpm, gear, load, speed: kmh / 3.6, gravel: dirt, scrub, squeal, ..Default::default() });
         }
     }
     let rate = 44_100u32;

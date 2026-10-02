@@ -506,6 +506,37 @@ fn tyre_marks_appear_near_the_limit_before_any_drift() {
 }
 
 #[test]
+fn braking_hard_at_speed_skids_the_tyres() {
+    for surface in [Surface::Road, Surface::Dirt] {
+        let world = World::new(&testing::strip(3000.0, surface));
+        for p in presets() {
+            let mut car = Car::new(p.clone(), &world, pose(0.0, 0.0, 0.0, 0.0));
+            for _ in 0..3000 {
+                if car.state.velocity.length() > 80.0 / 3.6 {
+                    break;
+                }
+                car.step(&world, Input { gas: 1.0, ..Default::default() });
+            }
+            car.step(&world, Input::default());
+            assert_eq!(car.state.skid, 0.0, "{} on {surface:?}: skidding while coasting", p.name);
+            for _ in 0..10 {
+                car.step(&world, Input { brake: 1.0, ..Default::default() });
+            }
+            // Every braking tyre leaves a full mark (skis never brake).
+            let braking = if p.front_skis { 2..4 } else { 0..4 };
+            assert!(car.state.skid > 0.9, "{} on {surface:?}: skid {}", p.name, car.state.skid);
+            assert!(
+                car.state.wheels[braking].iter().all(|w| w.mark > 0.9 && w.slip > 0.9),
+                "{} on {surface:?}: braking tyres without marks",
+                p.name
+            );
+            car.step(&world, Input::default());
+            assert_eq!(car.state.skid, 0.0, "{} on {surface:?}: still skidding off the brakes", p.name);
+        }
+    }
+}
+
+#[test]
 fn lifting_off_or_braking_in_a_dirt_turn_does_not_rotate_the_car() {
     let p = physics::fidele();
     let world = World::new(&testing::flat(400.0, Surface::Dirt));

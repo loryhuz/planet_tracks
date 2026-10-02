@@ -99,18 +99,26 @@ PROMPTS = {
         "high-pitched whistle, no combustion engine, no wind.",
         8.0, 0.6, True,
     ),
-    # Still to make (the game synthesizes them for now).
-    "roll_road": (
-        "Close-up recording at the wheels of an off-road racing buggy driving fast on a smooth hard "
-        "road: steady low tyre roar with a soft hiss, even and continuous, no engine, no squeal, no "
-        "wind.",
-        10.0, 0.5, True,
-    ),
+    # The tyres skidding on the road. Named after a buggy, the takes had its engine in them (a
+    # wavering 250 Hz); as foley, without a car, they are clean.
     "squeal_road": (
         "Tyres of a racing buggy sliding through a fast corner on smooth asphalt: a sustained tyre "
         "squeal with a slight natural wobble, steady intensity, continuous, recorded close, no "
         "engine, no crash.",
         5.0, 0.5, True,
+    ),
+    "skid_road": (
+        "Foley close-up of rubber tyres skidding on a smooth hard road under hard braking: a "
+        "sustained rubbery screech with a rough scrub of the tread, steady intensity, continuous. "
+        "Only the tyres and the road, no engine, no motor, no crash, no wind.",
+        5.0, 0.5, True,
+    ),
+    # Still to make.
+    "roll_road": (
+        "Close-up recording at the wheels of an off-road racing buggy driving fast on a smooth hard "
+        "road: steady low tyre roar with a soft hiss, even and continuous, no engine, no squeal, no "
+        "wind.",
+        10.0, 0.5, True,
     ),
     # The road edges are sandbags and bumpers.
     "impact_light": (

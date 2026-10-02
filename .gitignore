@@ -12,3 +12,4 @@ __pycache__/
 # Xcode's per-user state and local builds of the iOS app
 xcuserdata/
 /ios/build/
+/art/audio/takes/

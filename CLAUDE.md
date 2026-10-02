@@ -131,11 +131,19 @@ link the main checkout's `track` (missing a new block or surface).
   lettering (one more layer) is drawn by `/usr/bin/python3 tools/textures/signs.py`, the
   booster arrow (another) by `/usr/bin/python3 tools/textures/booster.py` from a Higgsfield
   picture, redrawn as exact polygons.
-- `tools/audio/prepare.py` — turns the ElevenLabs sounds in `art/audio/src/` (prompts and settings
-  in its `SOURCES`) into the seamless, levelled loops the app embeds (`crates/app/assets/audio/`):
+- `tools/audio/elevenlabs.py` — generates takes of the car's sounds with ElevenLabs' API (prompts
+  in its `PROMPTS`, the key in the macOS keychain, service `elevenlabs-api`) into `art/audio/takes/`
+  (not in git); `tools/audio/analyse.py` measures them (crackle, steadiness, loop seam, an engine
+  left in) and draws their spectrograms, to sort them before listening. `tools/audio/prepare.py`
+  turns the chosen ones, copied to `art/audio/src/` (prompts and settings in its `SOURCES`), into
+  the seamless, levelled loops the app embeds (`crates/app/assets/audio/`):
   `/usr/bin/python3 tools/audio/prepare.py art/audio/src crates/app/assets/audio`; the booster's
   whoosh is a one-shot cut from its take (`trim`), played by `audio.rs` when a pad is touched.
-  `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer` renders the car's sound over a scripted lap.
+  The buggy is electric: its drive (`engine_sound.rs`) is a motor whine played faster with the
+  motor's speed over a drivetrain rumble, never a combustion engine; the tyres on dirt roll and
+  slide on two more loops. `MARS_SOUNDS=DIR` loads `DIR/<file>` in place of an embedded sound (to
+  try takes in the game without rebuilding); `MARS_ENGINE_DEMO=out.wav cargo run --bin mars-racer`
+  renders the car's sound over a scripted lap, `MARS_AUDIO_WAV=out.wav` over 30 s of autopilot.
 - The music — Suno tracks in `art/audio/music/` (art direction and prompts in its `prompts.md`:
   one sound for the game, one colour per planet, Mars's being desert-rock guitar) —
   `tools/audio/music.py` levels them to -16 LUFS, ends them cleanly and encodes them as AAC

@@ -235,11 +235,15 @@ impl Menu {
         let (w, h) = (r.width(), r.height());
         let pl = &PLANETS[self.planet];
         self.sky.glow = [r.center().x, r.top() + 1.15 * h, 1.1 * w, 0.6 * h];
-        if pl.open {
+        // Mars has its film; a planet still to come its static and silhouette; the ice planet's
+        // prototype the planet alone, lit.
+        if pl.open && pl.kind == PlanetKind::Mars {
             self.sky.video = 1.0;
         } else {
-            let t = static_tint(pl.kind);
-            self.sky.noise = [t[0], t[1], t[2], 0.6];
+            if !pl.open {
+                let t = static_tint(pl.kind);
+                self.sky.noise = [t[0], t[1], t[2], 0.6];
+            }
             let (c, radius) = match (wide, pl.kind) {
                 (true, PlanetKind::Gas) => (pos2(r.right() - 345.0, r.center().y), ringed_radius(510.0)),
                 (true, _) => (pos2(r.right() - 370.0, r.center().y), 220.0),
@@ -247,7 +251,8 @@ impl Menu {
                 (false, _) => (pos2(r.center().x, r.top() + h * 0.59), 135.0),
             };
             let rot = self.rot * 0.6 + self.planet as f32 * 1.7;
-            self.sky.planets.push(planet(pl.kind, c, radius, rot, 0.35, 0.65, full, ([0.0; 3], 0.0, 0.0)));
+            let (dim, alpha) = if pl.open { (0.0, 1.0) } else { (0.35, 0.65) };
+            self.sky.planets.push(planet(pl.kind, c, radius, rot, dim, alpha, full, ([0.0; 3], 0.0, 0.0)));
         }
 
         // A horizontal swipe anywhere turns to the next or previous planet (the buttons, laid
@@ -288,7 +293,11 @@ impl Menu {
         let (ea, edy) = self.enter(0, now);
         let (ca, cdy) = self.enter(1, now);
         let open = pl.open;
-        let label = if open { "PILOTER SUR MARS" } else { "BIENTÔT DISPONIBLE" };
+        let label = match (open, pl.kind) {
+            (true, PlanetKind::Mars) => "PILOTER SUR MARS",
+            (true, _) => "ESSAYER LE PROTOTYPE",
+            (false, _) => "BIENTÔT DISPONIBLE",
+        };
         let cta = if wide {
             let (x, width) = (r.left() + 110.0, 460.0);
             let block = self.info_height(&p, width, layout);
@@ -447,7 +456,7 @@ impl Menu {
             p.rect_stroke(rect.expand(3.0), 15.0, Stroke::new(2.0, fade(col::LIVERY, a)), StrokeKind::Outside);
         }
         let half = (rect.width() - 8.0) / 2.0;
-        let built = |s: Series| format!("{}/{SLOTS}", self.tracks.iter().filter(|t| t.series == s).count().min(SLOTS));
+        let built = |s: Series| format!("{}/{SLOTS}", self.tracks.iter().filter(|t| t.series == s && t.planet == self.planet).count().min(SLOTS));
         let (easy, hard) = (built(Series::Easy), built(Series::Hard));
         for (i, (series, label, count)) in [(Series::Easy, "FACILE", easy.as_str()), (Series::Hard, "DUR", hard.as_str())].into_iter().enumerate() {
             let tr = Rect::from_min_size(rect.min + vec2(4.0 + i as f32 * half, 4.0), vec2(half, rect.height() - 8.0));
@@ -593,7 +602,7 @@ impl Menu {
         let best = bests.get(t.map).copied().flatten();
         let rec = Rect::from_min_size(pos2(x, cta.top() - 14.0 - 148.0), vec2(w, 148.0));
         self.record_block(p, rec, t, best, da, true);
-        let meta = format!("{} KM · {}\u{202F}% DIRT", km(t.length), (t.dirt * 100.0).round());
+        let meta = format!("{} KM · {}\u{202F}% {}", km(t.length), (t.dirt * 100.0).round(), if t.planet == 1 { "NEIGE" } else { "DIRT" });
         let mr = paint::text_shadowed(p, pos2(x + slide, rec.top() - 14.0), Align2::LEFT_BOTTOM, &meta, mono_caps(11.0), fade(col::DUST_2, a));
         paint::text_shadowed(p, pos2(x - 4.0 + slide, mr.top() - 6.0), Align2::LEFT_BOTTOM, &t.name.to_uppercase(), Font::race(96.0).weight(900.0), fade(col::DUST, a));
         if self.cta(ui, p, cta, "run", "COURIR", false, Some("Entrée"), da, now) {
@@ -632,7 +641,7 @@ impl Menu {
         let x = rect.left() + 22.0;
         let w = rect.width() - 44.0;
         let name = paint::text(&p, pos2(x - 2.0, rect.top() + 28.0), Align2::LEFT_TOP, &t.name.to_uppercase(), Font::race(50.0).weight(900.0), col::DUST);
-        let meta = format!("{} KM · {}\u{202F}% DIRT", km(t.length), (t.dirt * 100.0).round());
+        let meta = format!("{} KM · {}\u{202F}% {}", km(t.length), (t.dirt * 100.0).round(), if t.planet == 1 { "NEIGE" } else { "DIRT" });
         let mr = paint::text(&p, pos2(x, name.bottom() + 2.0), Align2::LEFT_TOP, &meta, mono_caps(11.0), col::DUST_2);
         let rec = Rect::from_min_size(pos2(x, mr.bottom() + 14.0), vec2(w, 124.0));
         self.record_block(&p, rec, t, best, 1.0, false);

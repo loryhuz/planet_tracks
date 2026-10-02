@@ -18,6 +18,7 @@
 //! terrain hills 10          # any other terrain setting
 //! time night                # raced by night (day by default)
 //! version 2                 # revision of the map (records are kept per version)
+//! planet ice                # the planet the map is on (Mars when left out)
 //! ```
 //!
 //! The first block must be `start` and the last `finish`. The tool refuses blocks that
@@ -41,6 +42,7 @@ fn main() {
     let mut landforms = Vec::new();
     let mut structures = Vec::new();
     let mut version = 1;
+    let mut planet = track::Planet::Mars;
     let mut time = TimeOfDay::Day;
 
     for (n, raw) in text.lines().enumerate() {
@@ -57,6 +59,9 @@ fn main() {
             "name" => name = words[1..].join(" "),
             "seed" => terrain.seed = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad seed")),
             "version" => version = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad version")),
+            "planet" => {
+                planet = words.get(1).and_then(|p| serde_json::from_value(serde_json::json!(p)).ok()).unwrap_or_else(|| fail("bad planet"))
+            }
             "time" => {
                 time = words.get(1).and_then(|w| serde_json::from_value(w.to_string().into()).ok()).unwrap_or_else(|| fail("time is day or night"))
             }
@@ -157,6 +162,7 @@ fn main() {
         name: name.clone(),
         author: "mars-racer".into(),
         version,
+        planet,
         terrain,
         time,
         blocks,

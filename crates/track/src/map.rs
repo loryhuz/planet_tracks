@@ -75,7 +75,7 @@ use crate::scenery::{self, PlacedProp, Prop};
 use crate::gates;
 use crate::stilts;
 use crate::terrain::{Capsule, Terrain, TerrainSettings};
-use crate::{Surface, Track, TrackMesh};
+use crate::{Planet, Surface, Track, TrackMesh};
 
 /// Version of the file format this code reads and writes.
 pub const FORMAT: u32 = 1;
@@ -117,6 +117,9 @@ pub struct Map {
     /// Revision of this map, bumped when its blocks change (records are kept per version).
     #[serde(default = "one")]
     pub version: u32,
+    /// The planet the map is on (Mars when left out).
+    #[serde(default, skip_serializing_if = "Planet::is_mars")]
+    pub planet: Planet,
     #[serde(default)]
     pub terrain: TerrainSettings,
     #[serde(default, skip_serializing_if = "TimeOfDay::is_day")]
@@ -515,13 +518,15 @@ impl Map {
         } else {
             format!("  \"structures\": {},\n", list(self.structures.iter().map(compact).collect()))
         };
+        let planet = if self.planet.is_mars() { String::new() } else { format!("  \"planet\": {},\n", compact(&self.planet)) };
         let time = if self.time.is_day() { String::new() } else { format!("  \"time\": {},\n", compact(&self.time)) };
         format!(
-            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n  \"terrain\": {},\n{}  \"blocks\": {},\n{}{}  \"scenery\": {}\n}}\n",
+            "{{\n  \"format\": {},\n  \"name\": {},\n  \"author\": {},\n  \"version\": {},\n{}  \"terrain\": {},\n{}  \"blocks\": {},\n{}{}  \"scenery\": {}\n}}\n",
             self.format,
             compact(&self.name),
             compact(&self.author),
             self.version,
+            planet,
             compact(&self.terrain),
             time,
             list(self.blocks.iter().map(compact).collect()),

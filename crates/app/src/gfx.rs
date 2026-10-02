@@ -291,8 +291,20 @@ struct Lighting {
 }
 
 impl Lighting {
-    fn of(time: TimeOfDay) -> Self {
+    fn of(time: TimeOfDay, planet: track::Planet) -> Self {
         let scaled = |c: [f32; 3], s: f32| [c[0] * s, c[1] * s, c[2] * s, 1.0];
+        if planet == track::Planet::Ice && time == TimeOfDay::Day {
+            // The ice planet's prototype: a cold sky, a weaker sun (it is farther from it).
+            return Self {
+                sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+                sun_color: scaled(srgb(255, 248, 240), 2.0),
+                sky_top: scaled(srgb(70, 104, 150), 0.8),
+                sky_horizon: scaled(srgb(184, 204, 226), 1.0),
+                ground_bounce: scaled(srgb(150, 165, 185), 0.5),
+                fog: [1.0 / 1400.0, 150.0],
+                night: 0.0,
+            };
+        }
         match time {
             TimeOfDay::Day => Self {
                 sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
@@ -416,6 +428,8 @@ pub struct SceneRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     storm_pipeline: wgpu::RenderPipeline,
     storm: Option<StormSite>,
+    /// The planet of the track: its sky and its materials (scene.wgsl's `frame.misc.w`).
+    planet: track::Planet,
     /// Wind, drifting sand and gusts over the current track.
     weather: Option<Weather>,
     climate: Climate,
@@ -1020,6 +1034,7 @@ impl SceneRenderer {
             sky_pipeline,
             storm_pipeline,
             storm: None,
+            planet: track::Planet::Mars,
             weather: None,
             climate: Climate::from_env(),
             grain_pipeline,
@@ -1053,7 +1068,7 @@ impl SceneRenderer {
             size: (gpu.config.width, gpu.config.height),
             format,
             meshes: Vec::new(),
-            lighting: Lighting::of(TimeOfDay::Day),
+            lighting: Lighting::of(TimeOfDay::Day, track::Planet::Mars),
             time_override: std::env::var("MARS_TIME").ok().and_then(|t| serde_json::from_value(t.into()).ok()),
             track_mesh: None,
             lamp_shadow_view,
@@ -1063,14 +1078,20 @@ impl SceneRenderer {
         }
     }
 
-    /// Sets the scene up for a new track, drawn with `mesh` and raced at `time`: lights it,
-    /// bakes its far shadows, places the sandstorm and starts its approach over (kilometres
-    /// beyond the route, ahead of the start), and starts the weather over, the wind blowing from
-    /// the storm.
-    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, time: TimeOfDay) {
-        self.lighting = Lighting::of(self.time_override.unwrap_or(time));
+    /// Sets the scene up for a new track on `planet`, drawn with `mesh` and raced at `time`:
+    /// lights it, bakes its far shadows, places the sandstorm and starts its approach over
+    /// (kilometres beyond the route, ahead of the start), and starts the weather over, the wind
+    /// blowing from the storm. The ice planet's prototype has neither: still, clear air.
+    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, time: TimeOfDay, planet: track::Planet) {
+        self.lighting = Lighting::of(self.time_override.unwrap_or(time), planet);
         self.track_mesh = Some(mesh);
         self.bake_shadows(gpu, track, mesh);
+        self.planet = planet;
+        if !planet.is_mars() {
+            self.weather = None;
+            self.storm = None;
+            return;
+        }
         let (lo, hi) = track.route.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(lo, hi), p| {
             (lo.min(Vec2::new(p.x, p.z)), hi.max(Vec2::new(p.x, p.z)))
         });
@@ -1263,7 +1284,7 @@ impl SceneRenderer {
             sky_top: light.sky_top,
             sky_horizon: light.sky_horizon,
             ground_bounce: light.ground_bounce,
-            fog: [light.fog[0], light.fog[1], 0.0, 0.0],
+            fog: [light.fog[0], light.fog[1], if self.planet.is_mars() { 0.0 } else { 1.0 }, 0.0],
             misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, light.night],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],

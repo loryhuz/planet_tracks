@@ -8,6 +8,9 @@ le jeu les construit. Ce fichier est tenu à jour avec le code : la source de v�
 Version partagée (page privée, republiée depuis ce fichier à chaque mise à jour) :
 https://claude.ai/artifact/QNgJoQ6GnMenV8nMVZ1USZ
 
+Ce fichier est le kit de Mars. Celui de la planète de glace a son propre brief,
+`docs/blocks-ice.md`, dans l'onglet « Glace » de la même page.
+
 ## La grille
 
 - Une **cellule** fait 32 m × 32 m, un **niveau** 8 m de haut.

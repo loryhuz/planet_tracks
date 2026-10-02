@@ -112,7 +112,7 @@ impl Session {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let profiles = physics::presets()
+        let profiles = physics::profiles()
             .into_iter()
             .map(|preset| {
                 let s = saved.profiles.iter().find(|p| p.name == preset.name);
@@ -145,6 +145,14 @@ impl Session {
         // By name; a session saved before names were stored starts on the first profile.
         let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
         Self { profiles, current, map: saved.map, persist: true, dirty_since: None }
+    }
+
+    /// Makes the car of `planet` the current profile (a map is always driven with its planet's car).
+    pub fn use_car_for(&mut self, planet: track::Planet) {
+        let name = physics::car_for(planet).name;
+        if let Some(i) = self.profiles.iter().position(|p| p.defaults.name == name) {
+            self.current = i;
+        }
     }
 
     pub fn profile(&self) -> &Profile {

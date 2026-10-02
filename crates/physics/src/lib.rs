@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 use track::{Pose, Surface};
 
 pub use params::{
-    CarParams, SurfaceGrip, Tunable, basse_gravite, buggy_lourd, combo, drift, equilibre, fidele, grip_arcade, presets,
+    CarParams, SurfaceGrip, Tunable, basse_gravite, buggy_lourd, car_for, combo, drift, equilibre, fidele, grip_arcade, neige, presets,
+    profiles,
 };
 pub use world::{Hit, World};
 
@@ -74,6 +75,10 @@ pub struct WheelState {
     pub smear: f32,
     /// Rolling speed, rad/s (spins up in the air with the throttle).
     pub spin_rate: f32,
+    /// How deep the wheel sits in the surface (snow), m: the suspension reaches that far below
+    /// the surface, and the renderer buries the tyre that much. Eased toward the surface's
+    /// `sink`, so the car settles into snow and climbs out of it instead of stepping.
+    pub sink: f32,
     /// Normal load relative to the static load (1 at rest, 0 in the air).
     pub load: f32,
     /// Where the tyre touches the ground (world), valid when `contact`.

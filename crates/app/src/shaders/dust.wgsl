@@ -40,7 +40,9 @@ fn fs_dust(in: VsOut) -> @location(0) vec4<f32> {
     let d = length(in.uv);
     let soft = 1.0 - smoothstep(0.2, 1.0, d);
     let a = clamp(in.alpha * soft, 0.0, 1.0);
-    // By night (misc.w) the dust is only lit by the moon: dim, greyed toward blue.
-    let color = to_srgb(mix(vec3<f32>(0.85, 0.58, 0.40), vec3<f32>(0.085, 0.075, 0.1), frame.misc.w));
+    // Martian dust, or snow spray on the ice planet (fog.z = 1); by night (misc.w) only lit by
+    // the moon: dim, greyed toward blue.
+    let day = select(vec3<f32>(0.85, 0.58, 0.40), vec3<f32>(0.9, 0.94, 1.0), frame.fog.z > 0.5);
+    let color = to_srgb(mix(day, vec3<f32>(0.085, 0.075, 0.1), frame.misc.w));
     return vec4<f32>(color * a, a);
 }

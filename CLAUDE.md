@@ -33,7 +33,10 @@ link the main checkout's `track` (missing a new block or surface).
 - `crates/track` — block kit, maps, triangle meshes with a surface per triangle. Maps are
   `crates/track/maps/*.json`, written from a `.chain` file (blocks, landforms, props) by
   `cargo run -p track --example chain -- crates/track/maps/noctis.chain`; a new one is added to
-  `BUILTIN_MAPS`. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
+  `BUILTIN_MAPS`. A map's `planet` (`planet ice` in a `.chain`, Mars when left out) picks its car
+  (`physics::car_for`), its look (scene.wgsl's `frame.misc.w`) and its planet in the menu:
+  `noctis_neige.chain`, the ice planet's prototype, is Noctis's layout where the road decks are
+  bare ice, the dirt packed snow and the ground deep powder (flat colours, no storm or weather). `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
   test autopilot over a map (with the two numbers it brakes for the bends). The menu's series:
   easy circuits stay short (30 s), the hard series' (`series()` in `crates/app/src/menu/catalog.rs`,
   Marineris first) run 45 s to a minute, a roller coaster on scaffolding with boosters. At
@@ -42,7 +45,8 @@ link the main checkout's `track` (missing a new block or surface).
   Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
-  kept up to date with the code. Its shape sheet (`docs/blocks/*.svg`) is drawn from the
+  kept up to date with the code (Mars's kit; the ice planet's brief is `docs/blocks-ice.md`, its
+  own tab of the shared page). Its shape sheet (`docs/blocks/*.svg`) is drawn from the
   geometry by `cargo run -p track --release --example shapes`: rerun it when a shape changes.
   The `booster` variant paints arrows on any road block (a `Surface::Booster` deck: the physics'
   `boost_accel`/`boost_time` push along the path).
@@ -54,7 +58,13 @@ link the main checkout's `track` (missing a new block or surface).
   landing zone with its mine, the colony with its giant domes, tower and rocket) is
   `crates/track/src/camp.rs`, placed by a map's `structures` list (`structure kind x z yaw` in a
   `.chain`) and levelling the terrain under it; its art direction is `art/scenery/brief.md`.
-- `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
+- `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets:
+  `profiles()` is every planet's car (Mars's `combo`; the ice planet's `neige`, skis in front and
+  rear drive, the brake swinging the rear out in a turn, the line catching up with the nose after
+  a drift: `cargo run -p physics --release --example skis` measures both), `presets()` Mars's
+  alone, which the tests drive on the Mars maps. Per surface, `response` slows a slide (the drift
+  car's ice), `slide_cost` makes it plough (snow), `sink` lets the wheels ride in snow over gentle
+  ruts (`WheelState::sink`, drawn buried) and `trail` keeps their tracks.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a
   simulator), whose only build phase, `ios/build-rust.sh`, builds `mars-racer` with cargo for

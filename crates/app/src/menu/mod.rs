@@ -231,7 +231,8 @@ impl Menu {
         self.on_series = false;
         let k = self.tracks.iter().position(|t| t.map == map);
         self.series = k.map_or(Series::Easy, |k| self.tracks[k].series);
-        self.sel = k.map_or(0, |k| self.tracks[..k].iter().filter(|t| t.series == self.series).count());
+        self.planet = k.map_or(self.planet, |k| self.tracks[k].planet);
+        self.sel = k.map_or(0, |k| self.tracks[..k].iter().filter(|t| t.series == self.series && t.planet == self.planet).count());
         self.cues.push(Cue::Back);
     }
 
@@ -240,12 +241,12 @@ impl Menu {
         self.slot_index(i).map(|k| &self.tracks[k])
     }
 
-    /// Where the circuit in slot `i` of the current series is in `tracks`, if built.
+    /// Where the circuit in slot `i` of the current planet and series is in `tracks`, if built.
     fn slot_index(&self, i: usize) -> Option<usize> {
         if i >= SLOTS {
             return None;
         }
-        self.tracks.iter().enumerate().filter(|(_, t)| t.series == self.series).nth(i).map(|(k, _)| k)
+        self.tracks.iter().enumerate().filter(|(_, t)| t.series == self.series && t.planet == self.planet).nth(i).map(|(k, _)| k)
     }
 
     fn go(&mut self, to: Screen, now: f64) {

@@ -452,7 +452,7 @@ impl Hud {
     /// that series (from 1), and whether it is the hard one.
     fn series(&self, game: &Game) -> (&'static str, usize, bool) {
         let Some((_, t)) = self.track(game) else { return ("FACILE", 1, false) };
-        let slot = self.tracks.iter().filter(|o| o.series == t.series).position(|o| o.map == t.map).unwrap_or(0) + 1;
+        let slot = self.tracks.iter().filter(|o| o.series == t.series && o.planet == t.planet).position(|o| o.map == t.map).unwrap_or(0) + 1;
         let hard = t.series == Series::Hard;
         (if hard { "DUR" } else { "FACILE" }, slot, hard)
     }

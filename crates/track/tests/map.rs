@@ -595,10 +595,19 @@ fn noctis_roads_up_high_stand_on_rock() {
 fn triangle_budget_by_part() {
     let b = built();
     let t = b.triangles;
-    println!("blocks {} · terrain {} · scenery {} · total {}", t.blocks, t.terrain, t.scenery, b.track.mesh.triangle_count());
-    assert_eq!(t.blocks + t.terrain + t.scenery, b.track.mesh.triangle_count());
+    println!(
+        "blocks {} · terrain {} · scenery {} · structures {} + {} drawn · total {}",
+        t.blocks,
+        t.terrain,
+        t.scenery,
+        t.structures,
+        t.structures_drawn,
+        b.track.mesh.triangle_count()
+    );
+    assert_eq!(t.blocks + t.terrain + t.scenery + t.structures, b.track.mesh.triangle_count());
     assert!(b.track.mesh.triangle_count() < 300_000);
     assert!(t.scenery < 60_000);
+    assert!(t.structures + t.structures_drawn < 70_000);
 }
 
 #[test]

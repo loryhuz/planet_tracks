@@ -163,6 +163,35 @@ Sur la terre, il n'y a ni ligne ni mot : seul le portique, plus large, se dresse
 Pour la voiture, rien ne change : elle rencontre les poteaux et la poutre qu'avaient les anciens
 portiques, en boîtes invisibles. L'arche, la banderole et les accessoires ne sont que dessinés.
 
+## Les décors
+
+Autour du circuit, la colonie : ses camps sont faits comme les routes (bâche, tissu gonflable
+cerclé de sangles orange, tubes rouges, sacs de régolithe), plus ce que le fret a apporté
+(citernes et conteneurs peints, panneaux solaires, vitres, balises, une fusée). Direction
+artistique : `art/scenery/brief.md` ; code : `crates/track/src/camp.rs`.
+
+Une carte les place dans sa liste `structures` :
+
+```
+{"structure":"base_camp","position":[402.0,-172.0],"yaw":165.0}
+```
+
+```
+structure base_camp 402 -172 165
+```
+
+| Décor | Taille | Ce que c'est |
+|---|---|---|
+| `post` | 13 à 17 m | poste d'observation : tour en treillis de tubes rouges sur piles de sacs, haubanée de sangles, cabine à bandeau vitré, antennes, parabole, gyrophare |
+| `base_camp` | 85 × 70 m | camp de base, sa façade vers `yaw` : dômes et tunnels gonflables avec sas, citernes sur berceaux, conteneurs, champ solaire, murets de sacs, mât en treillis, fanions, manche à air, rover |
+| `colony` | 460 m de long, le long de `yaw` | la colonie, faite pour être vue de loin : dôme géant de 92 m tenu par un filet de sangles, deux dômes, serres vitrées, citernes, conteneurs, champs solaires, tour de 170 m à balises, fusée sur son aire |
+
+- Le terrain est aplani sous les camps ; les buttes et les mesas gardent leur relief.
+- Ce qui est à portée de la voiture (postes, camps) est solide ; la colonie n'est que dessinée.
+- Tout ce qui est posé à la main varie avec le décor (tailles, angles, écarts).
+- Sur Jezero : le poste sur la petite butte des premiers virages, le camp de base dans la première
+  boucle face au départ, la colonie sur la longue mesa au nord. Captures : `art/scenery/in-game/`.
+
 ## Matières
 
 Textures cuites par `tools/textures/bake.py` à partir de `art/textures/src/` :

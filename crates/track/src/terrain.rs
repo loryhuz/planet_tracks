@@ -43,6 +43,7 @@ use std::collections::{HashMap, HashSet};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::camp::Pad;
 use crate::dirt::{Corridors, DIRT_BANK, REACH};
 use crate::kit::{TERRAIN_Y, color, smoothstep};
 use crate::landform::{self, Landform};
@@ -377,6 +378,8 @@ pub struct Terrain {
     dirt: Corridors,
     /// The map's own landforms, close to the track.
     landforms: Vec<landform::Placed>,
+    /// Ground levelled for the map's structures: centre, radius, blend and height.
+    pads: Vec<(Vec2, f32, f32, f32)>,
     mesas: Vec<Mesa>,
     craters: Vec<Crater>,
 }
@@ -384,7 +387,7 @@ pub struct Terrain {
 impl Terrain {
     /// The terrain around swept blocks standing on `caps` and dirt corridors `dirt`, with the
     /// map's `landforms`, centred on `centre` (a grid line).
-    pub(crate) fn new(settings: &TerrainSettings, centre: Vec3, caps: Vec<Capsule>, dirt: Corridors, landforms: &[Landform]) -> Self {
+    pub(crate) fn new(settings: &TerrainSettings, centre: Vec3, caps: Vec<Capsule>, dirt: Corridors, landforms: &[Landform], pads: &[Pad]) -> Self {
         let roots = (libm::ceilf(settings.size.max(256.0) / (ROOT as f32 * UNIT)) as i32).max(1);
         let half = 0.5 * roots as f32 * ROOT as f32 * UNIT;
         let centre = Vec2::new(centre.x, centre.z);
@@ -403,10 +406,30 @@ impl Terrain {
             pad,
             dirt,
             landforms,
+            pads: Vec::new(),
             mesas: Vec::new(),
             craters: Vec::new(),
         };
         t.place_features();
+        // Each pad is levelled at the median height of the plain it covers (landforms aside: on a
+        // mesa it is the mesa's top that is levelled, see `natural`).
+        let levelled = pads
+            .iter()
+            .map(|pad| {
+                let mut heights = Vec::new();
+                for ring in [0.0f32, 0.35, 0.7, 1.0] {
+                    let count = if ring == 0.0 { 1 } else { 12 };
+                    for k in 0..count {
+                        let a = core::f32::consts::TAU * k as f32 / count as f32;
+                        let p = pad.c + Vec2::new(libm::cosf(a), libm::sinf(a)) * (ring * pad.r);
+                        heights.push(t.plain(p, t.field.at(p)).0);
+                    }
+                }
+                heights.sort_by(f32::total_cmp);
+                (pad.c, pad.r, pad.blend, heights[heights.len() / 2])
+            })
+            .collect();
+        t.pads = levelled;
         t
     }
 
@@ -547,7 +570,15 @@ impl Terrain {
     /// The plain without dirt corridors, `d` metres from the nearest footprint, with the map's
     /// landforms: height, albedo and rock.
     fn natural(&self, p: Vec2, d: f32) -> (f32, f32, f32) {
-        let (h, albedo, rock) = self.plain(p, d);
+        let (mut h, albedo, rock) = self.plain(p, d);
+        // The plain levelled for the structures (never on a block's pad); the landforms stand on
+        // it untouched.
+        for &(c, r, blend, level) in &self.pads {
+            let w = (1.0 - smoothstep(r, r + blend, p.distance(c))) * smoothstep(PAD, PAD + 8.0, d);
+            if w > 0.0 {
+                h += (level - h) * w;
+            }
+        }
         if self.landforms.is_empty() {
             return (h, albedo, rock);
         }
@@ -687,6 +718,11 @@ impl Terrain {
         for k in &self.craters {
             if c.distance(k.c) < k.reach() + half_diag {
                 best = best.min((k.r / 5.0).clamp(4.0, 16.0));
+            }
+        }
+        for &(pc, r, blend, _) in &self.pads {
+            if c.distance(pc) < r + blend + half_diag {
+                best = best.min(8.0);
             }
         }
         for l in &self.landforms {

@@ -37,6 +37,9 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
   kept up to date with the code.
+  The colony's scenery (observation posts, base camps, the colony with its giant domes, tower
+  and rocket) is `crates/track/src/camp.rs`, placed by a map's `structures` list and levelling the
+  terrain under it; its art direction is `art/scenery/brief.md`.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a

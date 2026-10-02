@@ -14,6 +14,7 @@
 //! turn2_left dirt           # optional deck variant
 //! prop spire 470 0 -170 15 9   # scenery: kind x y z yaw scale
 //! landform butte 430 -400 46 18.5 24 90   # kind x z radius height [length yaw]
+//! structure post 480 -185 200               # camp: kind x z yaw [variant]
 //! terrain hills 10          # any other terrain setting
 //! version 2                 # revision of the map (records are kept per version)
 //! ```
@@ -37,6 +38,7 @@ fn main() {
     let mut layout: Option<Layout> = None;
     let mut props = Vec::new();
     let mut landforms = Vec::new();
+    let mut structures = Vec::new();
     let mut version = 1;
 
     for (n, raw) in text.lines().enumerate() {
@@ -70,6 +72,17 @@ fn main() {
                     l["yaw"] = f[5].into();
                 }
                 landforms.push(l);
+            }
+            "structure" => {
+                let f: Vec<f32> = words[2..].iter().filter_map(|w| w.parse().ok()).collect();
+                if f.len() != 3 && f.len() != 4 {
+                    fail("structure needs: kind x z yaw [variant]");
+                }
+                let mut s = serde_json::json!({"structure": words[1], "position": [f[0], f[1]], "yaw": f[2]});
+                if f.len() == 4 {
+                    s["variant"] = (f[3] as u32).into();
+                }
+                structures.push(s);
             }
             "start" => {
                 let v: Vec<i32> = words[1..].iter().filter_map(|w| w.parse().ok()).collect();
@@ -142,6 +155,7 @@ fn main() {
         terrain,
         blocks,
         landforms: serde_json::from_value(serde_json::Value::Array(landforms)).expect("landforms"),
+        structures: serde_json::from_value(serde_json::Value::Array(structures)).unwrap_or_else(|e| fail_any(&format!("structures: {e}"))),
         scenery: serde_json::from_value(serde_json::Value::Array(props)).expect("props"),
     };
     let json = map.to_json();
@@ -175,4 +189,9 @@ fn main() {
         built.track.mesh.triangle_count(),
         out.display()
     );
+}
+
+fn fail_any(msg: &str) -> ! {
+    eprintln!("{msg}");
+    std::process::exit(1)
 }

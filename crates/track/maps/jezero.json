@@ -41,9 +41,14 @@
     {"landform":"butte","position":[425.0,-85.0],"radius":40.0,"height":52.0,"length":50.0,"yaw":-20.0},
     {"landform":"mesa","position":[40.0,-150.0],"radius":95.0,"height":58.0},
     {"landform":"butte","position":[-20.0,232.0],"radius":32.0,"height":50.0,"length":30.0,"yaw":60.0},
-    {"landform":"mesa","position":[-175.0,525.0],"radius":60.0,"height":72.0,"length":520.0,"yaw":90.0},
+    {"landform":"mesa","position":[-175.0,525.0],"radius":82.0,"height":72.0,"length":520.0,"yaw":90.0},
     {"landform":"mesa","position":[-650.0,-40.0],"radius":70.0,"height":64.0},
     {"landform":"butte","position":[-120.0,-435.0],"radius":36.0,"height":46.0,"length":60.0,"yaw":80.0}
+  ],
+  "structures": [
+    {"structure":"post","position":[480.0,-185.0],"yaw":200.0},
+    {"structure":"base_camp","position":[402.0,-172.0],"yaw":165.0},
+    {"structure":"colony","position":[-175.0,525.0],"yaw":-90.0}
   ],
   "scenery": [
     {"prop":"boulder","position":[440.0,0.0,-200.0],"yaw":70.0,"scale":6.0},

@@ -94,5 +94,5 @@ fn main() {
     println!("wrote {shown} (open it in Preview)");
     println!("centre ({:.0}, {:.0}), {n} px, {step} m/px, image x = −X (east right), up = +Z (north)", mid.x, mid.y);
     let t = built.triangles;
-    println!("triangles: blocks {} · terrain {} · scenery {}", t.blocks, t.terrain, t.scenery);
+    println!("triangles: blocks {} · terrain {} · scenery {} · structures {} + {} drawn", t.blocks, t.terrain, t.scenery, t.structures, t.structures_drawn);
 }

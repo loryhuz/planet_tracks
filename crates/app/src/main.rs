@@ -208,8 +208,9 @@ impl App {
             g.window.set_fullscreen(if full { None } else { Some(Fullscreen::Borderless(None)) });
         }
 
-        // The race waits while the menu is up.
-        self.accumulator = if self.menu.active { 0.0 } else { self.accumulator + dt };
+        // The race waits while the menu or the HUD's settings are up.
+        let paused = self.menu.active || self.hud.paused();
+        self.accumulator = if paused { 0.0 } else { self.accumulator + dt };
         let mut ticks = 0;
         while self.accumulator >= physics::DT && ticks < 25 {
             game.tick();
@@ -292,7 +293,7 @@ impl App {
                 sky = Some(menu.ui(ui, MenuInput { bests: &bests, muted }).clone());
             }
             if !menu.shows() {
-                hud.ui(ui, game, fps);
+                hud.ui(ui, game, fps, muted);
                 if game.panel_open {
                     let t = game.telemetry();
                     ui::panel(ui.ctx(), game, t);
@@ -359,7 +360,7 @@ impl App {
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }
-            audio.update(&if self.menu.active { audio::SoundFrame::default() } else { game.sound_frame() });
+            audio.update(&if self.menu.active || self.hud.paused() { audio::SoundFrame::default() } else { game.sound_frame() });
             for strength in game.impacts.drain(..) {
                 audio.impact(strength);
             }

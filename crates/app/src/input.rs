@@ -46,6 +46,8 @@ pub struct Controls {
     pub gamepad_name: Option<String>,
     /// The on-screen touch controls' input (set by the HUD each frame).
     pub touch: Input,
+    /// Touch controls: always on the throttle, except while braking (so the brake can reverse).
+    pub auto_gas: bool,
 }
 
 const STICK_DEAD_ZONE: f32 = 0.12;
@@ -54,7 +56,7 @@ impl Controls {
     pub fn new() -> Self {
         let gilrs = Gilrs::new().ok();
         let gamepad_name = gilrs.as_ref().and_then(|g| g.gamepads().next().map(|(_, p)| p.name().to_string()));
-        Self { held: HashSet::new(), gilrs, actions: Vec::new(), nav: Vec::new(), stick: (0, 0), gamepad_name, touch: Input::default() }
+        Self { held: HashSet::new(), gilrs, actions: Vec::new(), nav: Vec::new(), stick: (0, 0), gamepad_name, touch: Input::default(), auto_gas: false }
     }
 
     pub fn key(&mut self, code: KeyCode, pressed: bool, repeat: bool) {
@@ -195,6 +197,9 @@ impl Controls {
                 input.gas = input.gas.max(gas);
                 input.brake = input.brake.max(brake);
             }
+        }
+        if self.auto_gas {
+            input.gas = if input.brake > 0.0 { 0.0 } else { 1.0 };
         }
         input
     }

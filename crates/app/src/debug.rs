@@ -11,6 +11,8 @@
 //! - `MARS_STORM_TIME=seconds`: start the sandstorm that far into its approach (read by the
 //!   renderer);
 //! - `MARS_MAP=name`: start on that map; `MARS_DEBUG_PANEL=1`: the debug panel (Tab) open;
+//!   `MARS_HUD_SETTINGS=seconds`: the settings sheet opened that far into the race (read by
+//!   the HUD);
 //! - `MARS_BENCH=from,to`: between those seconds every frame renders off screen (so a hidden
 //!   window is measured too, without the display's frame cap) and waits for the GPU; the GPU time
 //!   of those frames is printed at the end.

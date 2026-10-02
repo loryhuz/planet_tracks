@@ -1,14 +1,18 @@
-//! The race HUD, in the menu's style: the circuit and the medal to aim for, the chrono with its
-//! checkpoints and the gap to the record at each one, speed, revs, gear and what each wheel rolls
-//! on, the start countdown and the finish card. Two layouts as in the menu: wide (1280 × 720
-//! design space, keyboard hints) and tall for phones (390 × 844, with touch controls, which also
-//! appear in the wide layout once the screen has been touched). Debug (FPS, telemetry, tuning)
-//! only shows with Tab.
+//! The race HUD, light like Trackmania's: the map at the top left, the record and the time to
+//! beat at the top right, the chrono at the bottom with the gap to the record a little above it at
+//! each checkpoint (blue ahead, red behind, grey equal), and the speed inside a ring that fills
+//! with the revs in the gear's colour. The countdown and the finish card keep the menu's richer
+//! style. Two layouts as in the menu: wide (1280 × 720 design space) and tall for phones
+//! (390 × 844), where the buggy accelerates by itself: the bottom strip brakes, holding the left or
+//! right half of the screen steers (the two halves blink at the start to show it), the speed is a
+//! thin gauge on the right edge, and a settings button pauses the race (camera, sound, last
+//! checkpoint, restart, menu). The wide layout takes the same touch controls once the screen has
+//! been touched. Debug (FPS, profile, tuning) only shows with Tab.
 
 use std::collections::BTreeMap;
 
-use egui::epaint::{Mesh, Vertex};
-use egui::{Align2, Color32, Event, Id, Painter, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TouchPhase, Ui, pos2, vec2};
+use egui::epaint::{CornerRadius, Mesh, PathStroke, Vertex};
+use egui::{Align2, Color32, Event, Id, LayerId, Order, Painter, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TouchPhase, Ui, pos2, vec2};
 use physics::Input;
 
 use crate::game::Game;
@@ -19,18 +23,37 @@ use crate::race::{COUNTDOWN_TICKS, format_delta, format_time};
 use crate::ui::Fps;
 use crate::ui_sound::Cue;
 
-/// Dark glass over the scene, and its edge.
-const GLASS: Color32 = Color32::from_rgba_premultiplied(7, 5, 5, 150);
-const GLASS_LINE: Color32 = Color32::from_rgba_premultiplied(24, 23, 22, 26);
-/// Slower than the record.
+/// Dark glass (the settings button, the finish card's keys, the debug chip) and its edge.
+const GLASS: Color32 = Color32::from_rgba_premultiplied(6, 4, 5, 128);
+const GLASS_LINE: Color32 = Color32::from_rgba_premultiplied(39, 37, 35, 41);
+/// The empty part of the speed ring and gauge.
+const RING_TRACK: Color32 = GLASS_LINE;
+/// Slower than the record, and equal to it.
 const SLOW: Color32 = Color32::from_rgb(255, 90, 95);
+const EQUAL: Color32 = Color32::from_rgb(201, 188, 178);
 const SLOW_SOFT: Color32 = Color32::from_rgba_premultiplied(41, 14, 15, 41);
 const HUB_SOFT: Color32 = Color32::from_rgba_premultiplied(14, 35, 41, 41);
-/// Segments of the rev bar, the last ones red.
-const REV_SEGMENTS: usize = 14;
-const REV_RED: usize = 11;
-/// Engine revs the rev bar starts from (idle is 0.45 of the redline).
-const REV_FLOOR: f32 = 0.4;
+/// The speed ring's colour in each gear, from white to red.
+const GEAR_COLOURS: [Color32; 6] = [
+    Color32::from_rgb(239, 227, 214),
+    Color32::from_rgb(158, 209, 242),
+    Color32::from_rgb(85, 220, 255),
+    Color32::from_rgb(243, 195, 79),
+    Color32::from_rgb(255, 106, 31),
+    Color32::from_rgb(255, 90, 95),
+];
+/// Darker top and bottom of the scene, so the text reads over bright sand.
+const VIG_TOP: Color32 = Color32::from_rgba_premultiplied(2, 2, 2, 97);
+const VIG_BOTTOM: Color32 = Color32::from_rgba_premultiplied(3, 2, 2, 107);
+/// The touch zones' dark fill (the brake strip's foot, the start's steering tutorial).
+const ZONE_DARK: Color32 = Color32::from_rgba_premultiplied(5, 3, 4, 107);
+const ZONE_LIGHT: Color32 = Color32::from_rgba_premultiplied(1, 1, 1, 26);
+/// Height of the brake strip, and where the steering halves start from the top.
+const BRAKE_H: f32 = 108.0;
+const STEER_TOP: f32 = 120.0;
+/// How long a checkpoint gap stays, and the start's steering tutorial lasts, seconds.
+const SPLIT_TIME: f32 = 2.6;
+const TUTORIAL_TIME: f32 = 2.0;
 
 /// What the HUD asks of the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,44 +81,58 @@ pub struct Hud {
     count: Option<(u32, f64)>,
     go_at: Option<f64>,
     finish_at: Option<f64>,
+    /// When the run started, for the steering tutorial.
+    start_at: Option<f64>,
     last_tick: u32,
     last_countdown: u32,
     /// Fingers on the screen, by touch id.
     touches: BTreeMap<u64, Pos2>,
     touch_seen: bool,
+    /// The settings sheet, open since then; the race waits while it is.
+    sheet: Option<f64>,
+    /// Self-test: open the sheet that far into the race (`MARS_HUD_SETTINGS=seconds`).
+    sheet_test: Option<f64>,
     cues: Vec<Cue>,
     requests: Vec<HudRequest>,
 }
 
-fn glass(p: &Painter, rect: Rect, radius: f32, a: f32) {
-    p.rect_filled(rect, radius, fade(GLASS, a));
-    p.rect_stroke(rect, radius, Stroke::new(1.0, fade(GLASS_LINE, a)), StrokeKind::Inside);
+/// A vertical gradient band.
+fn band(p: &Painter, rect: Rect, top: Color32, bottom: Color32) {
+    gradient(p, rect, [top, top, bottom, bottom]);
 }
 
-/// A vertical gradient band (darkens the top and bottom of the scene under the HUD).
-fn band(p: &Painter, rect: Rect, top: Color32, bottom: Color32) {
+/// A rectangle with a colour per corner: top left, top right, bottom right, bottom left.
+fn gradient(p: &Painter, rect: Rect, colours: [Color32; 4]) {
     let mut mesh = Mesh::default();
-    for (pos, c) in [(rect.left_top(), top), (rect.right_top(), top), (rect.right_bottom(), bottom), (rect.left_bottom(), bottom)] {
+    for (pos, c) in [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()].into_iter().zip(colours) {
         mesh.vertices.push(Vertex { pos, uv: egui::epaint::WHITE_UV, color: c });
     }
     mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
     p.add(Shape::mesh(mesh));
 }
 
-/// Skewed bars in a row, `on` of them lit (checkpoints, revs).
-#[allow(clippy::too_many_arguments)]
-fn bars(p: &Painter, left_center: Pos2, n: usize, on: usize, w: f32, h: f32, gap: f32, colour: impl Fn(usize) -> Color32) {
-    for i in 0..n {
-        let x = left_center.x + i as f32 * (w + gap);
-        let k = h * 0.32;
-        let pts = vec![
-            pos2(x + k, left_center.y - h / 2.0),
-            pos2(x + w + k, left_center.y - h / 2.0),
-            pos2(x + w - k, left_center.y + h / 2.0),
-            pos2(x - k, left_center.y + h / 2.0),
-        ];
-        let c = if i < on { colour(i) } else { col::LINE };
-        p.add(Shape::convex_polygon(pts, c, Stroke::NONE));
+/// Text laid straight on the scene, with a soft shadow so it reads over bright sand.
+fn shadowed(p: &Painter, pos: Pos2, anchor: Align2, s: &str, font: Font, colour: Color32, a: f32) -> Rect {
+    for d in [vec2(0.0, 2.0), vec2(1.2, 1.2), vec2(-1.2, 1.2), vec2(0.0, -0.6)] {
+        paint::text(p, pos + d, anchor, s, font, fade(Color32::BLACK, 0.2 * a));
+    }
+    paint::text(p, pos, anchor, s, font, fade(colour, a))
+}
+
+/// The small uppercase labels (map tag, times, checkpoint).
+fn tag_font() -> Font {
+    Font::label(11.0, 0.18).weight(700.0)
+}
+
+fn delta_text(delta: i64) -> String {
+    if delta == 0 { "0.00".into() } else { format_delta(delta).replace('-', "−") }
+}
+
+fn delta_colour(delta: i64) -> Color32 {
+    match delta {
+        d if d < 0 => col::HUB,
+        0 => EQUAL,
+        _ => SLOW,
     }
 }
 
@@ -111,18 +148,50 @@ fn delta_pill(p: &Painter, center: Pos2, delta: i64, size: f32) -> Rect {
     rect
 }
 
-/// Pause (two bars) and back-to-checkpoint (a flag) icons for the touch layout.
-fn pause_icon(p: &Painter, c: Pos2, s: f32, colour: Color32) {
-    for dx in [-0.22, 0.22] {
-        p.rect_filled(Rect::from_center_size(c + vec2(dx * s, 0.0), vec2(0.16 * s, 0.6 * s)), 1.5, colour);
+/// An arc of a circle, clockwise from `from` (radians, 0 pointing right), with round ends when
+/// `caps`.
+#[allow(clippy::too_many_arguments)]
+fn arc(p: &Painter, c: Pos2, r: f32, from: f32, sweep: f32, width: f32, colour: Color32, caps: bool) {
+    let n = ((sweep.to_degrees() / 4.0).ceil() as usize).max(2);
+    let pts: Vec<Pos2> = (0..=n)
+        .map(|i| {
+            let a = from + sweep * i as f32 / n as f32;
+            c + r * vec2(a.cos(), a.sin())
+        })
+        .collect();
+    if caps {
+        p.circle_filled(pts[0], width / 2.0, colour);
+        p.circle_filled(pts[n], width / 2.0, colour);
     }
+    p.add(Shape::line(pts, PathStroke::new(width, colour)));
 }
 
-fn flag_icon(p: &Painter, c: Pos2, s: f32, colour: Color32) {
-    let x = c.x - 0.25 * s;
-    p.line_segment([pos2(x, c.y - 0.35 * s), pos2(x, c.y + 0.38 * s)], Stroke::new(2.0, colour));
-    let pts = vec![pos2(x, c.y - 0.35 * s), pos2(x + 0.55 * s, c.y - 0.2 * s), pos2(x, c.y - 0.02 * s)];
-    p.add(Shape::convex_polygon(pts, colour, Stroke::NONE));
+/// A cog, for the settings button.
+fn gear_icon(p: &Painter, c: Pos2, size: f32, colour: Color32) {
+    let s = size / 24.0;
+    let stroke = Stroke::new((2.0 * s).max(1.2), colour);
+    let mut pts = Vec::new();
+    for i in 0..8 {
+        let a = i as f32 * std::f32::consts::TAU / 8.0;
+        for (da, r) in [(-0.2, 9.6), (0.2, 9.6), (0.42, 6.9), (std::f32::consts::TAU / 8.0 - 0.42, 6.9)] {
+            let t = a + da;
+            pts.push(c + s * r * vec2(t.cos(), t.sin()));
+        }
+    }
+    p.add(Shape::closed_line(pts, stroke));
+    p.circle_stroke(c, 3.0 * s, stroke);
+}
+
+/// Opacity of the start's steering tutorial `t` seconds in: two blinks, then gone.
+fn tutorial_alpha(t: f32) -> f32 {
+    const KEYS: [(f32, f32); 7] = [(0.0, 0.0), (0.1, 1.0), (0.28, 1.0), (0.4, 0.0), (0.52, 1.0), (0.72, 1.0), (1.0, 0.0)];
+    let u = t / TUTORIAL_TIME;
+    if !(0.0..1.0).contains(&u) {
+        return 0.0;
+    }
+    let i = KEYS.iter().position(|k| k.0 > u).unwrap_or(KEYS.len() - 1);
+    let (a, b) = (KEYS[i - 1], KEYS[i]);
+    a.1 + (b.1 - a.1) * (u - a.0) / (b.0 - a.0)
 }
 
 impl Hud {
@@ -134,10 +203,13 @@ impl Hud {
             count: None,
             go_at: None,
             finish_at: None,
+            start_at: None,
             last_tick: 0,
             last_countdown: 0,
             touches: BTreeMap::new(),
             touch_seen: false,
+            sheet: None,
+            sheet_test: std::env::var("MARS_HUD_SETTINGS").ok().and_then(|v| v.parse().ok()),
             cues: Vec::new(),
             requests: Vec::new(),
         }
@@ -151,6 +223,11 @@ impl Hud {
         std::mem::take(&mut self.requests)
     }
 
+    /// The settings sheet is open: the race waits.
+    pub fn paused(&self) -> bool {
+        self.sheet.is_some()
+    }
+
     /// Countdown steps, checkpoints and the finish, from the run's state.
     fn events(&mut self, game: &Game, now: f64) {
         let run = &game.run;
@@ -161,6 +238,8 @@ impl Hud {
             self.count = None;
             self.go_at = None;
             self.finish_at = None;
+            self.start_at = Some(now);
+            self.sheet = None;
         }
         self.last_countdown = run.countdown;
         self.last_tick = run.tick;
@@ -189,7 +268,11 @@ impl Hud {
             let tick = run.splits[n - 1];
             let best = game.session.profile().current_best(&game.map_key()).and_then(|b| b.splits.get(n - 1).copied());
             let delta = best.map(|b| tick as i64 - b as i64);
-            self.cues.push(if delta.is_some_and(|d| d > 0) { Cue::SplitSlower } else { Cue::SplitFaster });
+            self.cues.push(match delta {
+                Some(d) if d > 0 => Cue::SplitSlower,
+                Some(0) => Cue::SplitEqual,
+                _ => Cue::SplitFaster,
+            });
             self.split = Some(Split { index: n, total: game.track.checkpoints.len(), tick, delta, at: now });
         }
         self.seen_splits = run.splits.len();
@@ -199,8 +282,8 @@ impl Hud {
         }
     }
 
-    /// Fingers on the screen (and the mouse, held, to try the touch controls on a computer).
-    fn touch_points(&mut self, ui: &Ui) -> Vec<Pos2> {
+    /// Follows the fingers on the screen.
+    fn note_touches(&mut self, ui: &Ui) {
         ui.input(|i| {
             for e in &i.events {
                 if let Event::Touch { id, phase, pos, .. } = e {
@@ -216,6 +299,10 @@ impl Hud {
                 }
             }
         });
+    }
+
+    /// Fingers on the screen, and the mouse held (to try the touch controls on a computer).
+    fn touch_points(&self, ui: &Ui) -> Vec<Pos2> {
         let mut pts: Vec<Pos2> = self.touches.values().copied().collect();
         if let Some(pos) = ui.input(|i| i.pointer.primary_down().then(|| i.pointer.latest_pos()).flatten()) {
             pts.push(pos);
@@ -224,52 +311,64 @@ impl Hud {
     }
 
     /// Draws the HUD for this frame and sets the touch controls' driving input.
-    pub fn ui(&mut self, ui: &mut Ui, game: &mut Game, fps: &Fps) {
+    pub fn ui(&mut self, ui: &mut Ui, game: &mut Game, fps: &Fps, muted: bool) {
         let now = ui.input(|i| i.time);
         let r = ui.ctx().content_rect();
-        let layout = Layout::for_size(r.width(), r.height());
-        let wide = layout == Layout::Wide;
+        let wide = Layout::for_size(r.width(), r.height()) == Layout::Wide;
         let p = ui.painter().clone();
         self.events(game, now);
+        self.note_touches(ui);
+        let touch = !wide || self.touch_seen;
+        if self.sheet_test.is_some_and(|t| game.run.countdown == 0 && game.run.tick as f64 >= t * 100.0) {
+            self.sheet_test = None;
+            self.sheet = Some(now);
+        }
 
-        // Darker top and bottom, so the panels read over bright Martian sand.
-        let shade = Color32::from_rgba_premultiplied(2, 1, 1, 107);
-        band(&p, Rect::from_min_max(r.min, pos2(r.right(), r.top() + r.height() * 0.22)), shade, Color32::TRANSPARENT);
-        band(&p, Rect::from_min_max(pos2(r.left(), r.top() + r.height() * 0.74), r.max), Color32::TRANSPARENT, shade);
+        band(&p, Rect::from_min_max(r.min, pos2(r.right(), r.top() + r.height() * 0.18)), VIG_TOP, Color32::TRANSPARENT);
+        band(&p, Rect::from_min_max(pos2(r.left(), r.top() + r.height() * 0.78), r.max), Color32::TRANSPARENT, VIG_BOTTOM);
 
         let finished = game.run.finished.is_some();
         let finish_k = self.finish_at.map_or(0.0, |t| (((now - t) as f32 - 0.5) / 0.35).clamp(0.0, 1.0));
-        let hud_a = 1.0 - finish_k;
+        let a = 1.0 - finish_k;
 
-        let touch = !wide || self.touch_seen;
-        let input = if touch && !finished { self.touch_controls(ui, &p, r, wide, now) } else { Input::default() };
-        game.controls.touch = input;
+        // Touch: the buggy accelerates by itself, the bottom strip brakes, the halves steer.
+        let controls = touch && !finished;
+        game.controls.auto_gas = controls;
+        game.controls.touch = if controls { self.touch_controls(ui, &p, r, now) } else { Input::default() };
 
         if wide {
-            self.track_card(&p, r.min + vec2(24.0, 22.0), game, hud_a, true);
-            self.chrono(&p, pos2(r.center().x, r.top() + 18.0), game, hud_a, true);
-            self.split_popup(&p, pos2(r.center().x, r.top() + 116.0), now, hud_a, true);
-            self.cluster(&p, pos2(r.center().x, r.bottom() - 22.0), game, now, hud_a, true);
-            if !touch {
-                self.hints(&p, r, game);
-            }
+            // Above the brake strip when the touch controls are on.
+            let lift = if touch { 96.0 } else { 0.0 };
+            self.map_label(&p, pos2(r.left() + 30.0, r.top() + 24.0), game, a, 28.0);
+            self.times(&p, pos2(r.right() - if touch { 88.0 } else { 30.0 }, r.top() + 24.0), game, a, true);
+            self.split_line(&p, pos2(r.center().x, r.bottom() - 94.0 - lift), now, a, 22.0);
+            self.chrono(&p, pos2(r.center().x, r.bottom() - 30.0 - lift), game, a, 46.0);
+            let ring = Rect::from_min_size(pos2(r.right() - 30.0 - 132.0, r.bottom() - 24.0 - lift - 132.0), vec2(132.0, 132.0));
+            self.speed_ring(&p, ring, game, now, a);
         } else {
-            self.touch_buttons_top(ui, &p, r, hud_a);
-            self.chrono(&p, pos2(r.center().x, r.top() + 14.0), game, hud_a, false);
-            self.objective_chip(&p, pos2(r.center().x, r.top() + 104.0), game, hud_a);
-            self.split_popup(&p, pos2(r.center().x, r.top() + 136.0), now, hud_a, false);
-            self.cluster(&p, pos2(r.center().x, r.bottom() - 24.0 - 84.0 - 14.0), game, now, hud_a, false);
+            self.map_label(&p, pos2(r.left() + 18.0, r.top() + 20.0), game, a, 22.0);
+            self.times(&p, pos2(r.left() + 18.0, r.top() + 80.0), game, a, false);
+            self.split_line(&p, pos2(r.center().x, r.bottom() - 174.0), now, a, 17.0);
+            self.chrono(&p, pos2(r.center().x, r.bottom() - 126.0), game, a, 34.0);
+            self.speed_gauge(&p, pos2(r.right() - 14.0, r.top() + 226.0), game, now, a);
+        }
+        if controls && self.sheet.is_none() {
+            self.settings_button(ui, &p, r, a, now);
         }
         if game.panel_open {
-            self.debug_chip(&p, r, wide, game, fps);
+            let at = if wide { pos2(r.left() + 30.0, r.top() + 96.0) } else { pos2(r.left() + 18.0, r.top() + 144.0) };
+            self.debug_chip(&p, at, game, fps);
         }
         self.countdown(&p, r, wide, now);
         if finished && finish_k > 0.0 {
             self.finish_card(ui, &p, r, wide, game, now, finish_k);
         }
+        if let Some(since) = self.sheet {
+            self.settings_sheet(ui, r, wide, game, muted, now, since);
+        }
     }
 
-    // ---------------------------------------------------------------- panels
+    // ---------------------------------------------------------------- race screen
 
     fn track(&self, game: &Game) -> Option<(usize, &TrackInfo)> {
         self.tracks.iter().enumerate().find(|(_, t)| t.map == game.map_index)
@@ -283,201 +382,149 @@ impl Hud {
         (0..3).rev().map(|k| (k, targets[k])).find(|(_, m)| best.is_none_or(|b| b > *m))
     }
 
-    fn track_card(&self, p: &Painter, at: Pos2, game: &Game, a: f32, _wide: bool) {
-        let rect = Rect::from_min_size(at, vec2(232.0, 112.0));
-        glass(p, rect, 14.0, a);
-        let x = rect.left() + 16.0;
+    /// The series and slot, then the map's name.
+    fn map_label(&self, p: &Painter, at: Pos2, game: &Game, a: f32, size: f32) {
         let slot = self.track(game).map_or(1, |(i, _)| i + 1);
-        let flag = Rect::from_min_size(pos2(x, rect.top() + 14.0), vec2(12.0, 12.0));
-        p.rect_filled(flag, 3.0, fade(col::EASY, a));
-        paint::text(p, pos2(flag.right() + 8.0, flag.center().y), Align2::LEFT_CENTER, &format!("FACILE · {slot:02}"), Font::label(12.0, 0.16).weight(700.0), fade(col::DUST_2, a));
-        paint::text(p, pos2(x - 1.0, rect.top() + 28.0), Align2::LEFT_TOP, &game.map_name().to_uppercase(), Font::heading(26.0), fade(col::DUST, a));
+        let y = at.y + 7.0;
+        let flag = Rect::from_center_size(pos2(at.x + 5.0, y), vec2(10.0, 10.0));
+        p.rect_filled(flag.translate(vec2(0.0, 1.5)), 2.0, fade(Color32::BLACK, 0.3 * a));
+        p.rect_filled(flag, 2.0, fade(col::EASY, a));
+        shadowed(p, pos2(flag.right() + 7.0, y), Align2::LEFT_CENTER, &format!("FACILE · {slot:02}"), tag_font(), col::DUST_2, a);
+        let name = game.map_name().to_uppercase();
+        shadowed(p, pos2(at.x - 1.0, at.y + 16.0), Align2::LEFT_TOP, &name, Font::heading(size).weight(800.0), col::DUST, a);
+    }
+
+    /// The record and the time to beat (the easiest medal not won yet): right-aligned rows in the
+    /// wide layout from the top right corner `at`, a table from the top left corner in the tall one.
+    fn times(&self, p: &Painter, at: Pos2, game: &Game, a: f32, wide: bool) {
         let best = game.session.profile().best(&game.map_key()).map(|b| b.ticks);
-        let row = |y: f32, label: &str, value: &str, dot: Option<Color32>| {
-            let mut lx = x;
-            if let Some(c) = dot {
-                p.circle_filled(pos2(x + 5.0, y), 5.0, fade(c, a));
-                lx += 16.0;
-            }
-            paint::text(p, pos2(lx, y), Align2::LEFT_CENTER, label, Font::label(11.0, 0.16), fade(col::DUST_3, a));
-            paint::text(p, pos2(rect.right() - 16.0, y), Align2::RIGHT_CENTER, value, Font::data(13.0), fade(col::DUST_2, a));
+        let mut rows: Vec<(&str, Option<Color32>, u32)> = Vec::new();
+        if let Some(b) = best {
+            rows.push(("RECORD", None, b));
+        }
+        if let Some((k, ticks)) = self.objective(game) {
+            rows.push(("À BATTRE", Some(MEDAL_COLOURS[k]), ticks));
+        }
+        let label = tag_font();
+        let value = Font::data(if wide { 18.0 } else { 14.0 }).weight(600.0);
+        let step = if wide { 28.0 } else { 24.0 };
+        let dot = |c: Pos2, colour: Color32| {
+            p.circle_filled(c + vec2(0.0, 1.0), 4.5, fade(Color32::BLACK, 0.3 * a));
+            p.circle_filled(c, 4.5, fade(colour, a));
         };
-        row(rect.top() + 72.0, "TON RECORD", &best.map_or("--:--.--".into(), format_time), None);
-        match self.objective(game) {
-            Some((k, ticks)) => row(rect.top() + 93.0, &format!("OBJECTIF {}", MEDALS[k].0.to_uppercase()), &format_time(ticks), Some(MEDAL_COLOURS[k])),
-            None => row(rect.top() + 93.0, "TOUTES LES MÉDAILLES", "✓", Some(MEDAL_COLOURS[0])),
+        if wide {
+            for (i, (name, medal, ticks)) in rows.iter().enumerate() {
+                let y = at.y + 11.0 + i as f32 * step;
+                let v = shadowed(p, pos2(at.x, y), Align2::RIGHT_CENTER, &format_time(*ticks), value, col::DUST, a);
+                let mut x = v.left() - 10.0;
+                if let Some(c) = medal {
+                    dot(pos2(x - 4.5, y), *c);
+                    x -= 19.0;
+                }
+                shadowed(p, pos2(x, y + 1.0), Align2::RIGHT_CENTER, name, label, col::DUST_2, a);
+            }
+        } else {
+            // Labels, medal dots and times in three columns.
+            let label_w = rows.iter().map(|(n, _, _)| paint::text_size(p, n, label).x).fold(0.0, f32::max);
+            let value_w = rows.iter().map(|(_, _, t)| paint::text_size(p, &format_time(*t), value).x).fold(0.0, f32::max);
+            let dot_x = at.x + label_w + 10.0 + 4.5;
+            let value_right = dot_x + 4.5 + 10.0 + value_w;
+            for (i, (name, medal, ticks)) in rows.iter().enumerate() {
+                let y = at.y + 9.0 + i as f32 * step;
+                shadowed(p, pos2(at.x, y + 1.0), Align2::LEFT_CENTER, name, label, col::DUST_2, a);
+                if let Some(c) = medal {
+                    dot(pos2(dot_x, y), *c);
+                }
+                shadowed(p, pos2(value_right, y), Align2::RIGHT_CENTER, &format_time(*ticks), value, col::DUST, a);
+            }
         }
     }
 
-    /// Tall layout: the medal to aim for, under the chrono.
-    fn objective_chip(&self, p: &Painter, center: Pos2, game: &Game, a: f32) {
-        let (label, c) = match self.objective(game) {
-            Some((k, ticks)) => (format!("OBJECTIF {}  {}", MEDALS[k].0.to_uppercase(), format_time(ticks)), MEDAL_COLOURS[k]),
-            None => ("TOUTES LES MÉDAILLES".to_string(), MEDAL_COLOURS[0]),
-        };
-        let font = Font::label(11.0, 0.12);
-        let ts = paint::text_size(p, &label, font);
-        let rect = Rect::from_center_size(center, vec2(ts.x + 40.0, 26.0));
-        glass(p, rect, 13.0, a);
-        p.circle_filled(pos2(rect.left() + 14.0, center.y), 4.5, fade(c, a));
-        paint::text(p, pos2(rect.left() + 26.0, center.y), Align2::LEFT_CENTER, &label, font, fade(col::DUST_2, a));
-    }
-
-    fn chrono(&self, p: &Painter, top_center: Pos2, game: &Game, a: f32, wide: bool) {
+    /// The race time, its bottom centre at `bottom_center`.
+    fn chrono(&self, p: &Painter, bottom_center: Pos2, game: &Game, a: f32, size: f32) {
         let run = &game.run;
         let ticks = run.finished.unwrap_or(run.tick);
-        let time = format_time(ticks);
-        let size = if wide { 42.0 } else { 34.0 };
-        let font = Font::data(size).weight(600.0);
-        let ts = paint::text_size(p, &time, font);
-        let w = (ts.x + 48.0).max(if wide { 220.0 } else { 180.0 });
-        let h = if wide { 88.0 } else { 74.0 };
-        let rect = Rect::from_min_size(pos2(top_center.x - w / 2.0, top_center.y), vec2(w, h));
-        glass(p, rect, 14.0, a);
-        paint::text(p, pos2(rect.center().x, rect.top() + h * 0.4), Align2::CENTER_CENTER, &time, font, fade(col::DUST, a));
-        let n = game.track.checkpoints.len();
-        let label = format!("CP {} / {}", run.splits.len(), n);
-        let lf = Font::data(11.0);
-        let lw = paint::text_size(p, &label, lf).x;
-        let (bw, gap) = (24.0, 5.0);
-        let total = n as f32 * (bw + gap) - gap + 10.0 + lw;
-        let y = rect.bottom() - if wide { 16.0 } else { 13.0 };
-        let x = rect.center().x - total / 2.0;
-        bars(p, pos2(x, y), n, run.splits.len(), bw, 6.0, gap, |_| fade(col::LIVERY, a));
-        paint::text(p, pos2(x + total - lw, y), Align2::LEFT_CENTER, &label, lf, fade(col::DUST_2, a));
+        shadowed(p, bottom_center, Align2::CENTER_BOTTOM, &format_time(ticks), Font::data(size).weight(600.0), col::DUST, a);
     }
 
-    fn split_popup(&self, p: &Painter, top_center: Pos2, now: f64, a: f32, wide: bool) {
+    /// The last checkpoint, for a moment above the chrono: its number and the gap to the record
+    /// (its time when there is no record yet).
+    fn split_line(&self, p: &Painter, bottom_center: Pos2, now: f64, a: f32, size: f32) {
         let Some(s) = &self.split else { return };
-        let t = (now - s.at) as f32;
-        if t > 2.8 {
+        let u = (now - s.at) as f32 / SPLIT_TIME;
+        let k = if u < 0.06 {
+            u / 0.06
+        } else if u < 0.84 {
+            1.0
+        } else {
+            ((1.0 - u) / 0.16).max(0.0)
+        };
+        if k <= 0.0 {
             return;
         }
-        let (k, dy) = if t < 0.22 {
-            let e = paint::ease_out(t / 0.22);
-            (e, -10.0 * (1.0 - e))
-        } else if t > 2.4 {
-            (1.0 - (t - 2.4) / 0.4, -6.0 * (t - 2.4) / 0.4)
-        } else {
-            (1.0, 0.0)
-        };
         let a = a * k;
-        let label = format!("CHECKPOINT {} / {}", s.index, s.total);
-        let time = format_time(s.tick);
-        let tf = Font::data(if wide { 26.0 } else { 22.0 }).weight(600.0);
-        let tw = paint::text_size(p, &time, tf).x;
-        let dw = if s.delta.is_some() { 96.0 } else { 0.0 };
-        let w = (tw + dw + 44.0).max(240.0);
-        let h = if wide { 78.0 } else { 70.0 };
-        let rect = Rect::from_min_size(pos2(top_center.x - w / 2.0, top_center.y + dy), vec2(w, h));
-        glass(p, rect, 14.0, a);
-        paint::text(p, pos2(rect.center().x, rect.top() + 18.0), Align2::CENTER_CENTER, &label, Font::label(13.0, 0.2).weight(700.0), fade(col::DUST_2, a));
-        let row_y = rect.top() + h * 0.64;
-        let start = rect.center().x - (tw + if dw > 0.0 { dw + 12.0 } else { 0.0 }) / 2.0;
-        paint::text(p, pos2(start, row_y), Align2::LEFT_CENTER, &time, tf, fade(col::DUST, a));
-        if let Some(d) = s.delta {
-            let mut q = p.clone();
-            q.set_opacity(a);
-            delta_pill(&q, pos2(start + tw + 12.0 + dw / 2.0, row_y), d, 15.0);
-        }
-    }
-
-    /// Speed, gear, revs and the four wheels' surfaces.
-    fn cluster(&self, p: &Painter, bottom_center: Pos2, game: &Game, now: f64, a: f32, wide: bool) {
-        let t = game.telemetry();
-        let s = game.sound_frame();
-        let revs = crate::engine_sound::revs(s.rpm, s.gear, s.load);
-        let (w, h) = if wide { (436.0, 112.0) } else { (330.0, 96.0) };
-        let rect = Rect::from_min_size(pos2(bottom_center.x - w / 2.0, bottom_center.y - h), vec2(w, h));
-        glass(p, rect, 18.0, a);
-        // Rev bar, flashing white at the redline.
-        let lit = (((revs - REV_FLOOR) / (1.0 - REV_FLOOR)) * REV_SEGMENTS as f32).round().clamp(0.0, REV_SEGMENTS as f32) as usize;
-        let flash = revs > 0.97 && (now * 14.0) as i64 % 2 == 0;
-        let gap = 4.0;
-        let bw = (w - 36.0 - gap * (REV_SEGMENTS - 1) as f32) / REV_SEGMENTS as f32;
-        bars(p, pos2(rect.left() + 18.0, rect.top() + 16.0), REV_SEGMENTS, lit, bw, 7.0, gap, |i| {
-            fade(if flash { col::DUST } else if i >= REV_RED { SLOW } else { col::LIVERY }, a)
-        });
-        let cy = rect.top() + h * 0.62;
-        // Speed in the middle.
-        let speed = format!("{:.0}", t.speed_kmh.max(0.0));
-        let sf = Font::data(if wide { 62.0 } else { 50.0 }).weight(600.0);
-        let sw = paint::text_size(p, "000", sf).x;
-        let sx = rect.center().x - (sw + 44.0) / 2.0 + 12.0;
-        paint::text(p, pos2(sx + sw, cy), Align2::RIGHT_CENTER, &speed, sf, fade(col::DUST, a));
-        paint::text(p, pos2(sx + sw + 7.0, cy + if wide { 14.0 } else { 11.0 }), Align2::LEFT_CENTER, "KM/H", Font::label(if wide { 13.0 } else { 11.0 }, 0.14).weight(700.0), fade(col::DUST_3, a));
-        // Gear on the right.
-        let gw = if wide { 58.0 } else { 48.0 };
-        let gr = Rect::from_center_size(pos2(rect.right() - 18.0 - gw / 2.0, cy), vec2(gw, if wide { 56.0 } else { 50.0 }));
-        p.rect_stroke(gr, 11.0, Stroke::new(1.0, fade(GLASS_LINE, a)), StrokeKind::Inside);
-        let gear = if game.run.countdown > 0 && t.speed_kmh < 1.0 { "N".to_string() } else { (s.gear + 1).to_string() };
-        paint::text(p, pos2(gr.center().x, gr.top() + gr.height() * 0.42), Align2::CENTER_CENTER, &gear, Font::heading(if wide { 30.0 } else { 26.0 }), fade(col::DUST, a));
-        paint::text(p, pos2(gr.center().x, gr.bottom() - 9.0), Align2::CENTER_CENTER, "RAPPORT", Font::label(if wide { 9.5 } else { 8.5 }, 0.14), fade(col::DUST_3, a));
-        // The wheels, as seen from above, coloured by what they roll on.
-        let wheels = &game.run.car.state.wheels;
-        let wx = rect.left() + 18.0;
-        let (ww, wh, wg) = if wide { (9.0, 14.0, 12.0) } else { (8.0, 12.0, 10.0) };
-        let mut dirt = 0;
-        let mut air = 0;
-        for (i, wheel) in wheels.iter().enumerate() {
-            let col_i = (i % 2) as f32;
-            let row_i = (i / 2) as f32;
-            let wr = Rect::from_min_size(pos2(wx + col_i * (ww + wg), cy - wh - wg / 2.0 + row_i * (wh + wg)), vec2(ww, wh));
-            if !wheel.contact {
-                air += 1;
-                p.rect_stroke(wr, 3.0, Stroke::new(1.5, fade(col::DUST_3, a)), StrokeKind::Inside);
-                continue;
-            }
-            let on_dirt = matches!(wheel.surface, Some(track::Surface::Dirt) | Some(track::Surface::Ground));
-            dirt += on_dirt as usize;
-            p.rect_filled(wr, 3.0, fade(if on_dirt { col::DIRT } else { col::ROAD }, a));
-        }
-        let (word, wc) = if air == 4 {
-            ("EN L'AIR", col::DUST_2)
-        } else if dirt >= 2 {
-            ("DIRT", col::DIRT)
-        } else {
-            ("BITUME", col::DUST)
+        let label = format!("CP {} / {}", s.index, s.total);
+        let (text, colour) = match s.delta {
+            Some(d) => (delta_text(d), delta_colour(d)),
+            None => (format_time(s.tick), col::DUST),
         };
-        let tx = wx + 2.0 * ww + wg + 12.0;
-        if wide {
-            paint::text(p, pos2(tx, cy - 9.0), Align2::LEFT_CENTER, "SOUS LES ROUES", Font::label(10.5, 0.16), fade(col::DUST_3, a));
-            paint::text(p, pos2(tx, cy + 9.0), Align2::LEFT_CENTER, word, Font::label(17.0, 0.1).weight(800.0), fade(wc, a));
-        } else {
-            paint::text(p, pos2(tx, cy), Align2::LEFT_CENTER, word, Font::label(14.0, 0.1).weight(800.0), fade(wc, a));
+        let df = Font::data(size).weight(600.0);
+        let lf = tag_font();
+        let (dw, lw) = (paint::text_size(p, &text, df).x, paint::text_size(p, &label, lf).x);
+        let left = bottom_center.x - (lw + 10.0 + dw) / 2.0;
+        let d = shadowed(p, pos2(left + lw + 10.0, bottom_center.y), Align2::LEFT_BOTTOM, &text, df, colour, a);
+        // On the gap's baseline.
+        let y = d.center().y + (size - 11.0) * 0.3;
+        shadowed(p, pos2(left, y), Align2::LEFT_CENTER, &label, lf, col::DUST_2, a);
+    }
+
+    /// The ring's fill (the revs, starting over in each gear) and colour (the gear's, white at
+    /// the redline).
+    fn revs(game: &Game, now: f64) -> (f32, Color32) {
+        let s = game.sound_frame();
+        let fill = if s.gear == 0 { s.rpm.max(0.12 * s.load) } else { 0.3 + 0.7 * s.rpm };
+        let flash = fill > 0.96 && (now / 0.07) as i64 % 2 == 0;
+        let colour = if flash { Color32::WHITE } else { GEAR_COLOURS[(s.gear as usize).min(GEAR_COLOURS.len() - 1)] };
+        (fill.clamp(0.0, 1.0), colour)
+    }
+
+    /// Wide layout: the speed inside a three-quarter ring.
+    fn speed_ring(&self, p: &Painter, rect: Rect, game: &Game, now: f64, a: f32) {
+        let k = rect.width() / 100.0;
+        let (c, radius, width) = (rect.center(), 44.0 * k, 8.0 * k);
+        let from = 135f32.to_radians();
+        let sweep = 270f32.to_radians();
+        arc(p, c, radius, from, sweep, width, fade(RING_TRACK, a), false);
+        let (fill, colour) = Self::revs(game, now);
+        if fill > 0.01 {
+            arc(p, c, radius, from, sweep * fill, width, fade(colour, a), true);
+        }
+        let speed = format!("{:.0}", game.telemetry().speed_kmh.abs());
+        shadowed(p, c, Align2::CENTER_CENTER, &speed, Font::data(40.0).weight(600.0), col::DUST, a);
+    }
+
+    /// Tall layout: the speed on top of a thin vertical gauge along the right edge.
+    fn speed_gauge(&self, p: &Painter, top_right: Pos2, game: &Game, now: f64, a: f32) {
+        let speed = format!("{:.0}", game.telemetry().speed_kmh.abs());
+        let n = shadowed(p, top_right, Align2::RIGHT_TOP, &speed, Font::data(22.0).weight(600.0), col::DUST, a);
+        let track = Rect::from_min_size(pos2(top_right.x - 5.0, n.bottom() + 10.0), vec2(5.0, 300.0));
+        p.rect_filled(track, 2.5, fade(RING_TRACK, a));
+        let (fill, colour) = Self::revs(game, now);
+        if fill > 0.01 {
+            let h = (track.height() * fill).max(5.0);
+            p.rect_filled(Rect::from_min_max(pos2(track.left(), track.bottom() - h), track.max), 2.5, fade(colour, a));
         }
     }
 
-    /// Wide layout: the keys, stacked in the bottom right corner, shown at the start and fading
-    /// once the race is under way.
-    fn hints(&self, p: &Painter, r: Rect, game: &Game) {
-        let run = &game.run;
-        let a = if run.countdown > 0 { 1.0 } else { 1.0 - ((run.tick as f32 - 250.0) / 60.0).clamp(0.0, 1.0) };
-        if a <= 0.0 || run.finished.is_some() {
-            return;
-        }
-        let items = [("Entrée", "DERNIER CP"), ("Retour", "RECOMMENCER"), ("Échap", "MENU"), ("Tab", "DEBUG")];
-        let font = Font::label(13.0, 0.14);
-        let key_w = items.iter().map(|(k, _)| (paint::text_size(p, k, Font::data(11.0)).x + 14.0).max(28.0)).fold(0.0, f32::max);
-        let label_w = items.iter().map(|(_, l)| paint::text_size(p, l, font).x).fold(0.0, f32::max);
-        let x = r.right() - 26.0 - label_w - 10.0 - key_w;
-        for (i, (key, label)) in items.iter().enumerate() {
-            let y = r.bottom() - 30.0 - 13.0 - (items.len() - 1 - i) as f32 * 32.0;
-            paint::keycap(p, pos2(x, y), key, fade(GLASS, a), Some(fade(GLASS_LINE, a)), fade(col::DUST_2, a));
-            paint::text(p, pos2(x + key_w + 10.0, y), Align2::LEFT_CENTER, label, font, fade(col::DUST, a));
-        }
-    }
-
-    fn debug_chip(&self, p: &Painter, r: Rect, wide: bool, game: &Game, fps: &Fps) {
-        let top = if wide { r.top() + 146.0 } else { r.top() + 124.0 };
-        let left = if wide { r.left() + 24.0 } else { r.left() + 14.0 };
+    fn debug_chip(&self, p: &Painter, at: Pos2, game: &Game, fps: &Fps) {
         let line1 = format!("{:.0} FPS · {:.1} ms", fps.fps, fps.frame_ms).replace('.', ",");
         let p_name = &game.session.profile().params.name;
         let line2 = format!("Profil {} · {} · Caméra {}", game.session.current + 1, p_name, crate::camera::MODES[game.camera.mode].to_lowercase());
         let f = Font::data(12.0);
         let w = paint::text_size(p, &line2, f).x.max(paint::text_size(p, &line1, f).x) + 28.0;
-        let rect = Rect::from_min_size(pos2(left, top), vec2(w, 50.0));
-        glass(p, rect, 12.0, 1.0);
+        let rect = Rect::from_min_size(at, vec2(w, 50.0));
+        p.rect_filled(rect, 12.0, GLASS);
+        p.rect_stroke(rect, 12.0, Stroke::new(1.0, GLASS_LINE), StrokeKind::Inside);
         paint::text(p, pos2(rect.left() + 14.0, rect.top() + 16.0), Align2::LEFT_CENTER, &line1, f, col::DUST);
         paint::text(p, pos2(rect.left() + 14.0, rect.top() + 35.0), Align2::LEFT_CENTER, &line2, f, col::DUST_2);
     }
@@ -485,14 +532,14 @@ impl Hud {
     // ---------------------------------------------------------------- countdown and finish
 
     fn countdown(&self, p: &Painter, r: Rect, wide: bool, now: f64) {
-        let fg = p.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("hud countdown")));
+        let fg = p.ctx().layer_painter(LayerId::new(Order::Foreground, Id::new("hud countdown")));
         if let Some(go) = self.go_at {
             // The livery band sweeping across at GO.
             let t = ((now - go) / 0.8) as f32;
             if t < 1.0 {
                 let e = paint::bezier(0.7, 0.0, 0.3, 1.0, t);
                 let h = if wide { 120.0 } else { 90.0 };
-                let cy = r.center().y - if wide { 40.0 } else { 30.0 };
+                let cy = r.center().y - 30.0;
                 let x0 = r.left() - r.width() * 1.2 + e * r.width() * 2.4;
                 let skew = h * 0.5 * 10f32.to_radians().tan();
                 let quad = |l: f32, w: f32, c: Color32| {
@@ -510,8 +557,8 @@ impl Hud {
         let t = (now - since) as f32;
         let (scale, alpha) = if t < 0.27 { (1.6 - 0.6 * paint::ease_out(t / 0.27), t / 0.27) } else { (1.0 - 0.06 * ((t - 0.27) / 0.6).min(1.0), 1.0) };
         let alpha = if n == 0 { alpha * (1.0 - ((t - 0.35) / 0.25).clamp(0.0, 1.0)) } else { alpha };
-        let base = if wide { 230.0 } else { 160.0 };
-        let c = pos2(r.center().x, r.center().y - if wide { 40.0 } else { 30.0 });
+        let base = if wide { 220.0 } else { 150.0 };
+        let c = pos2(r.center().x, r.center().y - 30.0);
         let (s, colour) = if n == 0 { ("GO".to_string(), col::LIVERY) } else { (n.to_string(), col::DUST) };
         paint::text(&fg, c + vec2(0.0, 4.0), Align2::CENTER_CENTER, &s, Font::display(base * scale), fade(Color32::from_black_alpha(110), alpha));
         paint::text(&fg, c, Align2::CENTER_CENTER, &s, Font::display(base * scale), fade(colour, alpha));
@@ -612,8 +659,7 @@ impl Hud {
             paint::text(p, pos2(x + iw - 96.0, ry), Align2::RIGHT_CENTER, &format_time(tick), Font::data(13.0), fade(col::DUST, k));
             if let Some(pv) = prev {
                 let d = tick as i64 - pv as i64;
-                let c = if d <= 0 { col::HUB } else { SLOW };
-                paint::text(p, pos2(x + iw - 14.0, ry), Align2::RIGHT_CENTER, &format_delta(d).replace('-', "−"), Font::data(12.0), fade(c, k));
+                paint::text(p, pos2(x + iw - 14.0, ry), Align2::RIGHT_CENTER, &delta_text(d), Font::data(12.0), fade(delta_colour(d), k));
             }
         }
         y += rows as f32 * row_h + 14.0;
@@ -650,62 +696,166 @@ impl Hud {
 
     // ---------------------------------------------------------------- touch
 
-    /// Tall layout: pause (back to the menu) and back-to-checkpoint buttons at the top.
-    fn touch_buttons_top(&mut self, ui: &mut Ui, p: &Painter, r: Rect, a: f32) {
-        let s = 44.0;
-        let menu = Rect::from_min_size(pos2(r.left() + 14.0, r.top() + 14.0), vec2(s, s));
-        let cp = Rect::from_min_size(pos2(r.right() - 14.0 - s, r.top() + 14.0), vec2(s, s));
-        for (rect, id, which) in [(menu, "hud pause", HudRequest::Menu), (cp, "hud respawn", HudRequest::Respawn)] {
-            let resp = ui.interact(rect, Id::new(id), Sense::click());
-            glass(p, rect, s / 2.0, a);
-            let c = fade(if resp.hovered() { col::DUST } else { col::DUST_2 }, a);
-            if which == HudRequest::Menu {
-                pause_icon(p, rect.center(), 22.0, c);
-            } else {
-                flag_icon(p, rect.center(), 24.0, c);
+    /// The brake strip along the bottom and the two steering halves above it (invisible, lit
+    /// while held, shown at the start by two blinks); returns the input they give.
+    fn touch_controls(&mut self, ui: &Ui, p: &Painter, r: Rect, now: f64) -> Input {
+        let brake = Rect::from_min_max(pos2(r.left(), r.bottom() - BRAKE_H), r.max);
+        let steer = Rect::from_min_max(pos2(r.left(), r.top() + STEER_TOP), pos2(r.right(), brake.top()));
+        let left = Rect::from_min_max(steer.min, pos2(steer.center().x, steer.bottom()));
+        let right = Rect::from_min_max(pos2(steer.center().x, steer.top()), steer.max);
+        let pts = if self.sheet.is_none() { self.touch_points(ui) } else { Vec::new() };
+        let held = |rect: Rect| pts.iter().any(|q| rect.contains(*q));
+        let (l, rt, b) = (held(left), held(right), held(brake));
+
+        let glow = fade(col::DUST, 0.12);
+        if l {
+            let w = left.width() * 0.4;
+            gradient(p, Rect::from_min_size(left.min, vec2(w, left.height())), [glow, Color32::TRANSPARENT, Color32::TRANSPARENT, glow]);
+        }
+        if rt {
+            let w = right.width() * 0.4;
+            gradient(p, Rect::from_min_max(pos2(right.right() - w, right.top()), right.max), [Color32::TRANSPARENT, glow, glow, Color32::TRANSPARENT]);
+        }
+        if b {
+            band(p, brake, fade(SLOW, 0.1), fade(SLOW, 0.3));
+        } else {
+            band(p, brake, ZONE_LIGHT, ZONE_DARK);
+        }
+        p.hline(brake.x_range(), brake.top() + 0.5, Stroke::new(1.0, fade(SLOW, 0.35)));
+        // Faint: the player knows where the brake is.
+        let label = Font::label(15.0, 0.34).weight(800.0);
+        paint::text(p, brake.center(), Align2::CENTER_CENTER, "FREIN", label, fade(SLOW, if b { 0.75 } else { 0.3 }));
+
+        // At the start, the two halves blink twice, dark like the brake, with their names.
+        let tutorial = self.start_at.map_or(0.0, |t| tutorial_alpha((now - t) as f32));
+        if tutorial > 0.0 {
+            let font = Font::label(18.0, 0.3).weight(800.0);
+            for (half, name) in [(left.with_max_x(left.right() - 1.0), "GAUCHE"), (right.with_min_x(right.left() + 1.0), "DROITE")] {
+                p.rect_filled(half, 0.0, fade(ZONE_DARK, tutorial));
+                paint::text(p, half.center(), Align2::CENTER_CENTER, name, font, fade(col::DUST, 0.9 * tutorial));
             }
-            if resp.clicked() {
-                self.requests.push(which);
-            }
+        }
+        Input { steer: (rt as i32 - l as i32) as f32, gas: 0.0, brake: b as i32 as f32 }
+    }
+
+    /// The settings button in the top right corner: it opens the sheet and pauses the race.
+    fn settings_button(&mut self, ui: &Ui, p: &Painter, r: Rect, a: f32, now: f64) {
+        let rect = Rect::from_min_size(pos2(r.right() - 16.0 - 44.0, r.top() + 16.0), vec2(44.0, 44.0));
+        let resp = ui.interact(rect, Id::new("hud settings"), Sense::click());
+        p.circle_filled(rect.center(), 22.0, fade(GLASS, a));
+        p.circle_stroke(rect.center(), 21.5, Stroke::new(1.0, fade(GLASS_LINE, a)));
+        gear_icon(p, rect.center(), 22.0, fade(if resp.hovered() { Color32::WHITE } else { col::DUST }, a));
+        if resp.clicked() {
+            self.sheet = Some(now);
+            self.cues.push(Cue::SheetOpen);
         }
     }
 
-    /// Steering on the left, brake and throttle on the right; returns the input they give.
-    fn touch_controls(&mut self, ui: &mut Ui, p: &Painter, r: Rect, wide: bool, _now: f64) -> Input {
-        let pts = self.touch_points(ui);
-        let (bw, bh, margin, gap) = if wide { (104.0, 104.0, 28.0, 16.0) } else { (76.0, 84.0, 16.0, 10.0) };
-        let y = r.bottom() - margin - bh;
-        let left = Rect::from_min_size(pos2(r.left() + margin, y), vec2(bw, bh));
-        let right = Rect::from_min_size(pos2(left.right() + gap, y), vec2(bw, bh));
-        let gas = Rect::from_min_size(pos2(r.right() - margin - bw, y), vec2(bw, bh));
-        let brake = Rect::from_min_size(pos2(gas.left() - gap - bw, y), vec2(bw, bh));
-        let pressed = |rect: Rect| pts.iter().any(|q| rect.expand(6.0).contains(*q));
-        // The buttons take the clicks, so nothing behind reacts to them.
-        for (rect, id) in [(left, "l"), (right, "r"), (brake, "b"), (gas, "g")] {
-            let _ = ui.interact(rect, Id::new(("hud touch", id)), Sense::click_and_drag());
+    /// The settings sheet, from the bottom: camera, sound, last checkpoint, restart, menu, resume.
+    #[allow(clippy::too_many_arguments)]
+    fn settings_sheet(&mut self, ui: &Ui, r: Rect, wide: bool, game: &mut Game, muted: bool, now: f64, since: f64) {
+        let p = ui.ctx().layer_painter(LayerId::new(Order::Tooltip, Id::new("hud sheet")));
+        let k = paint::ease_out(((now - since) as f32 / 0.25).min(1.0));
+        let h = 427.0;
+        let w = if wide { 420.0 } else { r.width() };
+        let card = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.bottom() - h + (1.0 - k) * h), vec2(w, h));
+        let scrim = ui.interact(r, Id::new("hud sheet scrim"), Sense::click());
+        p.rect_filled(r, 0.0, fade(col::SCRIM, k));
+        let top = CornerRadius { nw: 24, ne: 24, sw: 0, se: 0 };
+        p.rect_filled(card, top, fade(col::PANEL, 0.97));
+        p.hline(card.shrink2(vec2(20.0, 0.0)).x_range(), card.top(), Stroke::new(1.0, col::LINE));
+
+        let pad = 18.0;
+        let (x, iw) = (card.left() + pad, w - 2.0 * pad);
+        let mut y = card.top() + 12.0;
+        p.rect_filled(Rect::from_center_size(pos2(card.center().x, y + 2.0), vec2(40.0, 4.0)), 2.0, col::LINE);
+        y += 4.0 + 14.0;
+        let head = paint::text(&p, pos2(x, y), Align2::LEFT_TOP, "RÉGLAGES", Font::heading(26.0).weight(800.0), col::DUST);
+        paint::text(&p, pos2(x + iw, head.bottom() - 6.0), Align2::RIGHT_BOTTOM, "COURSE EN PAUSE", tag_font(), col::DUST_2);
+        y += 30.0 + 14.0;
+        paint::text(&p, pos2(x, y), Align2::LEFT_TOP, "CAMÉRA", Font::label(12.0, 0.2).weight(700.0), col::DUST_3);
+        y += 15.0 + 14.0;
+
+        // Camera: three segments.
+        let seg = Rect::from_min_size(pos2(x, y), vec2(iw, 44.0));
+        p.rect_filled(seg, 12.0, col::VOID);
+        p.rect_stroke(seg, 12.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        let cw = (iw - 8.0 - 8.0) / 3.0;
+        for (i, name) in crate::camera::MODES.iter().enumerate() {
+            let cell = Rect::from_min_size(pos2(seg.left() + 4.0 + i as f32 * (cw + 4.0), seg.top() + 4.0), vec2(cw, 36.0));
+            let resp = ui.interact(cell, Id::new(("hud camera", i)), Sense::click());
+            let on = game.camera.mode == i;
+            if on {
+                p.rect_filled(cell, 9.0, col::PANEL_2);
+                p.hline(cell.shrink2(vec2(7.0, 0.0)).x_range(), cell.bottom() - 1.0, Stroke::new(2.0, col::LIVERY));
+            }
+            let c = if on || resp.hovered() { col::DUST } else { col::DUST_3 };
+            paint::text(&p, cell.center(), Align2::CENTER_CENTER, &name.to_uppercase(), Font::label(13.0, 0.1).weight(700.0), c);
+            if resp.clicked() && !on {
+                game.camera.mode = i;
+                self.cues.push(Cue::Select);
+            }
         }
-        let draw = |rect: Rect, on: bool, accent: Option<Color32>| {
-            let fill = if on { Color32::from_rgba_premultiplied(40, 30, 28, 190) } else { GLASS };
-            p.rect_filled(rect, 22.0, fill);
-            let edge = match (accent, on) {
-                (Some(c), true) => (2.0, c),
-                (Some(c), false) => (1.5, fade(c, 0.6)),
-                (None, true) => (2.0, col::DUST_2),
-                (None, false) => (1.0, GLASS_LINE),
-            };
-            p.rect_stroke(rect, 22.0, Stroke::new(edge.0, edge.1), StrokeKind::Inside);
-        };
-        let (l, rt, b, g) = (pressed(left), pressed(right), pressed(brake), pressed(gas));
-        draw(left, l, None);
-        draw(right, rt, None);
-        draw(brake, b, Some(SLOW));
-        draw(gas, g, Some(col::LIVERY));
-        let isz = if wide { 34.0 } else { 30.0 };
-        paint::icon_at(p, left.center(), isz, Icon::ChevronLeft, if l { col::DUST } else { col::DUST_2 });
-        paint::icon_at(p, right.center(), isz, Icon::ChevronRight, if rt { col::DUST } else { col::DUST_2 });
-        let lf = Font::label(if wide { 16.0 } else { 14.0 }, 0.14).weight(800.0);
-        paint::text(p, brake.center(), Align2::CENTER_CENTER, "FREIN", lf, if b { SLOW } else { fade(SLOW, 0.8) });
-        paint::text(p, gas.center(), Align2::CENTER_CENTER, "GAZ", lf, if g { col::LIVERY } else { fade(col::LIVERY, 0.85) });
-        Input { steer: (rt as i32 - l as i32) as f32, gas: g as i32 as f32, brake: b as i32 as f32 }
+        y += 44.0 + 14.0;
+
+        // Sound and the actions.
+        let acts = Rect::from_min_size(pos2(x, y), vec2(iw, 4.0 * 44.0));
+        p.rect_filled(acts, 14.0, col::VOID);
+        p.rect_stroke(acts, 14.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        let rows: [(&str, Option<HudRequest>); 4] = [
+            ("Son", None),
+            ("Dernier checkpoint", Some(HudRequest::Respawn)),
+            ("Recommencer", Some(HudRequest::Restart)),
+            ("Quitter vers le menu", Some(HudRequest::Menu)),
+        ];
+        let lf = Font::label(15.0, 0.08).weight(600.0);
+        let mut close = false;
+        for (i, (name, request)) in rows.iter().enumerate() {
+            let row = Rect::from_min_size(pos2(acts.left() + 12.0, acts.top() + i as f32 * 44.0), vec2(iw - 24.0, 44.0));
+            if i > 0 {
+                p.hline(row.x_range(), row.top(), Stroke::new(1.0, col::LINE));
+            }
+            let resp = ui.interact(row, Id::new(("hud setting", i)), Sense::click());
+            let colour = if *request == Some(HudRequest::Menu) { SLOW } else if resp.hovered() { Color32::WHITE } else { col::DUST };
+            paint::text(&p, pos2(row.left() + 4.0, row.center().y), Align2::LEFT_CENTER, name, lf, colour);
+            match request {
+                None => {
+                    // The sound switch.
+                    let sw = Rect::from_center_size(pos2(row.right() - 4.0 - 23.0, row.center().y), vec2(46.0, 26.0));
+                    let on = !muted;
+                    p.rect_filled(sw, 13.0, if on { col::LIVERY } else { col::LINE });
+                    let knob = if on { sw.right() - 13.0 } else { sw.left() + 13.0 };
+                    p.circle_filled(pos2(knob, sw.center().y), 10.0, if on { col::LIVERY_INK } else { col::DUST_3 });
+                    if resp.clicked() {
+                        game.mute_requested = true;
+                        self.cues.push(Cue::Select);
+                    }
+                }
+                Some(req) => {
+                    paint::icon_at(&p, pos2(row.right() - 10.0, row.center().y), 16.0, Icon::ChevronRight, col::DUST_3);
+                    if resp.clicked() {
+                        self.requests.push(*req);
+                        self.cues.push(if *req == HudRequest::Menu { Cue::Back } else { Cue::Confirm });
+                        close = true;
+                    }
+                }
+            }
+        }
+        y += 4.0 * 44.0 + 14.0;
+
+        // Resume.
+        let cta = Rect::from_min_size(pos2(x, y), vec2(iw, 54.0));
+        let resp = ui.interact(cta, Id::new("hud resume"), Sense::click());
+        p.rect_filled(cta, 14.0, if resp.hovered() { Color32::from_rgb(255, 128, 64) } else { col::LIVERY });
+        paint::stripes(&p.with_clip_rect(cta.shrink(0.5)), Rect::from_min_max(pos2(cta.right() - 70.0, cta.top()), cta.max), col::INK_STRIPE);
+        paint::text(&p, cta.center(), Align2::CENTER_CENTER, "REPRENDRE", Font::label(18.0, 0.14).weight(800.0), col::LIVERY_INK);
+        let outside = scrim.clicked() && scrim.interact_pointer_pos().is_some_and(|q| !card.contains(q));
+        if resp.clicked() || outside {
+            self.cues.push(Cue::SheetClose);
+            close = true;
+        }
+        if close {
+            self.sheet = None;
+        }
     }
 }

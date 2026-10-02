@@ -40,6 +40,8 @@ pub enum Cue {
     SplitFaster,
     /// A checkpoint behind the record.
     SplitSlower,
+    /// A checkpoint level with the record, to the hundredth.
+    SplitEqual,
     Finish,
     /// A new record at the finish.
     Record,
@@ -361,6 +363,10 @@ impl UiSynth {
                 self.tone(Sine, 659.25, 659.25, 0.0, 0.12, 0.12, 0.005, None);
                 self.tone(Sine, 440.0, 440.0, 0.09, 0.28, 0.12, 0.005, None);
             }
+            Cue::SplitEqual => {
+                self.tone(Sine, 880.0, 880.0, 0.0, 0.12, 0.1, 0.005, None);
+                self.tone(Sine, 880.0, 880.0, 0.09, 0.2, 0.08, 0.005, None);
+            }
             Cue::Finish => {
                 for (i, f) in [392.0, 523.25, 659.25, 783.99].into_iter().enumerate() {
                     self.tone(Triangle, f, f, i as f32 * 0.03, 0.9, 0.08, 0.005, None);
@@ -519,6 +525,7 @@ mod tests {
             Cue::CountGo,
             Cue::SplitFaster,
             Cue::SplitSlower,
+            Cue::SplitEqual,
             Cue::Finish,
             Cue::Record,
         ];

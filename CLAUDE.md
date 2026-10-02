@@ -37,10 +37,13 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   Martian Mono, from Google Fonts under the OFL) `crates/app/assets/fonts/`. Self-tests: `MARS_MENU=title|planets|modes|solo`
   opens it on a screen, `MARS_MENU_NAV=1.5:right,3:confirm` moves through it, `MARS_WINDOW=390x844`
   shows the phone layout; race self-tests (`MARS_MAP`, `MARS_AUTODRIVE`…) skip it.
-- `crates/app/src/hud.rs` — the race HUD in the menu's style (circuit and medal to aim for,
-  chrono and checkpoint gaps, speed, revs, gear and each wheel's surface, countdown, finish card),
-  wide and tall like the menu, with touch controls on phones. Everything for debugging (FPS,
-  profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or `MARS_DEBUG_PANEL=1`.
+- `crates/app/src/hud.rs` — the race HUD, light like Trackmania's (map name, record and time to
+  beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
+  countdown and the finish card in the menu's style; wide and tall like the menu. On phones the
+  buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and a settings
+  button pauses the race (`MARS_HUD_SETTINGS=seconds` opens it in a self-test). Everything for
+  debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
+  `MARS_DEBUG_PANEL=1`.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged
   suspension, the registered plans as image empties) and exports `crates/app/assets/buggy.glb` and
   its livery atlas `buggy_livery.png`, which the app embeds: rerun

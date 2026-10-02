@@ -106,12 +106,14 @@ pub struct MenuRenderer {
     sampler: wgpu::Sampler,
     group: wgpu::BindGroup,
     craters: [[f32; 4]; CRATERS],
+    /// The footage last asked for, playing or not: one that could not open is not tried again
+    /// while it stays the one wanted.
+    wanted: Option<Footage>,
     video: Option<Playing>,
 }
 
 /// The footage being played.
 struct Playing {
-    footage: Footage,
     clip: VideoLoop,
     /// The texture its frames go to, with their size; none before the first frame.
     texture: Option<(wgpu::Texture, u32, u32)>,
@@ -203,15 +205,16 @@ impl MenuRenderer {
             multiview_mask: None,
             cache: None,
         });
-        Self { pipeline, buffer, layout, sampler, group, craters, video: None }
+        Self { pipeline, buffer, layout, sampler, group, craters, wanted: None, video: None }
     }
 
     /// Plays `want` (or stops, with `None`), moving on by `dt` seconds: frames are taken from
     /// the decoder at the footage's rate and the latest goes to the texture.
     pub fn update_video(&mut self, gpu: &Gpu, want: Option<Footage>, dt: f32) {
-        if self.video.as_ref().map(|v| v.footage) != want {
+        if self.wanted != want {
+            self.wanted = want;
             self.video = want.and_then(|footage| {
-                Some(Playing { footage, clip: VideoLoop::open(footage.clip())?, texture: None, behind: 0.0, time: 0.0, shown: 0.0 })
+                Some(Playing { clip: VideoLoop::open(footage.clip())?, texture: None, behind: 0.0, time: 0.0, shown: 0.0 })
             });
         }
         let Some(v) = &mut self.video else { return };

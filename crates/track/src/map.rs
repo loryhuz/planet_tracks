@@ -7,7 +7,7 @@
 //!   "name": "Jezero",
 //!   "author": "mars-racer",
 //!   "version": 1,
-//!   "terrain": {"seed":1977,"size":8192.0,"relief":14.0,"dunes":4.0,"ripples":0.35,"bumps":0.4,"mesas":10,"craters":6,"horizon":180.0,"rocks":1.0},
+//!   "terrain": {"seed":1977,"size":8192.0,"relief":14.0,"dunes":4.0,"ripples":0.35,"bumps":0.4,"hills":8.0,"mesas":10,"craters":6,"horizon":180.0,"rocks":1.0},
 //!   "blocks": [
 //!     {"block":"start","cell":[13,-10],"level":0,"rotation":0},
 //!     {"block":"turn2_right","cell":[13,-9],"level":0,"rotation":0},
@@ -31,7 +31,10 @@
 //! [`crate::kit`] for the grid), the level of that entry (`level`, 8 m each) and the heading of
 //! the entry (`rotation`: quarter turns to the left from north, 0 = +Z, 1 = +X, 2 = −Z, 3 = −X).
 //! Blocks are directed: a car drives them from their entry to their exit. `variant` picks the
-//! deck: `"road"` (the default) or `"dirt"`.
+//! deck: `"road"` (the default) or `"dirt"`; a road's edges ([`Edge`]) can be picked with
+//! `"sandbags"` (a row of sandbags, the tarp staked) or `"bumpers"` (red and white tubes, the tarp
+//! strapped); a plain road has bumpers where it leaves the ground and sandbags where it stays on
+//! it.
 //!
 //! The start, the checkpoints and the finish are blocks ([`Gate`]): the route is found by
 //! following exits to entries from the start block to the finish block, and every checkpoint
@@ -45,13 +48,16 @@
 //! | `straight`, `straightN` | straight, 1 or `N` cells |
 //! | `turnN_left`, `turnN_right` | quarter turn filling `N × N` cells |
 //! | `bankedN_left/right` | quarter turn banked [`BANK_DEG`] about its centreline (platforms) |
-//! | `bermN_left/right` | ground-level quarter turn, outside raised by [`BANK_DEG`] |
+//! | `bermN_left/right` | ground-level quarter turn, outside raised by [`BANK_DEG`] (on dirt, less on short turns: see [`kit::DIRT_ROLL_RATE`]) |
 //! | `ubermN_left/right` | ground-level U-turn (`2N × N` cells), outside raised |
 //! | `slopeN_upL`, `slopeN_downL` | climb or descent of `L` levels over `N` cells |
 //! | `whoopsN` | `N` cells of whoops, one [`WHOOPS_HEIGHT`] m bump per cell |
 //! | `to_dirt`, `to_road` | one cell whose second half changes deck |
 //! | `jump_ramp` | one cell rising to a [`LIP_DEG`]° lip, ending on a gap |
 //! | `landingN_downL` | the descent that catches the jump ramp before it: placed on the cell after the ramp at the ramp's level, ending `L` levels lower |
+//! | `kicker` | one cell rising to a [`KICKER_DEG`]° lip: a big jump, ending on a gap |
+//! | `kicker_landingN_downL` | the landing hill that catches a kicker, placed like `landingN_downL` |
+//! | `landingN_downL_left/right`, `kicker_landingN_downL_left/right` | the same landings bending one cell to that side over their length, an S under the flight (see [`Kind::Landing`]) |
 
 use std::fmt;
 
@@ -59,10 +65,11 @@ use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::dirt::Corridors;
-use crate::kit::{self, CELL, Connector, FALL_LIMIT_Y, Gate, Heading, Kind, LEVEL, Layout, Piece, Pivot, Placed, Side};
+use crate::kit::{self, CELL, Connector, Edge, FALL_LIMIT_Y, Gate, Heading, Kind, LEVEL, Layout, Piece, Pivot, Placed, Side};
 use crate::landform::Landform;
 use crate::mesh::MeshBuilder;
 use crate::scenery::{self, PlacedProp, Prop};
+use crate::stilts;
 use crate::terrain::{Capsule, Terrain, TerrainSettings};
 use crate::{Surface, Track, TrackMesh};
 
@@ -79,6 +86,16 @@ pub const LIP_DEG: f32 = 4.0;
 pub const LANDING_GAP: f32 = 8.0;
 pub const LANDING_EPSILON: f32 = 0.07;
 pub const LANDING_OUTRUN: f32 = 48.0;
+/// Launch angle of the kicker, degrees: the car rises several metres and flies up to a second
+/// and more, where a jump ramp's flight barely leaves the deck.
+pub const KICKER_DEG: f32 = 20.0;
+/// The kicker's landing: the same gap as a jump ramp's, a wider touchdown mismatch and a longer
+/// outrun, so that its hill falls away under such a steep flight instead of rising with it (the
+/// car would touch it a few metres past the lip). `kicker_landing5_down2` from a kicker at level
+/// 2 lands the reference car cleanly from about 195 to 250 km/h at the lip, flying 0.4 to 1.2 s;
+/// faster, it flies over the hill onto the flat below and lands hard.
+pub const KICKER_EPSILON: f32 = 0.1;
+pub const KICKER_OUTRUN: f32 = 64.0;
 
 fn one() -> u32 {
     1
@@ -187,7 +204,8 @@ fn split_number(s: &str) -> (&str, Option<u32>) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockError {
     UnknownId,
-    /// The variant is neither road nor dirt, or the block's deck is fixed (transitions).
+    /// The variant is none of road, sandbags, bumpers and dirt, or the block's deck is fixed
+    /// (transitions).
     BadVariant,
 }
 
@@ -195,6 +213,17 @@ pub enum BlockError {
 fn parse_shape(id: &str) -> Option<Kind> {
     if id == "jump_ramp" {
         return Some(Kind::JumpRamp { lip_deg: LIP_DEG });
+    }
+    if id == "kicker" {
+        return Some(Kind::JumpRamp { lip_deg: KICKER_DEG });
+    }
+    if let Some(landing) = id.strip_prefix("kicker_") {
+        return match parse_shape(landing)? {
+            Kind::Landing { cells, levels, shift, .. } => {
+                Some(Kind::Landing { cells, levels, gap: LANDING_GAP, epsilon: KICKER_EPSILON, outrun: KICKER_OUTRUN, shift })
+            }
+            _ => None,
+        };
     }
     let (head, tail) = id.split_once('_').unwrap_or((id, ""));
     let (name, n) = split_number(head);
@@ -216,13 +245,16 @@ fn parse_shape(id: &str) -> Option<Kind> {
             (_, Some(l)) => Kind::Slope { cells: n, levels: -l },
             _ => return None,
         },
-        ("landing", Some(n), None) => Kind::Landing {
-            cells: n,
-            levels: -levels("down")?,
-            gap: LANDING_GAP,
-            epsilon: LANDING_EPSILON,
-            outrun: LANDING_OUTRUN,
-        },
+        ("landing", Some(n), None) => {
+            // `down2`, or `down2_left` / `down2_right` for a landing that bends to that side.
+            let (down, shift) = match tail.rsplit_once('_') {
+                Some((d, "left")) => (d, 1),
+                Some((d, "right")) => (d, -1),
+                _ => (tail, 0),
+            };
+            let levels = down.strip_prefix("down").and_then(|l| l.parse::<i32>().ok()).filter(|l| (1..=8).contains(l))?;
+            Kind::Landing { cells: n, levels: -levels, gap: LANDING_GAP, epsilon: LANDING_EPSILON, outrun: LANDING_OUTRUN, shift }
+        }
         _ => return None,
     })
 }
@@ -236,7 +268,7 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
     };
     if let Some((deck, to)) = transition {
         return match variant {
-            None => Ok(Piece { kind: Kind::Transition { to }, deck, gate: None }),
+            None => Ok(Piece { kind: Kind::Transition { to }, deck, gate: None, edge: Edge::Auto }),
             Some(_) => Err(BlockError::BadVariant),
         };
     }
@@ -247,17 +279,24 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
         _ => None,
     };
     let kind = if gate.is_some() { Kind::Straight { cells: 1 } } else { parse_shape(id).ok_or(BlockError::UnknownId)? };
-    let deck = match variant {
-        None | Some("road") => Surface::Road,
-        Some("dirt") => Surface::Dirt,
+    let (deck, edge) = match variant {
+        None | Some("road") => (Surface::Road, Edge::Auto),
+        Some("sandbags") => (Surface::Road, Edge::Sandbags),
+        Some("bumpers") => (Surface::Road, Edge::Bumpers),
+        Some("dirt") => (Surface::Dirt, Edge::Auto),
         Some(_) => return Err(BlockError::BadVariant),
     };
-    Ok(Piece { kind, deck, gate })
+    Ok(Piece { kind, deck, gate, edge })
 }
 
 /// The catalogue id and variant of a piece, or `None` when the catalogue has no such block.
 pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
-    let dirt = (piece.deck == Surface::Dirt).then(|| "dirt".to_string());
+    let dirt = match (piece.deck, piece.edge) {
+        (Surface::Dirt, _) => Some("dirt".to_string()),
+        (_, Edge::Sandbags) => Some("sandbags".to_string()),
+        (_, Edge::Bumpers) => Some("bumpers".to_string()),
+        (_, Edge::Auto) => None,
+    };
     if let Some(g) = piece.gate {
         if piece.kind != (Kind::Straight { cells: 1 }) {
             return None;
@@ -282,19 +321,35 @@ pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
         Kind::Transition { to: Surface::Dirt } if piece.deck == Surface::Road => return Some(("to_dirt".into(), None)),
         Kind::Transition { to: Surface::Road } if piece.deck == Surface::Dirt => return Some(("to_road".into(), None)),
         Kind::JumpRamp { lip_deg } if lip_deg == LIP_DEG => "jump_ramp".into(),
-        Kind::Landing { cells, levels, gap, epsilon, outrun }
+        Kind::JumpRamp { lip_deg } if lip_deg == KICKER_DEG => "kicker".into(),
+        Kind::Landing { cells, levels, gap, epsilon, outrun, shift }
             if levels < 0 && gap == LANDING_GAP && epsilon == LANDING_EPSILON && outrun == LANDING_OUTRUN =>
         {
-            format!("landing{cells}_down{}", -levels)
+            format!("landing{cells}_down{}{}", -levels, shift_suffix(shift)?)
+        }
+        Kind::Landing { cells, levels, gap, epsilon, outrun, shift }
+            if levels < 0 && gap == LANDING_GAP && epsilon == KICKER_EPSILON && outrun == KICKER_OUTRUN =>
+        {
+            format!("kicker_landing{cells}_down{}{}", -levels, shift_suffix(shift)?)
         }
         _ => return None,
     };
     Some((id, dirt))
 }
 
+/// The id suffix of a landing bending `shift` cells to the side.
+fn shift_suffix(shift: i32) -> Option<&'static str> {
+    match shift {
+        0 => Some(""),
+        1 => Some("_left"),
+        -1 => Some("_right"),
+        _ => None,
+    }
+}
+
 /// Every catalogue id with sizes up to 3 cells and 2 levels (an editor's palette).
 pub fn catalogue() -> Vec<String> {
-    let mut out: Vec<String> = ["start", "checkpoint", "finish", "straight", "to_dirt", "to_road", "jump_ramp"].map(String::from).to_vec();
+    let mut out: Vec<String> = ["start", "checkpoint", "finish", "straight", "to_dirt", "to_road", "jump_ramp", "kicker"].map(String::from).to_vec();
     for n in 1..=3 {
         out.push(format!("whoops{n}"));
         for kind in ["turn", "banked", "berm", "uberm"] {
@@ -311,7 +366,10 @@ pub fn catalogue() -> Vec<String> {
     }
     for n in 4..=8 {
         for l in 1..=2 {
-            out.push(format!("landing{n}_down{l}"));
+            for side in ["", "_left", "_right"] {
+                out.push(format!("landing{n}_down{l}{side}"));
+                out.push(format!("kicker_landing{n}_down{l}{side}"));
+            }
         }
     }
     out
@@ -534,6 +592,8 @@ impl Map {
         }
         // Swept blocks and their footprints.
         let mut b = MeshBuilder::default();
+        // Drawn, not collided with: the bumpers' rounded tops, the stilts' straps.
+        let mut decor = MeshBuilder::default();
         let mut caps = Vec::new();
         for (i, (p, &(open_start, open_end))) in r.pieces.iter().zip(&r.open).enumerate() {
             let Some(range) = p.swept_range() else { continue };
@@ -544,7 +604,7 @@ impl Map {
             // A swept dirt piece sits in a corridor of its own instead of a flat pad: only its
             // deck is swept, the terrain comes up to its edges.
             let bedded = p.piece.deck == Surface::Dirt && !matches!(p.piece.kind, Kind::Transition { .. });
-            kit::sweep(&mut b, p, range, route_s[i], open_start, open_end, bedded);
+            kit::sweep(&mut b, &mut decor, p, range, route_s[i], open_start, open_end, bedded);
             if bedded {
                 continue;
             }
@@ -564,6 +624,12 @@ impl Map {
                 kit::gate(&mut b, &f, g, |q| if carved { post_ground(&terrain, q) } else { kit::TERRAIN_Y });
             }
         }
+        // Stilts under the raised roads, standing on the terrain, and their straps.
+        for (i, p) in r.pieces.iter().enumerate() {
+            if let Some(range) = p.swept_range() {
+                stilts::stilts(&mut b, &mut decor, p, range, route_s[i], |q| terrain.height(q.x, q.z));
+            }
+        }
         let mut mesh = b.finish();
         let blocks = mesh.triangle_count();
         let ground = terrain.mesh();
@@ -578,6 +644,7 @@ impl Map {
         let rocks = scenery::props_mesh(&props, &terrain);
         mesh.append(&rocks);
         track.mesh = mesh;
+        track.decor = decor.finish();
         Ok(BuiltMap {
             props: scenery::placed(&props, &terrain),
             triangles: TriangleCounts { blocks, terrain: ground.triangle_count(), scenery: rocks.triangle_count() },

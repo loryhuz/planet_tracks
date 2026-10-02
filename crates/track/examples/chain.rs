@@ -13,6 +13,9 @@
 //! slope3_up1
 //! turn2_left dirt           # optional deck variant
 //! prop spire 470 0 -170 15 9   # scenery: kind x y z yaw scale
+//! landform butte 430 -400 46 18.5 24 90   # kind x z radius height [length yaw]
+//! terrain hills 10          # any other terrain setting
+//! version 2                 # revision of the map (records are kept per version)
 //! ```
 //!
 //! The first block must be `start` and the last `finish`. The tool refuses blocks that
@@ -33,6 +36,8 @@ fn main() {
     let mut terrain = TerrainSettings::default();
     let mut layout: Option<Layout> = None;
     let mut props = Vec::new();
+    let mut landforms = Vec::new();
+    let mut version = 1;
 
     for (n, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -47,6 +52,25 @@ fn main() {
         match words[0] {
             "name" => name = words[1..].join(" "),
             "seed" => terrain.seed = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad seed")),
+            "version" => version = words.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| fail("bad version")),
+            "terrain" => {
+                let mut t = serde_json::to_value(&terrain).expect("terrain");
+                let value: serde_json::Value = words.get(2).and_then(|v| serde_json::from_str(v).ok()).unwrap_or_else(|| fail("terrain needs: setting value"));
+                t[words[1]] = value;
+                terrain = serde_json::from_value(t).unwrap_or_else(|e| fail(&format!("{e}")));
+            }
+            "landform" => {
+                let f: Vec<f32> = words[2..].iter().filter_map(|w| w.parse().ok()).collect();
+                if f.len() != 4 && f.len() != 6 {
+                    fail("landform needs: kind x z radius height [length yaw]");
+                }
+                let mut l = serde_json::json!({"landform": words[1], "position": [f[0], f[1]], "radius": f[2], "height": f[3]});
+                if f.len() == 6 {
+                    l["length"] = f[4].into();
+                    l["yaw"] = f[5].into();
+                }
+                landforms.push(l);
+            }
             "start" => {
                 let v: Vec<i32> = words[1..].iter().filter_map(|w| w.parse().ok()).collect();
                 if v.len() != 4 {
@@ -114,10 +138,10 @@ fn main() {
         format: track::map::FORMAT,
         name: name.clone(),
         author: "mars-racer".into(),
-        version: 1,
+        version,
         terrain,
         blocks,
-        landforms: Vec::new(),
+        landforms: serde_json::from_value(serde_json::Value::Array(landforms)).expect("landforms"),
         scenery: serde_json::from_value(serde_json::Value::Array(props)).expect("props"),
     };
     let json = map.to_json();

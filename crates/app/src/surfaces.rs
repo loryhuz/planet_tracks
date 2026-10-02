@@ -11,8 +11,8 @@ use crate::car_model::{Image, decode_png};
 use crate::gfx::Gpu;
 
 /// (name, colour PNG, relief PNG), in the order of the `L_*` layers of `scene.wgsl`.
-const LAYERS: [(&str, &[u8], &[u8]); 8] = [
-    ("asphalt", include_bytes!("../assets/textures/asphalt_albedo.png"), include_bytes!("../assets/textures/asphalt_normal.png")),
+const LAYERS: [(&str, &[u8], &[u8]); 12] = [
+    ("tarp", include_bytes!("../assets/textures/tarp_albedo.png"), include_bytes!("../assets/textures/tarp_normal.png")),
     ("dirt", include_bytes!("../assets/textures/dirt_albedo.png"), include_bytes!("../assets/textures/dirt_normal.png")),
     ("earth", include_bytes!("../assets/textures/earth_albedo.png"), include_bytes!("../assets/textures/earth_normal.png")),
     ("pebbles", include_bytes!("../assets/textures/pebbles_albedo.png"), include_bytes!("../assets/textures/pebbles_normal.png")),
@@ -20,6 +20,10 @@ const LAYERS: [(&str, &[u8], &[u8]); 8] = [
     ("sand", include_bytes!("../assets/textures/sand_albedo.png"), include_bytes!("../assets/textures/sand_normal.png")),
     ("rock", include_bytes!("../assets/textures/rock_albedo.png"), include_bytes!("../assets/textures/rock_normal.png")),
     ("concrete", include_bytes!("../assets/textures/concrete_albedo.png"), include_bytes!("../assets/textures/concrete_normal.png")),
+    ("sandbag", include_bytes!("../assets/textures/sandbag_albedo.png"), include_bytes!("../assets/textures/sandbag_normal.png")),
+    ("webbing", include_bytes!("../assets/textures/webbing_albedo.png"), include_bytes!("../assets/textures/webbing_normal.png")),
+    ("galvanized", include_bytes!("../assets/textures/galvanized_albedo.png"), include_bytes!("../assets/textures/galvanized_normal.png")),
+    ("rust", include_bytes!("../assets/textures/rust_albedo.png"), include_bytes!("../assets/textures/rust_normal.png")),
 ];
 
 pub struct SurfaceTextures {

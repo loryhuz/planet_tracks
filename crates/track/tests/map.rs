@@ -25,7 +25,7 @@ fn legacy_jezero() -> Layout {
         .push(road(Kind::turn(3, Right)))
         .push(road(Kind::Straight { cells: 1 }).gate(Gate::Checkpoint))
         .push(road(Kind::JumpRamp { lip_deg: 4.0 }))
-        .push(road(Kind::Landing { cells: 7, levels: -2, gap: 8.0, epsilon: 0.07, outrun: 48.0 }))
+        .push(road(Kind::Landing { cells: 7, levels: -2, gap: 8.0, epsilon: 0.07, outrun: 48.0, shift: 0 }))
         .push(road(Kind::Transition { to: Surface::Dirt }))
         .push(dirt(Kind::turn(2, Left)))
         .push(dirt(Kind::Whoops { cells: 3, bumps: 3, height: 0.6 }))
@@ -102,7 +102,7 @@ fn json_round_trips() {
 #[test]
 fn catalogue_round_trips() {
     for id in map::catalogue() {
-        for variant in [None, Some("dirt")] {
+        for variant in [None, Some("dirt"), Some("sandbags"), Some("bumpers")] {
             let Ok(piece) = map::parse_block(&id, variant) else {
                 assert!(id.starts_with("to_") && variant.is_some(), "{id} {variant:?}");
                 continue;
@@ -282,9 +282,37 @@ fn nothing_but_the_deck_under_the_route() {
 }
 
 #[test]
+fn no_builtin_map_buries_a_deck() {
+    // Across the whole road width of every block, the first thing below is a deck, never the
+    // terrain over it (a turn banked about its centreline at level 0 sinks its inside half).
+    for map in track::builtin_maps() {
+        let b = map.build_detailed().unwrap();
+        let world = Raycaster::new(&b.track.mesh);
+        for (i, p) in b.layout.pieces.iter().enumerate() {
+            let (s0, s1) = p.deck_range();
+            let n = ((s1 - s0) / 6.0).ceil() as usize;
+            for k in 0..=n {
+                let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
+                for u in [-HALF_WIDTH + 0.6, -5.0, 0.0, 5.0, HALF_WIDTH - 0.6] {
+                    let q = f.deck_point(u);
+                    let surface = world.down(q + Vec3::Y * 3.0).map(|(_, s)| s);
+                    assert!(
+                        matches!(surface, Some(Surface::Road | Surface::Dirt)),
+                        "{}: {surface:?} over block {i} ({:?}) {u} m from its centreline at {q}",
+                        map.name,
+                        p.piece.kind
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn ground_near_the_road_is_gentle() {
-    // Within 40 m of the driving line along roads: no cliff (slopes under 20°) and never more
-    // than a few metres from the road's ground level. (Dirt corridors have banks, see
+    // Within 40 m of the driving line along roads: no cliff (slopes under 20°), and the ground
+    // rolls away from the road's level by no more than a metre plus 15 % of the distance (the
+    // rises and hollows of `hills`, 7 m at 40 m). (Dirt corridors have banks, see
     // `dirt_corridors_are_dug_into_the_plain`; the map's own landforms stand close on purpose,
     // cut around the road, see `terrain_is_flat_under_the_swept_blocks`.)
     let b = built();
@@ -305,7 +333,7 @@ fn ground_near_the_road_is_gentle() {
             let n = b.terrain.normal(q.x, q.z);
             assert!(n.y > 20f32.to_radians().cos(), "route point {i}, {u} m aside: slope {:.0}°", n.y.acos().to_degrees());
             let h = b.terrain.height(q.x, q.z);
-            assert!((h - TERRAIN_Y).abs() < 3.0, "route point {i}, {u} m aside: ground at {h}");
+            assert!((h - TERRAIN_Y).abs() < 1.0 + 0.15 * u.abs(), "route point {i}, {u} m aside: ground at {h}");
         }
     }
 }
@@ -477,12 +505,99 @@ fn rocks_keep_clear_of_the_route() {
 }
 
 #[test]
+fn every_builtin_map_keeps_its_rocks_clear_of_the_route() {
+    for map in track::builtin_maps() {
+        let b = map.build_detailed().unwrap();
+        let route = &b.track.route;
+        for (i, p) in b.props.iter().enumerate() {
+            let q = Vec2::new(p.position.x, p.position.z);
+            let d = route
+                .windows(2)
+                .map(|w| {
+                    let (a, c) = (Vec2::new(w[0].x, w[0].z), Vec2::new(w[1].x, w[1].z));
+                    let t = ((q - a).dot(c - a) / (c - a).length_squared().max(1e-6)).clamp(0.0, 1.0);
+                    q.distance(a + (c - a) * t)
+                })
+                .fold(f32::MAX, f32::min);
+            assert!(d - p.radius >= ROUTE_CLEARANCE, "{}: prop {i} ({:?}) {d} m from the route", map.name, p.kind);
+        }
+    }
+}
+
+#[test]
+fn dirt_decks_roll_gently() {
+    // On every map, a dirt deck's bank never changes faster than kit::DIRT_ROLL_RATE along it,
+    // and the inside of a dirt turn stays level: nothing stands up under the wheels or dips
+    // beside them.
+    for map in track::builtin_maps() {
+        let layout = map.layout().unwrap();
+        for p in layout.pieces.iter().filter(|p| p.piece.deck == Surface::Dirt) {
+            let (s0, s1) = p.deck_range();
+            let n = ((s1 - s0) / 0.5).ceil() as usize;
+            let mut last: Option<f32> = None;
+            for k in 0..=n {
+                let s = s0 + (s1 - s0) * k as f32 / n as f32;
+                let f = p.frame(s);
+                if let Some(b) = last {
+                    let rate = (f.bank - b).abs() / ((s1 - s0) / n as f32);
+                    assert!(rate <= kit::DIRT_ROLL_RATE * 1.02, "{}: {:?} rolls {rate} rad/m at s {s}", map.name, p.piece.kind);
+                }
+                last = Some(f.bank);
+                if matches!(p.piece.kind, Kind::Turn { .. }) && f.bank != 0.0 {
+                    // The low side of the bank is the inside; past the bend it is level.
+                    let inside = -f.bank.signum();
+                    let edge = f.deck_point(inside * kit::DIRT_HALF_WIDTH).y;
+                    assert!((edge - f.pivot_y).abs() < 1e-3, "{}: {:?} dips {} m inside at s {s}", map.name, p.piece.kind, f.pivot_y - edge);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn noctis_roads_up_high_stand_on_rock() {
+    // Noctis runs through buttes: its elevated roads (the start 24 m up, the U-turn 16 m up, the
+    // ramps between) stand on the rock rather than on platform walls. Just past the deck edges
+    // the ground comes up to the deck: everywhere on the level parts, and along the ramps except
+    // near their foot, where the rock is cut down to the road below, and the top of the last
+    // climb, where it gives way to the kicker. The kicker and its landing are built structures
+    // over open ground (rock never rises under a jump).
+    let map = track::builtin_maps().into_iter().find(|m| m.name == "Noctis").unwrap();
+    let b = map.build_detailed().unwrap();
+    let (mut total, mut on_rock) = (0, 0);
+    for p in b.layout.pieces.iter().filter(|p| !matches!(p.piece.kind, Kind::JumpRamp { .. } | Kind::Landing { .. })) {
+        let level = !matches!(p.piece.kind, Kind::Slope { .. });
+        let (s0, s1) = p.deck_range();
+        let n = ((s1 - s0) / 4.0).ceil() as usize;
+        for k in 0..=n {
+            let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
+            for u in [-(HALF_WIDTH + 1.0), HALF_WIDTH + 1.0] {
+                let q = f.deck_point(u);
+                if q.y < 2.0 {
+                    continue;
+                }
+                let gap = q.y - b.terrain.height(q.x, q.z);
+                assert!(!level || gap < 1.5, "{:?}: the ground is {gap} m below the deck at {q}", p.piece.kind);
+                total += 1;
+                if gap < 1.5 {
+                    on_rock += 1;
+                }
+            }
+        }
+    }
+    assert!(total > 200);
+    assert!(on_rock * 100 >= total * 85, "only {on_rock} of {total} points beside the elevated decks on rock");
+    // The start stands on the mesa.
+    assert!(b.track.start.position.y > 23.0);
+}
+
+#[test]
 fn triangle_budget_by_part() {
     let b = built();
     let t = b.triangles;
     println!("blocks {} · terrain {} · scenery {} · total {}", t.blocks, t.terrain, t.scenery, b.track.mesh.triangle_count());
     assert_eq!(t.blocks + t.terrain + t.scenery, b.track.mesh.triangle_count());
-    assert!(b.track.mesh.triangle_count() < 200_000);
+    assert!(b.track.mesh.triangle_count() < 300_000);
     assert!(t.scenery < 60_000);
 }
 
@@ -559,6 +674,7 @@ fn builtin_maps_load_and_build() {
     for map in track::builtin_maps() {
         let built = map.build_detailed().unwrap_or_else(|e| panic!("{}: {e}", map.name));
         assert!(!built.track.checkpoints.is_empty(), "{} has no checkpoint", map.name);
-        assert!(built.track.mesh.triangle_count() < 200_000, "{} is over budget", map.name);
+        assert!(built.track.mesh.triangle_count() < 300_000, "{} is over budget", map.name);
+        assert!(built.track.mesh.triangle_count() + built.track.decor.triangle_count() < 550_000, "{} draws too much", map.name);
     }
 }

@@ -27,7 +27,15 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 
 ## Layout
 
-- `crates/track` — block kit, maps, triangle meshes with a surface per triangle.
+- `crates/track` — block kit, maps, triangle meshes with a surface per triangle. Maps are
+  `crates/track/maps/*.json`, written from a `.chain` file (blocks, landforms, props) by
+  `cargo run -p track --example chain -- crates/track/maps/noctis.chain`; a new one is added to
+  `BUILTIN_MAPS`. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
+  test autopilot over a map (with the two numbers it brakes for the bends).
+  Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
+  edges per block variant, raised slabs on trusses and piers of red plastic tubes,
+  `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
+  kept up to date with the code.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title with the tagline, one planet at

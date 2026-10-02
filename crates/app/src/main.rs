@@ -67,6 +67,13 @@ struct App {
     frames_shown: u32,
 }
 
+/// The track's mesh and its decoration (see `track::Track::decor`), drawn together.
+fn track_render_data(track: &track::Track) -> MeshData {
+    let mut mesh = track.mesh.clone();
+    mesh.append(&track.decor);
+    track_mesh_data(&mesh)
+}
+
 /// Track mesh to GPU vertices. The vertex kind is the triangle's surface; the terrain shares its
 /// vertices between dirt and ground triangles, so both draw as ground and the shader blends to
 /// dirt with the vertex's dirt amount.
@@ -82,8 +89,14 @@ fn track_mesh_data(mesh: &track::TrackMesh) -> MeshData {
         })
         .collect();
     for (t, surface) in mesh.tri_surface.iter().enumerate() {
+        let color = vertices[mesh.indices[3 * t] as usize].color;
         let kind = match surface {
             track::Surface::Dirt => track::Surface::Ground as u32,
+            // The strip between a road and its border is ground to the car, the road's tarp to
+            // the eye.
+            track::Surface::Ground if color == track::kit::color::VERGE || color == track::kit::color::VERGE_STRAPPED => {
+                track::Surface::Road as u32
+            }
             track::Surface::Wall => wall_kind(vertices[mesh.indices[3 * t] as usize].color),
             s => *s as u32,
         };
@@ -92,12 +105,16 @@ fn track_mesh_data(mesh: &track::TrackMesh) -> MeshData {
         }
     }
     road_spill(&mut vertices);
-    // Triangles grouped by the shader that draws them: roads, the rest, then the ground.
+    // Triangles grouped by the shader that draws them: roads, the rest, then the ground; the
+    // borders' plain hulls (the car's, not the eye's) left out.
     let mut indices = Vec::with_capacity(mesh.indices.len());
     let mut parts = Vec::new();
     for shading in [Shading::Road, Shading::Other, Shading::Ground] {
         let first = indices.len() as u32;
         for t in mesh.indices.chunks_exact(3) {
+            if vertices[t[0] as usize].color == track::kit::color::HULL {
+                continue;
+            }
             let s = match vertices[t[0] as usize].kind {
                 k if k == track::Surface::Road as u32 => Shading::Road,
                 k if k == track::Surface::Ground as u32 => Shading::Ground,
@@ -136,13 +153,20 @@ fn road_spill(vertices: &mut [Vertex]) {
     }
 }
 
-/// What a wall is made of, told by the kit's colour it was given: concrete barriers and platform
-/// sides, the dug earth of dirt jumps, painted gates (kept plain), and rocks (any other colour:
+/// What a wall is made of, told by the kit's colour it was given: inflatable bumpers, sandbags,
+/// tarp-wrapped slabs, plastic stilts, straps, steel stakes and buckles, concrete sides of dirt
+/// mounds, the dug earth of dirt jumps, painted gates (kept plain), and rocks (any other colour:
 /// the scenery shades each rock its own way).
 fn wall_kind(color: [f32; 3]) -> u32 {
     use track::kit::color as c;
     match color {
-        x if x == c::LIP || x == c::WALL => gfx::kind::CONCRETE,
+        x if x == c::LIP => gfx::kind::BUMPER,
+        x if x == c::SANDBAG => gfx::kind::SANDBAG,
+        x if x == c::SLAB => gfx::kind::TARP,
+        x if x == c::TUBE || x == c::COLLAR => gfx::kind::PLASTIC,
+        x if x == c::STRAP => gfx::kind::STRAP,
+        x if x == c::STEEL || x == c::RUST || x == c::STAKE => gfx::kind::STEEL,
+        x if x == c::WALL => gfx::kind::CONCRETE,
         x if x == c::EARTH_FACE => gfx::kind::EARTH,
         x if x == c::START || x == c::CHECKPOINT || x == c::FINISH => track::Surface::Wall as u32,
         _ => gfx::kind::ROCK,
@@ -341,7 +365,7 @@ impl App {
         game.session.autosave();
 
         if std::mem::take(&mut game.track_changed) {
-            g.scene.replace(&g.gpu.device, g.track_mesh, &track_mesh_data(&game.track.mesh));
+            g.scene.replace(&g.gpu.device, g.track_mesh, &track_render_data(&game.track));
             g.scene.set_track(&game.track);
         }
 
@@ -473,7 +497,7 @@ impl ApplicationHandler for App {
         }
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
-        let track_mesh = scene.upload(&gpu.device, &track_mesh_data(&self.game.track.mesh));
+        let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
         scene.set_track(&self.game.track);
         let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;

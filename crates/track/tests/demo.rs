@@ -108,11 +108,17 @@ fn driving_surfaces_face_up() {
 
 #[test]
 fn triangle_budget() {
-    // Blocks, Mars terrain and rocks together.
-    let n = demo_track().mesh.triangle_count();
-    assert!(n < 200_000, "{n} triangles");
+    // Blocks (with their borders and the stilts of the raised roads), Mars terrain and rocks: a
+    // guard against a runaway mesh. The decoration (sandbags, the bumpers' tubes, stakes,
+    // straps) is drawn only, and costs the GPU little next to the pixels (2 October 2026, Jezero
+    // with about 485 000 triangles drawn: 6.3 ms median at 3200 x 1800 on a Mac along the
+    // sandbags, 8.2 ms over the raised road, as without most of them).
+    let t = demo_track();
+    assert!(t.mesh.triangle_count() < 300_000, "{} triangles", t.mesh.triangle_count());
+    let n = t.mesh.triangle_count() + t.decor.triangle_count();
+    assert!(n < 550_000, "{n} triangles drawn");
     let blocks = layout().pieces_mesh().triangle_count();
-    assert!(blocks < 50_000, "{blocks} block triangles");
+    assert!(blocks < 100_000, "{blocks} block triangles");
 }
 
 #[test]
@@ -162,7 +168,7 @@ fn berms_have_no_hump() {
         for quarters in [1, 2] {
             for (deck, min_radius) in [(Surface::Dirt, 120.0), (Surface::Road, 70.0)] {
                 let kind = Kind::berm(size, Side::Left, quarters, 18.0);
-                let p = Placed::new(Piece { kind, deck, gate: None }, Connector::entering((0, 0), 0, Heading::North));
+                let p = Placed::new(Piece { kind, deck, gate: None, edge: Default::default() }, Connector::entering((0, 0), 0, Heading::North));
                 let h = 0.5;
                 let y = |s: f32| p.frame(s).centre().y;
                 let mut s = h;

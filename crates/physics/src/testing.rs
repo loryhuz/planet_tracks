@@ -253,17 +253,79 @@ pub fn big_terrain(triangles: usize) -> TrackMesh {
 }
 
 /// A keyboard-style driver for tests: follows a route polyline (pure pursuit), steering only at
-/// full lock or not at all, throttle always held, never braking.
+/// full lock or not at all, throttle always held, never braking (see [`Autopilot::braking`] for
+/// one that lifts and brakes before the bends).
 pub struct Autopilot {
     route: Vec<Vec3>,
     /// Index of the route point nearest to the car.
     pub index: usize,
     steer: f32,
+    /// Fastest speed each route point allows and the deceleration of the brakes there (m/s,
+    /// m/s²); empty for a driver who never brakes.
+    bends: Vec<(f32, f32)>,
 }
+
+/// Deceleration the braking driver counts on, on road and on dirt, m/s².
+const BRAKE_ROAD: f32 = 40.0;
+const BRAKE_DIRT: f32 = 25.0;
+/// How far ahead the braking driver looks for bends, metres.
+const BRAKE_LOOKAHEAD: f32 = 150.0;
 
 impl Autopilot {
     pub fn new(route: &[Vec3]) -> Self {
-        Self { route: route.to_vec(), index: 0, steer: 0.0 }
+        Self { route: route.to_vec(), index: 0, steer: 0.0, bends: Vec::new() }
+    }
+
+    /// The same driver, lifting and braking so that it reaches each point of the route at no
+    /// more than `√(a · R)`: `R` is the radius of the route's centreline there, `a` the lateral
+    /// acceleration it allows itself, `road` or `dirt` (m/s²) by the surface under the point.
+    pub fn braking(mut self, world: &crate::World, road: f32, dirt: f32) -> Self {
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let r = &self.route;
+        self.bends = (0..r.len())
+            .map(|i| {
+                let on_dirt = world.raycast(r[i] + Vec3::Y * 3.0, -Vec3::Y, 8.0).is_some_and(|h| h.surface == Surface::Dirt);
+                let (a, brake) = if on_dirt { (dirt, BRAKE_DIRT) } else { (road, BRAKE_ROAD) };
+                // Radius from the change of heading over three segments on each side.
+                let (lo, hi) = (i.saturating_sub(3), (i + 3).min(r.len() - 1));
+                if hi <= lo + 1 {
+                    return (f32::INFINITY, brake);
+                }
+                let (d0, d1) = (flat(r[lo + 1] - r[lo]), flat(r[hi] - r[hi - 1]));
+                let turn = libm::atan2f(d0.x * d1.z - d0.z * d1.x, d0.dot(d1)).abs();
+                let length: f32 = (lo..hi).map(|k| flat(r[k + 1] - r[k]).length()).sum();
+                let speed = if turn < 1e-3 { f32::INFINITY } else { libm::sqrtf(a * length / turn) };
+                (speed, brake)
+            })
+            .collect();
+        self
+    }
+
+    /// Throttle and brake for the braking driver at `speed` (m/s): the slowest speed any bend
+    /// ahead allows from here, given the room to brake for it.
+    fn pedals(&self, speed: f32) -> (f32, f32) {
+        if self.bends.is_empty() {
+            return (1.0, 0.0);
+        }
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let (mut run, mut limit) = (0.0, f32::INFINITY);
+        for k in self.index..self.route.len() {
+            if k > self.index {
+                run += flat(self.route[k] - self.route[k - 1]).length();
+            }
+            if run > BRAKE_LOOKAHEAD {
+                break;
+            }
+            let (v, brake) = self.bends[k];
+            limit = limit.min(libm::sqrtf(v * v + 2.0 * brake * run));
+        }
+        if speed > limit + 2.0 {
+            (0.0, 1.0)
+        } else if speed > limit {
+            (0.0, 0.0)
+        } else {
+            (1.0, 0.0)
+        }
     }
 
     /// Distance of `p` from the route around the current index, horizontally, metres.
@@ -320,7 +382,8 @@ impl Autopilot {
         } else {
             0.0
         };
-        crate::Input { steer: self.steer, gas: 1.0, brake: 0.0 }
+        let (gas, brake) = self.pedals(speed);
+        crate::Input { steer: self.steer, gas, brake }
     }
 
     pub fn finished(&self) -> bool {

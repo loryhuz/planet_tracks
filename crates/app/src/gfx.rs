@@ -129,13 +129,29 @@ pub mod kind {
     pub const WIRE: u32 = 15;
     /// Painted body whose colour comes from the livery texture at the vertex uv.
     pub const LIVERY: u32 = 16;
-    /// Concrete of the barriers and platform sides; the vertex colour (over the kit's light
-    /// barrier colour) darkens it. Barrier tops along the route are painted as kerbs.
+    /// Concrete: the sides of dirt mounds; the vertex colour (over the kit's light barrier
+    /// colour) darkens it.
     pub const CONCRETE: u32 = 20;
     /// Dug earth: the faces of dirt kickers and landings.
     pub const EARTH: u32 = 21;
     /// Rock: the scenery's boulders, slabs and spires.
     pub const ROCK: u32 = 22;
+    /// Laminated tarp tinted by the vertex colour (over the kit's slab colour): the sides, ends
+    /// and underside of raised slabs.
+    pub const TARP: u32 = 23;
+    /// Glossy plastic in the vertex colour: the stilts' tubes (clamps painted at their ends from
+    /// the vertex uv, see track's stilts.rs) and base plates.
+    pub const PLASTIC: u32 = 24;
+    /// Inflatable bumpers along the edges of roads: red and white tarp tubes strapped down.
+    pub const BUMPER: u32 = 25;
+    /// Sandbags: the rows along roads (bags laid out from the vertex uv, see track's kit.rs)
+    /// and the stacks under the stilts.
+    pub const SANDBAG: u32 = 26;
+    /// Orange ratchet straps (webbing along the vertex uv: metres along the strap).
+    pub const STRAP: u32 = 27;
+    /// Steel of the stakes and buckles, textured and mirroring like bare metal: galvanised, or
+    /// rusty when the vertex colour is reddish.
+    pub const STEEL: u32 = 28;
 }
 
 #[derive(Clone, Debug, Default)]

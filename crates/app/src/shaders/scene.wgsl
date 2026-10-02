@@ -41,7 +41,10 @@ struct Object {
 
 // Vertex kinds: 0 road, 1 dirt, 2 ground, 3 wall (painted gates), 10 car paint, 11 rubber,
 // 12 metal, 13 glass, 14 lights (unlit), 15 woven wire tyre (lattice from `uv`, metres), 16 car
-// paint coloured by the livery texture at `uv`, 20 concrete, 21 dug earth, 22 rock.
+// paint coloured by the livery texture at `uv`, 20 concrete, 21 dug earth, 22 rock, 23 tarp
+// (slabs of raised roads), 24 plastic (stilts; `uv` metres along the tube, its length), 25
+// inflatable bumpers, 26 sandbags, 27 straps (`uv` metres along), 28 steel (stakes, buckles:
+// galvanised, or rusty by a reddish vertex colour).
 // The track's ground (kind 2) blends from natural ground to dug banks and driven dirt with
 // `dirt` (0, ½, 1), and lays ruts along the track coordinates `uv` (metres along, across).
 struct VsIn {
@@ -95,14 +98,12 @@ fn value_noise(p: vec2<f32>) -> f32 {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-// Anti-aliased grid lines: 1 on a line, 0 elsewhere, fading out where lines get denser than pixels.
-fn grid(coord: vec2<f32>, spacing: f32) -> f32 {
-    let c = coord / spacing;
-    let w = max(fwidth(c), vec2<f32>(1e-5));
-    let g = abs(fract(c - 0.5) - 0.5) / w;
-    let line = 1.0 - min(min(g.x, g.y), 1.0);
-    let fade = 1.0 - smoothstep(0.12, 0.45, max(w.x, w.y));
-    return line * fade;
+// Value noise stretched along the track (`uv` the track coordinates, scaled by `along` and
+// `across`), its lattice turned by 45°: the edges of its cells then run along the track like the
+// streaks themselves, instead of across it like planks.
+fn streak_noise(uv: vec2<f32>, along: f32, across: f32) -> f32 {
+    let q = vec2<f32>(uv.x * along, uv.y * across);
+    return value_noise(vec2<f32>(q.x + q.y, q.y - q.x) * 0.70710678);
 }
 
 // How much of a road the earth of the dirt track it leads to covers, 0..1, from the road
@@ -136,7 +137,7 @@ fn ruts(uv: vec2<f32>) -> f32 {
 
 // Height of the dirt's small relief, metres: ruts pressed in, loose earth streaked along them.
 fn dirt_relief(uv: vec2<f32>, wear: f32) -> f32 {
-    let streak = value_noise(vec2<f32>(uv.x * 0.09, uv.y * 1.4));
+    let streak = streak_noise(uv, 0.09, 1.4);
     return wear * (-0.05 * ruts(uv) + 0.02 * streak);
 }
 
@@ -145,7 +146,7 @@ fn dirt_relief(uv: vec2<f32>, wear: f32) -> f32 {
 
 // Layers of the surface textures (surfaces.rs, tools/textures/bake.py) and the size of one tile
 // of each, metres.
-const L_ASPHALT: i32 = 0;
+const L_TARP: i32 = 0;
 const L_DIRT: i32 = 1;
 const L_EARTH: i32 = 2;
 const L_PEBBLES: i32 = 3;
@@ -153,7 +154,11 @@ const L_SLABS: i32 = 4;
 const L_SAND: i32 = 5;
 const L_ROCK: i32 = 6;
 const L_CONCRETE: i32 = 7;
-const TILE_ASPHALT: f32 = 3.5;
+const L_SANDBAG: i32 = 8;
+const L_WEBBING: i32 = 9;
+const L_GALVANIZED: i32 = 10;
+const L_RUST: i32 = 11;
+const TILE_TARP: f32 = 1.6;
 const TILE_DIRT: f32 = 4.0;
 const TILE_EARTH: f32 = 2.5;
 const TILE_PEBBLES: f32 = 3.0;
@@ -161,6 +166,9 @@ const TILE_SLABS: f32 = 6.0;
 const TILE_SAND: f32 = 7.0;
 const TILE_ROCK: f32 = 9.0;
 const TILE_CONCRETE: f32 = 2.8;
+const TILE_SANDBAG: f32 = 0.6;
+const TILE_WEBBING: f32 = 0.2;
+const TILE_STEEL: f32 = 0.22;
 
 // The relief (normal maps) fades out between these distances, metres; beyond, it is not read.
 const RELIEF_NEAR: f32 = 30.0;
@@ -170,15 +178,53 @@ const RELIEF_FAR: f32 = 50.0;
 const KIT_GROUND: vec3<f32> = vec3<f32>(0.55, 0.22, 0.10);
 const KIT_STEEP: vec3<f32> = vec3<f32>(0.27, 0.115, 0.065);
 const KIT_LIP: vec3<f32> = vec3<f32>(0.68, 0.68, 0.66);
+const KIT_SLAB: vec3<f32> = vec3<f32>(0.62, 0.60, 0.56);
+const KIT_COLLAR: vec3<f32> = vec3<f32>(0.70, 0.70, 0.67);
+const KIT_SANDBAG: vec3<f32> = vec3<f32>(0.50, 0.27, 0.13);
 const KIT_EARTH_FACE: vec3<f32> = vec3<f32>(0.40, 0.16, 0.075);
 const KIT_ROCK: vec3<f32> = vec3<f32>(0.30, 0.13, 0.075);
-// The kit's road half-width and barrier width (kit.rs HALF_WIDTH, LIP_WIDTH), metres.
+// The kit's road half-width (kit.rs HALF_WIDTH), metres.
 const KIT_HALF_WIDTH: f32 = 10.0;
-const KIT_LIP_WIDTH: f32 = 0.5;
 // The terrain's level next to the blocks (kit.rs TERRAIN_Y).
 const KIT_TERRAIN_Y: f32 = -0.25;
-// Fine Martian dust settled on the asphalt and the barriers.
+// Fine Martian dust settled on the roads and the barriers.
 const ROAD_DUST: vec3<f32> = vec3<f32>(0.36, 0.13, 0.055);
+
+// The tarp of the road decks (art/roads/brief.md): lengths of tarp DECK_STRIP m wide laid along
+// the road and welded where they overlap, cut every DECK_PANEL m, the cuts staggered from one
+// length to the next.
+const DECK_STRIP: f32 = 5.0;
+const DECK_PANEL: f32 = 12.0;
+// Stencilled colours: the orange edge lines, the black dashes inside them.
+const STENCIL_ORANGE: vec3<f32> = vec3<f32>(0.78, 0.2, 0.025);
+const STENCIL_BLACK: vec3<f32> = vec3<f32>(0.025, 0.024, 0.023);
+// The bumpers' two colours.
+const BUMPER_RED: vec3<f32> = vec3<f32>(0.55, 0.03, 0.022);
+const BUMPER_WHITE: vec3<f32> = vec3<f32>(0.70, 0.68, 0.64);
+// Orange webbing of the straps, and the steel of stakes and buckles.
+const STRAP_ORANGE: vec3<f32> = vec3<f32>(0.62, 0.17, 0.015);
+const STEEL: vec3<f32> = vec3<f32>(0.4, 0.4, 0.42);
+
+// The panel of deck tarp at track coordinates `uv` (metres along, across): its length across and
+// its index along (xy), and the point's place in it, metres from its corner (zw).
+fn deck_panel(uv: vec2<f32>) -> vec4<f32> {
+    let j = floor((uv.y + 0.5 * DECK_STRIP) / DECK_STRIP);
+    let along = uv.x + hash2(vec2<f32>(j, 3.7)) * DECK_PANEL;
+    let i = floor(along / DECK_PANEL);
+    return vec4<f32>(j, i, along - i * DECK_PANEL, uv.y + 0.5 * DECK_STRIP - j * DECK_STRIP);
+}
+
+// Distance from a point of a panel (`local`, from `deck_panel`) to its nearest edge, metres.
+fn panel_edge(local: vec2<f32>) -> f32 {
+    return min(min(local.x, DECK_PANEL - local.x), min(local.y, DECK_STRIP - local.y));
+}
+
+// Height of the welds between the deck's panels, metres: the overlapping edge stands a few
+// millimetres proud.
+fn deck_weld(uv: vec2<f32>) -> f32 {
+    let d = panel_edge(deck_panel(uv).zw);
+    return 0.004 * (1.0 - smoothstep(0.0, 0.07, d));
+}
 
 fn lum(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -362,7 +408,7 @@ fn over(a: Surf, b: Surf, t: f32) -> Surf {
 fn driven_dirt(xz: vec2<f32>, uv: vec2<f32>, dpx: vec3<f32>, dpy: vec3<f32>, bump: f32) -> Surf {
     var d = surf_ground(L_DIRT, TILE_DIRT, xz, dpx, dpy, 0.8 * bump);
     let r = ruts(uv);
-    let streak = value_noise(vec2<f32>(uv.x * 0.09, uv.y * 1.4));
+    let streak = streak_noise(uv, 0.09, 1.4);
     d.colour *= (0.94 + 0.12 * streak) * (1.0 - 0.22 * r);
     d.height *= 1.0 - 0.5 * r;
     return d;
@@ -386,12 +432,15 @@ fn rubber(uv: vec2<f32>) -> f32 {
     let b = (value_noise(vec2<f32>(s * 0.021, 9.1)) - 0.5) * 4.0;
     var r = band(uv.y - (-0.8 + a), 0.9) + band(uv.y - (0.8 + a), 0.9);
     r += 0.5 * (band(uv.y - (-0.8 + a + b), 0.7) + band(uv.y - (0.8 + a + b), 0.7));
-    let streaks = value_noise(vec2<f32>(s * 0.35, uv.y * 6.0));
+    let streaks = streak_noise(uv, 0.35, 6.0);
     return clamp(r * (0.6 + 0.6 * streaks), 0.0, 1.0);
 }
 
+// How much sun reaches `world`, on a surface of normal `n`. The lookup is lifted off the surface
+// by about one texel of the shadow map (7 cm) against acne; more, and the shadows of low things
+// (sandbags, stakes) start well away from their feet, which then seem to float.
 fn shadow_factor(world: vec3<f32>, n: vec3<f32>) -> f32 {
-    let p = frame.light_view_proj * vec4<f32>(world + n * 0.15 + frame.sun_dir.xyz * 0.05, 1.0);
+    let p = frame.light_view_proj * vec4<f32>(world + n * 0.06 + frame.sun_dir.xyz * 0.03, 1.0);
     let ndc = p.xyz / p.w;
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let texel = frame.misc.x;
@@ -521,8 +570,6 @@ fn fs_ghost(in: VsOut) -> @location(0) vec4<f32> {
 fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     // Derivatives first, while control flow is still uniform.
     let xz = in.world.xz;
-    let g_fine = grid(xz, 8.0);
-    let g_coarse = grid(xz, 32.0);
     let n_low = value_noise(xz * 0.015);
     let n_high = value_noise(xz * 0.4);
     // Worked earth: an irregular edge between dirt, dug banks and natural ground.
@@ -540,20 +587,34 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     // Woven wire of the tyres: two diagonal families of wires every 4.5 cm, antialiased.
     let wire = wire_lattice(in.uv);
     let livery = textureSample(livery_tex, livery_sampler, in.uv).rgb;
-    // Kerb stripes along the route (4 m period), antialiased; how the track coordinate across
-    // changes on screen (the barriers' rounded edges).
+    // The bumpers' stripes along the route (4 m period), antialiased.
     let kerb_aa = fwidth(in.uv.x) / 4.0;
-    let across_dx = dpdx(in.uv.y);
-    let across_dy = dpdy(in.uv.y);
+    // How many metres of track a pixel covers, how the track coordinate along changes on screen
+    // (the sandbags' bulges, the straps' webbing); the welds of the road decks' tarp, their
+    // relief.
+    let uv_aa = max(fwidth(in.uv.x), fwidth(in.uv.y));
+    let along_dx = dpdx(in.uv.x);
+    let along_dy = dpdy(in.uv.x);
+    let weld = deck_weld(in.uv);
+    let dwx = dpdx(weld);
+    let dwy = dpdy(weld);
 
     var base = in.color;
     var n = normalize(in.normal);
     let eye_dist = length(frame.camera_pos.xyz - in.world);
     // How much relief the textures give: full near the camera, none (and not read) far away.
     let bump = 1.0 - smoothstep(RELIEF_NEAR, RELIEF_FAR, eye_dist);
+    // A soft highlight on plastics: strength and exponent (none on matt surfaces).
+    var sheen = vec2<f32>(0.0, 1.0);
+    // How much a surface is bare metal (0..1): it then mirrors the sky and the ground, tinted by
+    // its colour, instead of scattering the light.
+    var metal = 0.0;
     if k == 2u || k == 22u || (k == 0u && in.dirt > 0.01) {
         hex_at(xz);
     }
+    // Patches of pale slabs and drifts of sand on the natural ground.
+    let slabby = smoothstep(0.5, 0.6, value_noise(xz * 0.021 + vec2<f32>(9.1, 2.3)));
+    let sandy = smoothstep(0.7, 0.8, value_noise(xz * 0.009 + vec2<f32>(3.7, 6.1)));
     if terrain && k == 2u {
         let ng = n;
         // The terrain's own colour variations (broad tints, graded pads, crater ejecta), measured
@@ -562,8 +623,6 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let tint = clamp(lum(in.color) / lum(mix(KIT_GROUND, KIT_STEEP, steep_kit)), 0.75, 1.3);
         // Natural ground: pebbles, with patches of pale slabs and drifts of fine sand. Their
         // edges are narrow (both sides are read only there), height blending makes them ragged.
-        let slabby = smoothstep(0.5, 0.6, value_noise(xz * 0.021 + vec2<f32>(9.1, 2.3)));
-        let sandy = smoothstep(0.7, 0.8, value_noise(xz * 0.009 + vec2<f32>(3.7, 6.1)));
         var g = Surf(KIT_GROUND, vec3<f32>(0.0), 0.5);
         if wear < 0.99 {
             if dug < 0.99 {
@@ -611,31 +670,95 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         }
         // (The driven dirt is the same everywhere, on a road it spills onto too.)
         base = g.colour * mix(tint, 1.0, wear) * (0.94 + 0.12 * n_low);
-        // The building grid shows on the natural ground only.
-        base *= 1.0 - (0.10 * g_fine + 0.24 * g_coarse) * (1.0 - dug);
         n = normalize(ng + g.bump);
         n = rut_relief(n, ng, dpx, dpy, dhx, dhy, (1.0 - smoothstep(30.0, 90.0, eye_dist)) * dug);
     } else if k == 1u {
         base *= 0.9 + 0.14 * n_high;
-        base *= 1.0 - 0.08 * g_fine - 0.14 * g_coarse;
     } else if terrain && k == 0u {
-        var a = surf_flat(L_ASPHALT, TILE_ASPHALT, xz, dpx, dpy, 0.7 * bump);
+        // Laminated tarp over the deck panels: the lengths and their welds, a panel of another
+        // make now and then, patches, stencilled lines, eyelets along the edges.
+        var a = surf_flat(L_TARP, TILE_TARP, xz, dpx, dpy, 0.6 * bump);
+        let pn = deck_panel(in.uv);
+        let h1 = hash2(pn.xy + vec2<f32>(0.37, 1.91));
+        let h2 = hash2(pn.xy + vec2<f32>(5.3, 0.71));
+        var tint = vec3<f32>(0.8 + 0.09 * h1);
+        if h2 < 0.08 {
+            tint *= vec3<f32>(0.84, 0.88, 0.9);
+        } else if h2 > 0.93 {
+            tint *= vec3<f32>(1.0, 0.93, 0.82);
+        }
+        // Detail finer than a few pixels fades to its average.
+        let fine = 1.0 - smoothstep(0.02, 0.09, uv_aa);
+        let aa = max(uv_aa, 0.004);
+        // A patch on some panels: a rectangle of grey tarp welded on.
+        let h3 = hash2(pn.xy + vec2<f32>(9.2, 4.4));
+        if h3 < 0.2 {
+            let centre = vec2<f32>(2.0 + 8.0 * hash2(pn.xy + vec2<f32>(1.1, 7.7)), 1.2 + 2.6 * hash2(pn.xy + vec2<f32>(6.6, 2.2)));
+            let half = vec2<f32>(0.5 + 0.5 * h3 * 5.0, 0.35 + 0.25 * h1);
+            let q = abs(pn.zw - centre) - half;
+            let inside = 1.0 - smoothstep(-aa, aa, max(q.x, q.y));
+            let rim = (1.0 - smoothstep(0.0, 0.03 + aa, abs(max(q.x, q.y)))) * fine;
+            tint = mix(tint, vec3<f32>(0.62, 0.64, 0.6), inside) * (1.0 - 0.25 * rim);
+        }
+        // The welds: a dark line where an edge overlaps, a lighter band of melted laminate.
+        let edge = panel_edge(pn.zw);
+        let line = 1.0 - smoothstep(0.012, 0.012 + aa, edge);
+        let band = 1.0 - smoothstep(0.06, 0.06 + aa, edge);
+        tint *= mix(1.0, (1.0 + 0.05 * band) * (1.0 - 0.3 * line), fine);
+        a.colour *= tint;
+        // Stencilled marks: the kit's edge lines painted orange, black dashes inside them.
+        let grain = clamp(lum(a.colour) / 0.45, 0.7, 1.3);
+        let paint = smoothstep(0.3, 0.5, lum(in.color));
+        a.colour = mix(a.colour, STENCIL_ORANGE * (0.8 + 0.2 * grain), paint);
+        let u = abs(in.uv.y);
+        let dash = (smoothstep(KIT_HALF_WIDTH - 1.25 - aa, KIT_HALF_WIDTH - 1.25 + aa, u) - smoothstep(KIT_HALF_WIDTH - 0.95 - aa, KIT_HALF_WIDTH - 0.95 + aa, u))
+            * smoothstep(0.5 + aa * 0.25, 0.5 - aa * 0.25, fract(in.uv.x / 4.0));
+        a.colour = mix(a.colour, STENCIL_BLACK, 0.9 * dash);
+        // The tarp's edges (the kit tells them apart by the blue of the vertex colour): strapped
+        // down under bumpers, or pinned by stakes in front of a row of sandbags.
+        let strapped = in.color.b - in.color.r > 0.02;
+        var fixings = 0.0;
+        if strapped {
+            // Eyelets every 0.9 m, and every 4 m a strap across the edge to the bumper's own
+            // strap (in the middle of a white length), its ratchet buckle on the tarp.
+            let e = vec2<f32>((fract(in.uv.x / 0.9) - 0.5) * 0.9, u - (KIT_HALF_WIDTH - 0.22));
+            let r = length(e);
+            let ring = (1.0 - smoothstep(0.06, 0.06 + aa, r)) * fine;
+            let hole = 1.0 - smoothstep(0.03, 0.03 + aa, r);
+            a.colour = mix(a.colour, mix(vec3<f32>(0.42, 0.36, 0.25), vec3<f32>(0.03), hole), ring);
+            let q = (in.uv.x - 2.0) / 4.0;
+            let to_strap = abs(q - round(q)) * 4.0;
+            let strap = (1.0 - smoothstep(0.075, 0.075 + aa, to_strap)) * smoothstep(KIT_HALF_WIDTH - 1.0 - aa, KIT_HALF_WIDTH - 1.0 + aa, u);
+            a.colour = mix(a.colour, STRAP_ORANGE * (0.85 + 0.15 * grain), strap);
+            let bq = abs(vec2<f32>(to_strap, u - (KIT_HALF_WIDTH - 0.7))) - vec2<f32>(0.1, 0.08);
+            let buckle = (1.0 - smoothstep(-aa, aa, max(bq.x, bq.y))) * fine;
+            a.colour = mix(a.colour, STEEL, buckle);
+            fixings = max(max(strap, buckle), ring);
+        } else {
+            // Eyelets along the tarp's edge (the verge's, 0.5 m past the deck's, where the stakes
+            // pin it against the bags), punched by hand: about every 0.9 m, a little off line,
+            // now and then one missing.
+            let cell = floor(in.uv.x / 0.9);
+            let off = vec2<f32>(hash2(vec2<f32>(cell, 1.3)) - 0.5, hash2(vec2<f32>(cell, 4.1)) - 0.5);
+            let e = vec2<f32>((fract(in.uv.x / 0.9) - 0.5) * 0.9 - 0.3 * off.x, u - (KIT_HALF_WIDTH + 0.38) - 0.03 * off.y);
+            let r = length(e) + select(0.0, 1.0, hash2(vec2<f32>(cell, 7.7)) < 0.15);
+            let ring = (1.0 - smoothstep(0.06, 0.06 + aa, r)) * fine;
+            let hole = 1.0 - smoothstep(0.03, 0.03 + aa, r);
+            a.colour = mix(a.colour, mix(vec3<f32>(0.42, 0.36, 0.25), vec3<f32>(0.03), hole), ring);
+            fixings = ring;
+        }
         // Rubber laid along the racing lines.
         let rub = rubber(in.uv);
-        a.colour *= 1.0 - 0.3 * rub;
-        // Painted lines (the kit's line colour) keep the grain of the asphalt under them.
-        let paint = smoothstep(0.3, 0.5, lum(in.color));
-        let grain = clamp(lum(a.colour) / 0.1, 0.6, 1.4);
-        a.colour = mix(a.colour, in.color * (0.62 + 0.25 * grain), paint);
-        // Martian dust: blown in from the edges, in drifting patches, settled in the pores, and
-        // thicker toward a dirt track.
-        let edge = smoothstep(6.5, 10.0, abs(in.uv.y));
+        a.colour = mix(a.colour, vec3<f32>(0.035, 0.033, 0.032), 0.55 * rub);
+        // Martian dust: blown in from the edges, in drifting patches, caught in the welds and the
+        // weave, and thicker toward a dirt track.
+        let edge_dust = smoothstep(6.5, 10.0, u);
         let drift = smoothstep(0.4, 0.85, value_noise(xz * 0.06 + vec2<f32>(1.3, 8.2)) * (0.6 + 0.6 * n_high));
-        let dust = clamp((0.6 * edge + 0.5 * drift + 0.5 * in.dirt) * (1.35 - a.height), 0.0, 1.0);
-        a.colour = mix(a.colour, ROAD_DUST * (0.85 + 0.3 * n_high), 0.8 * dust);
+        let dust = clamp((0.55 * edge_dust + 0.45 * drift + 0.5 * in.dirt + 0.12 * band) * (1.3 - a.height), 0.0, 1.0);
+        a.colour = mix(a.colour, ROAD_DUST * (0.95 + 0.3 * n_high), 0.75 * dust);
         a.bump *= 1.0 - 0.6 * dust;
         // Earth carried onto the road where it meets a dirt track (`dirt` grows to 1 toward it,
-        // main.rs): in patches and in the wheel paths first, laid over the asphalt by height; where
+        // main.rs): in patches and in the wheel paths first, laid over the tarp by height; where
         // it covers everything it is the dirt floor's own surface, so the two meet without a line.
         var cover = 0.0;
         if in.dirt > 0.01 {
@@ -644,11 +767,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
                 a = over(a, driven_dirt(xz, in.uv, dpx, dpy, bump), cover);
             }
         }
-        base = a.colour * mix(1.0 - 0.12 * g_fine, 0.94 + 0.12 * n_low, cover);
-        // (No rut relief here: it needs screen derivatives on every road pixel.)
+        base = a.colour * mix(1.0, 0.94 + 0.12 * n_low, cover);
+        let ng = n;
         n = normalize(n + a.bump);
+        n = rut_relief(n, ng, dpx, dpy, dwx, dwy, bump * (1.0 - cover));
+        sheen = vec2<f32>(0.1 * (1.0 - dust) * (1.0 - cover) * (1.0 - rub) * (1.0 - fixings), 24.0);
     } else if k == 20u {
-        // Concrete: barriers along the route, and the sides of the platforms.
+        // Concrete: the sides of dirt mounds.
         let s = surf_triplanar(L_CONCRETE, TILE_CONCRETE, in.world, n, dpx, dpy, 0.8 * bump);
         let grain = clamp(s.colour / vec3<f32>(0.50, 0.48, 0.45), vec3<f32>(0.6), vec3<f32>(1.3));
         var c = s.colour * (in.color / KIT_LIP);
@@ -658,37 +783,99 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let foot = 1.0 - smoothstep(KIT_TERRAIN_Y + 0.1, KIT_TERRAIN_Y + 1.8, in.world.y);
         let top = smoothstep(0.6, 0.9, n.y);
         let patches = value_noise(in.world.xz * 0.9 + vec2<f32>(in.world.y * 0.7));
-        var dust = clamp(0.6 * foot * (0.6 + 0.6 * patches) + 0.5 * top * smoothstep(0.35, 0.75, patches), 0.0, 1.0);
-        if abs(in.uv.x) + abs(in.uv.y) > 0.01 && lum(in.color) > 0.4 {
-            // A barrier along the route, painted as a kerb: orange and white stripes, 2 m each,
-            // with uneven ends, worn through to the concrete on its high spots and along its top
-            // edges, smudged with tyre rubber on its sides.
-            let wobble = (value_noise(vec2<f32>(in.uv.x * 2.5, (in.world.y + in.uv.y) * 6.0)) - 0.5) * 0.06;
-            let tri = abs(fract(in.uv.x / 4.0 + wobble) - 0.5) * 2.0;
-            let w = max(2.0 * kerb_aa, 0.01);
-            let stripe = smoothstep(0.5 - w, 0.5 + w, tri);
-            let paint = mix(vec3<f32>(0.66, 0.64, 0.60), vec3<f32>(0.62, 0.12, 0.03), stripe) * grain;
-            // Across the barrier's top: 0 on its road side, 1 on its outer side.
-            let across = clamp((abs(in.uv.y) - KIT_HALF_WIDTH) / KIT_LIP_WIDTH, 0.0, 1.0);
-            let rim = max(smoothstep(0.25, 0.0, across), smoothstep(0.75, 1.0, across)) * top;
-            let worn = 0.6 * s.height + 0.35 * value_noise(in.world.xz * 3.1 + vec2<f32>(in.world.y * 2.3)) + 0.35 * rim;
-            c = mix(paint, s.colour * 0.9, 0.85 * smoothstep(0.85, 1.1, worn));
-            let marks = smoothstep(0.55, 0.8, value_noise(vec2<f32>(in.uv.x * 0.6, in.world.y * 3.0))) * (1.0 - top);
-            c *= 1.0 - 0.45 * marks;
-            dust = max(dust, 0.45 * top * smoothstep(0.3, 0.8, patches));
-            // Rounded edges: across the top the normal leans out toward both sides.
-            let r1 = cross(dpy, n);
-            let r2 = cross(n, dpx);
-            let det = dot(dpx, r1);
-            let toward = across_dx * r1 + across_dy * r2;
-            if top > 0.5 && dot(toward, toward) > 1e-12 {
-                let outward = normalize(toward) * sign(det) * sign(in.uv.y);
-                let lean = smoothstep(0.84, 1.0, across) - smoothstep(0.16, 0.0, across);
-                n = normalize(n + outward * lean * 1.2);
-            }
-        }
+        let dust = clamp(0.6 * foot * (0.6 + 0.6 * patches) + 0.5 * top * smoothstep(0.35, 0.75, patches), 0.0, 1.0);
         base = mix(c, ROAD_DUST * (0.9 + 0.2 * patches), 0.75 * dust);
         n = normalize(n + s.bump);
+    } else if k == 25u {
+        // Inflatable bumpers along a road: tubes of coated tarp (shaded round by their vertex
+        // normals), red and white lengths of 2 m welded end to end, an orange strap across every
+        // 4 m, dust on top and at the foot.
+        let s = surf_triplanar(L_TARP, TILE_TARP, in.world, n, dpx, dpy, 0.5 * bump);
+        let grain = clamp(lum(s.colour) / 0.45, 0.75, 1.25);
+        let top = smoothstep(0.6, 0.9, n.y);
+        let tri = abs(fract(in.uv.x / 4.0) - 0.5) * 2.0;
+        let w = max(2.0 * kerb_aa, 0.004);
+        let stripe = smoothstep(0.5 - w, 0.5 + w, tri);
+        var c = mix(BUMPER_WHITE, BUMPER_RED, stripe) * grain;
+        // The welds between lengths, and a strap across the middle of every white length (2 m,
+        // 6 m...), its webbing darker at its edges.
+        c *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, 2.0 * w + 0.004, abs(tri - 0.5)));
+        let q = (in.uv.x - 2.0) / 4.0;
+        let to_strap = abs(q - round(q)) * 4.0;
+        let strap = 1.0 - smoothstep(0.075, 0.075 + 4.0 * kerb_aa + 0.004, to_strap);
+        let webbing = 0.75 + 0.25 * smoothstep(0.075, 0.03, to_strap);
+        c = mix(c, STRAP_ORANGE * webbing * grain, strap);
+        let patches = value_noise(in.world.xz * 0.9 + vec2<f32>(in.world.y * 0.7));
+        let dust = clamp(0.4 * top * smoothstep(0.35, 0.85, patches), 0.0, 1.0);
+        base = mix(c, ROAD_DUST * (0.9 + 0.2 * patches), 0.7 * dust);
+        n = normalize(n + s.bump);
+        sheen = vec2<f32>(0.22 * (1.0 - dust) * (1.0 - strap), 36.0);
+    } else if k == 23u {
+        // Tarp wrapped round the slabs of raised roads: the decks' tarp in the vertex colour (over
+        // the kit's slab colour), streaked down the sides, dust settled on top. Underneath, in the
+        // shade, it catches the light of the ground.
+        let s = surf_triplanar(L_TARP, TILE_TARP, in.world, n, dpx, dpy, 0.8 * bump);
+        var c = s.colour * (in.color / KIT_SLAB);
+        let streaks = value_noise(vec2<f32>((in.world.x + in.world.z) * 1.3, in.world.y * 0.35));
+        c *= (0.84 + 0.26 * streaks) * (1.0 + 0.6 * smoothstep(-0.3, -0.8, n.y));
+        let top = smoothstep(0.6, 0.9, n.y);
+        let patches = value_noise(in.world.xz * 0.9 + vec2<f32>(in.world.y * 0.7));
+        let dust = clamp(0.55 * top * smoothstep(0.25, 0.75, patches) + 0.2 * smoothstep(0.6, 0.9, patches), 0.0, 1.0);
+        base = mix(c, ROAD_DUST * (0.9 + 0.2 * patches), 0.75 * dust);
+        n = normalize(n + s.bump);
+        sheen = vec2<f32>(0.06 * (1.0 - dust), 16.0);
+    } else if k == 24u {
+        // Glossy plastic: the stilts' red tubes with grey clamps at both ends (`uv`: metres from
+        // the tube's start, its length), the base plates, dust settled on top.
+        var c = in.color;
+        if in.uv.y > 0.5 {
+            let end = min(in.uv.x, in.uv.y - in.uv.x);
+            c = mix(c, KIT_COLLAR, 1.0 - smoothstep(0.3, 0.3 + max(uv_aa, 0.01), end));
+        }
+        let top = smoothstep(0.35, 0.9, n.y);
+        let patches = value_noise(in.world.xz * 1.7 + vec2<f32>(in.world.y * 1.1));
+        let dust = clamp(0.7 * top * smoothstep(0.25, 0.7, patches) + 0.2 * smoothstep(0.6, 0.85, patches), 0.0, 1.0);
+        base = mix(c, ROAD_DUST * 1.1, dust);
+        sheen = vec2<f32>(0.45 * (1.0 - dust), 60.0);
+    } else if k == 26u {
+        // Sandbags of regolith: woven sackcloth stained by the dust, each bag shaded round by its
+        // normals, each its own shade (`uv`: its brightness, and how far it has gone rusty-brown).
+        let s = surf_triplanar(L_SANDBAG, TILE_SANDBAG, in.world, n, dpx, dpy, bump);
+        let tone = select(0.36, in.uv.x, in.uv.x > 0.01);
+        var c = s.colour * (in.color / KIT_SANDBAG) * tone * mix(vec3<f32>(0.95, 0.85, 0.72), vec3<f32>(1.0, 0.66, 0.44), in.uv.y);
+        c *= 0.85 + 0.25 * value_noise(in.world.xz * 2.3 + vec2<f32>(in.world.y * 1.7));
+        let top = smoothstep(0.5, 0.9, n.y);
+        let patches = value_noise(in.world.xz * 1.3 + vec2<f32>(in.world.y * 0.9));
+        let dust = clamp(0.8 * top * smoothstep(0.15, 0.7, patches) + 0.35 * smoothstep(0.45, 0.85, patches), 0.0, 1.0);
+        base = mix(c, ROAD_DUST * (0.8 + 0.25 * patches), 0.6 * dust);
+        n = normalize(n + s.bump);
+    } else if k == 27u {
+        // Orange webbing: the strap's weave along it (`uv`: metres along the strap).
+        let t = tex_at(L_WEBBING, vec2<f32>(in.uv.x / TILE_WEBBING, 0.37), vec2<f32>(along_dx / TILE_WEBBING, 0.0), vec2<f32>(along_dy / TILE_WEBBING, 0.0), false);
+        let dust = 0.3 * smoothstep(0.4, 0.9, n.y);
+        base = mix(t.colour, ROAD_DUST, dust);
+        sheen = vec2<f32>(0.12, 20.0);
+    } else if k == 28u {
+        // Steel: galvanised (its zinc spangle, hammer scuffs, dust in the scratches) or rusty,
+        // told by the vertex colour (the kit's rust is reddish).
+        let rusty = in.color.r - in.color.b > 0.08;
+        let s = surf_triplanar(select(L_GALVANIZED, L_RUST, rusty), TILE_STEEL, in.world, n, dpx, dpy, 0.6 * bump);
+        n = normalize(n + s.bump);
+        if rusty {
+            // Rust scatters the light; its bare patches still shine a little.
+            base = s.colour;
+            metal = 0.12 + 0.25 * s.height;
+        } else {
+            // Zinc: a mid grey mirror, its spangle a patchwork of flakes that mirror more or less
+            // (the texture's brightness), not a pattern painted on it.
+            let spangle = clamp(lum(s.colour) / 0.27, 0.4, 1.8);
+            base = vec3<f32>(0.56, 0.58, 0.61) * mix(1.0, spangle, 0.3);
+            metal = 0.82 + 0.16 * smoothstep(0.6, 1.5, spangle);
+        }
+        // Dust settled on the cap.
+        let top = smoothstep(0.75, 0.95, n.y);
+        base = mix(base, ROAD_DUST * 1.2, 0.5 * top);
+        metal *= 1.0 - 0.6 * top;
     } else if k == 21u {
         let s = surf_triplanar(L_EARTH, TILE_EARTH, in.world, n, dpx, dpy, bump);
         base = s.colour * clamp(lum(in.color) / lum(KIT_EARTH_FACE), 0.6, 1.4);
@@ -712,14 +899,41 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     }
 
     let l = frame.sun_dir.xyz;
-    let ndl = max(dot(n, l), 0.0);
-    let sh = shadow_factor(in.world, n);
+    // Cloth stuffed with regolith (the sandbags) lets the light wrap round it: its shaded flanks
+    // stay readable instead of going black under a hard terminator.
+    let cloth = k == 26u;
+    let ndl = select(max(dot(n, l), 0.0), max((dot(n, l) + 0.45) / 1.45, 0.0), cloth);
+    let sh = select(shadow_factor(in.world, n), mix(shadow_factor(in.world, n), 1.0, 0.35), cloth);
     let hemi = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, n.y * 0.5 + 0.5);
     let storm = storm_ground(in.world);
     var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi);
 
     let to_eye = frame.camera_pos.xyz - in.world;
     let dist = length(to_eye);
+    if sheen.x > 0.0 {
+        let v = to_eye / max(dist, 1e-3);
+        let h = normalize(l + v);
+        col += frame.sun_color.rgb * pow(max(dot(n, h), 0.0), sheen.y) * sh * sheen.x;
+        col += frame.sky_horizon.rgb * pow(1.0 - max(dot(n, v), 0.0), 4.0) * sheen.x * 0.3;
+    }
+    if metal > 0.0 {
+        // Bare metal: the sky above the horizon and the darker Martian ground below it, mirrored
+        // (metal reads by that contrast: a dark band under a bright one, each flat face showing a
+        // different part of it), a little greyed (the zinc's own cool tint against the orange
+        // world), tinted by the metal (Schlick's Fresnel toward white at grazing angles); a sharp
+        // glint of the sun and a broader sheen round it.
+        let v = to_eye / max(dist, 1e-3);
+        let r = reflect(-v, n);
+        let sky = sky_color(normalize(vec3<f32>(r.x, max(r.y, 0.02), r.z)));
+        let ground = KIT_GROUND * (frame.sun_color.rgb * 0.12 + frame.sky_top.rgb * 0.3);
+        let seen = mix(ground, sky, smoothstep(-0.04, 0.35, r.y));
+        let env = mix(seen, vec3<f32>(lum(seen)), 0.35);
+        let f = base + (vec3<f32>(1.0) - base) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+        let h = normalize(l + v);
+        let nh = max(dot(n, h), 0.0);
+        let glint = (pow(nh, 160.0) * 4.0 + pow(nh, 24.0) * 0.35) * sh;
+        col = mix(col, (env + frame.sun_color.rgb * glint) * f, metal);
+    }
     if k == 10u || k == 12u || k == 15u || k == 16u {
         let v = to_eye / max(dist, 1e-3);
         let h = normalize(l + v);

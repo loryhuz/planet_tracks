@@ -15,10 +15,11 @@
 //!   of a trough out to the floor edge. The floor is wider on the outside of turns, so a drift can
 //!   swing wide, and its edges wander by a metre or so;
 //! - the banks: from the floor edge the ground rises at most at [`CUT_SLOPE`] up to the natural
-//!   ground, or falls at most at [`FILL_SLOPE`] down to it, with a rounded toe and crest;
-//! - the natural ground near a corridor stands 0.4 to 2 m above its floor (lower on the inside of
-//!   turns, so the apex stays in sight), with a ridge of spoil along the top of the banks, and
-//!   blends into the plain's own relief within [`REACH`] m.
+//!   ground, or falls at most at [`FILL_SLOPE`] down to it, with a broad rounded toe and crest, so
+//!   a car that drifts wide rides up them instead of hitting them;
+//! - the natural ground near a corridor stands 0.3 to 1.3 m above its floor (lower on the inside
+//!   of turns, so the apex stays in sight), with a low ridge of spoil along the top of the banks,
+//!   and blends into the plain's own relief within [`REACH`] m.
 //!
 //! The physics reads the floor and the first [`DIRT_BANK`] m of the banks as dirt, the rest as
 //! off-track ground; the renderer blends from one look to the other with
@@ -43,13 +44,14 @@ use crate::terrain::Capsule;
 const BOWL: f32 = 0.03;
 /// On the low side of a banked deck the floor levels out over this distance past the edge.
 const LEVEL_OUT: f32 = 8.0;
-/// Steepest slope of the banks, dy/dx: cut into higher ground (37°), fill down to lower ground
-/// (27°).
-pub const CUT_SLOPE: f32 = 0.75;
-pub const FILL_SLOPE: f32 = 0.5;
-/// Widths of the rounded toe of a cut bank and crest of a fill bank, metres.
-const TOE: f32 = 3.0;
-const CREST: f32 = 3.0;
+/// Steepest slope of the banks, dy/dx: cut into higher ground (27°), fill down to lower ground
+/// (22°).
+pub const CUT_SLOPE: f32 = 0.5;
+pub const FILL_SLOPE: f32 = 0.4;
+/// Widths of the rounded toe of a cut bank and crest of a fill bank, metres: the bank steepens
+/// over this distance from the floor edge.
+const TOE: f32 = 7.0;
+const CREST: f32 = 5.0;
 /// A corridor shapes the ground up to this far beyond its floor edge, metres.
 pub const REACH: f32 = 60.0;
 /// The first metres of the banks are still dirt for the physics.
@@ -149,20 +151,18 @@ pub struct Hit {
 /// Height of the floor of frame `f` at `h` metres to the left of its centreline (horizontally,
 /// negative to the right), and its slope going away from the centreline there.
 fn floor_at(f: &Frame, h: f32) -> (f32, f32) {
-    let t = libm::tanf(f.bank);
-    let c = libm::cosf(f.bank);
-    let hw = half_width(f.deck);
-    let left = f.pivot_u + (hw - f.pivot_u) * c;
-    let right = f.pivot_u + (-hw - f.pivot_u) * c;
-    let plane = |h: f32| f.pivot_y + (h - f.pivot_u) * t;
+    let (left, right) = f.deck_edges(half_width(f.deck));
     if h > left {
-        let (y, g) = beyond(t, h - left);
-        (plane(left) + y, g)
+        let (y0, g) = f.deck_height(left);
+        let (y, g) = beyond(g, h - left);
+        (y0 + y, g)
     } else if h < right {
-        let (y, g) = beyond(-t, right - h);
-        (plane(right) + y, g)
+        let (y0, g) = f.deck_height(right);
+        let (y, g) = beyond(-g, right - h);
+        (y0 + y, g)
     } else {
-        (plane(h), if h >= 0.0 { t } else { -t })
+        let (y, g) = f.deck_height(h);
+        (y, if h >= 0.0 { g } else { -g })
     }
 }
 
@@ -496,13 +496,13 @@ impl Corridors {
     }
 
     /// The ground before a corridor was dug, near it: its floor level plus a depth that wanders
-    /// between 0.4 and 2 m, a little lower on the inside of turns, with a ridge of spoil along the
-    /// top of the banks.
+    /// between 0.3 and 1.3 m, a little lower on the inside of turns, with a low, broad ridge of
+    /// spoil along the top of the banks.
     pub fn plain(&self, q: Vec2, hit: &Hit) -> f32 {
         let lower = 1.0 - INSIDE_LOWER * hit.inside;
-        let depth = (1.2 + 1.1 * fbm(hit.seed, q.x / 40.0, q.y / 40.0, 3)).max(0.3) * lower;
-        let ridge = 1.0 - smoothstep(0.0, 3.5, (hit.edge - 4.5).abs());
-        let spoil = (0.7 + 0.5 * fbm(hit.seed.wrapping_add(1), hit.uv[0] / 18.0, 0.31, 2)).max(0.1) * ridge * lower;
+        let depth = (0.8 + 0.5 * fbm(hit.seed, q.x / 40.0, q.y / 40.0, 3)).max(0.3) * lower;
+        let ridge = 1.0 - smoothstep(0.0, 5.0, (hit.edge - 8.0).abs());
+        let spoil = (0.35 + 0.25 * fbm(hit.seed.wrapping_add(1), hit.uv[0] / 18.0, 0.31, 2)).max(0.1) * ridge * lower;
         // From the higher of the floor edge and the centreline, so a dished inside edge does not
         // drag the plain down to the track.
         hit.floor.max(hit.centre) + depth + spoil

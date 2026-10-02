@@ -17,6 +17,7 @@ pub mod map;
 mod mesh;
 mod noise;
 pub mod scenery;
+pub mod stilts;
 pub mod terrain;
 
 pub use map::{Map, MapError};
@@ -122,6 +123,8 @@ impl Trigger {
 pub struct Track {
     pub name: String,
     pub mesh: TrackMesh,
+    /// Thin things drawn but not collided with: the straps and stakes holding raised roads.
+    pub decor: TrackMesh,
     pub start: Pose,
     /// Every checkpoint must be crossed (in any order) before the finish counts.
     pub checkpoints: Vec<Trigger>,
@@ -136,10 +139,11 @@ pub struct Track {
 
 /// The first playable map: « Jezero », loaded from `maps/jezero.json` (see [`demo`]).
 /// Maps shipped with the game, embedded so it needs no data path: (name, JSON).
-pub const BUILTIN_MAPS: [(&str, &str); 3] = [
+pub const BUILTIN_MAPS: [(&str, &str); 4] = [
     (demo::NAME, demo::JSON),
     ("Olympus", include_str!("../maps/olympus.json")),
     ("Ares Vallis", include_str!("../maps/ares.json")),
+    ("Noctis", include_str!("../maps/noctis.json")),
 ];
 
 /// Every shipped map, parsed. Panics on a broken file (they are checked by the tests).

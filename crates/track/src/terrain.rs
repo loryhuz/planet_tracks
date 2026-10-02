@@ -11,10 +11,11 @@
 //! - `d` ≤ [`PAD`]: exactly [`TERRAIN_Y`]. Skirt feet, platform walls, end caps and gate posts all
 //!   stand on it, and a car that leaves a ground-level road rolls down the shoulder onto it;
 //! - sand ripples (`ripples`) and small bumps (`bumps`) fade in over the next [`NEAR_BLEND`] m;
-//! - the large undulation (`relief`) fades in over [`MID_BLEND`] m and grows with distance, so
-//!   within 40 m of the route the ground stays within a metre or two of the road and its slopes
-//!   gentle (no cliff near the track, every run-off drivable);
-//! - dune fields (`dunes`) start about 40 m from the blocks: transverse dunes with a gentle
+//! - rolling ground (`hills`): rises and hollows about 100 m across start a few metres past
+//!   the pad, in patches, so the track runs between low rises and over embankments rather than
+//!   across a flat plain; their slopes stay mostly under 15° (every run-off drivable);
+//! - the large undulation (`relief`) fades in over [`MID_BLEND`] m and grows with distance;
+//! - dune fields (`dunes`) start about 20 m from the blocks: transverse dunes with a gentle
 //!   windward side and a lee under 15°;
 //! - mesas and buttes (`mesas`), craters (`craters`) and a ring of hills (`horizon`) only stand
 //!   hundreds of metres away, as a backdrop;
@@ -53,7 +54,7 @@ pub const PAD: f32 = 3.0;
 /// Distance over which dunes and bumps fade in beyond the pad.
 pub const NEAR_BLEND: f32 = 25.0;
 /// Distance over which the large undulation fades in beyond the pad.
-pub const MID_BLEND: f32 = 140.0;
+pub const MID_BLEND: f32 = 90.0;
 /// Lattice step of the quadtree, metres.
 const UNIT: f32 = 2.0;
 /// Smallest leaf, in lattice units (2 m): only along the banks of dirt corridors; 4 m elsewhere.
@@ -85,6 +86,8 @@ pub struct TerrainSettings {
     pub ripples: f32,
     /// Height of the small bumps near the track, metres.
     pub bumps: f32,
+    /// Height of the rolling ground (hummocks and hollows) near the track, metres.
+    pub hills: f32,
     /// Mesas and buttes in the distance.
     pub mesas: u32,
     /// Craters in the distance.
@@ -104,6 +107,7 @@ impl Default for TerrainSettings {
             dunes: 4.0,
             ripples: 0.35,
             bumps: 0.4,
+            hills: 8.0,
             mesas: 10,
             craters: 6,
             horizon: 180.0,
@@ -130,11 +134,15 @@ impl Capsule {
     }
 
     /// Distance from `p` to the capsule (0 inside) and the deck's lower edge abreast of `p`.
+    /// Past the capsule's ends the edge carries on along the deck's grade: the capsules of a ramp
+    /// overlap, and the end of the one below must not hold the ground beside the one above down
+    /// to its own height (the capsule abreast of `p` gives the exact edge, and the lowest wins).
     pub(crate) fn distance_and_low(&self, p: Vec2) -> (f32, f32) {
         let ab = self.b - self.a;
         let len2 = ab.length_squared();
-        let t = if len2 > 0.0 { ((p - self.a).dot(ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
-        (((p - (self.a + ab * t)).length() - self.r).max(0.0), self.low.0 + (self.low.1 - self.low.0) * t)
+        let along = if len2 > 0.0 { (p - self.a).dot(ab) / len2 } else { 0.0 };
+        let t = along.clamp(0.0, 1.0);
+        (((p - (self.a + ab * t)).length() - self.r).max(0.0), self.low.0 + (self.low.1 - self.low.0) * along)
     }
 }
 
@@ -514,15 +522,17 @@ impl Terrain {
             return out;
         }
         if let Some(hit) = self.dirt.query(p) {
-            // The plain the corridor was dug into, flat again on the pads of swept pieces.
+            // The plain the corridor was dug into, flat again on the pads of swept pieces: at the
+            // terrain plane, or up at an elevated deck where a landform fills under it.
             let plain = self.dirt.plain(p, &hit);
             let mix = |a: f32, b: f32, t: f32| a + (b - a) * t;
+            let flat = if pad < PAD + 10.0 { TERRAIN_Y + self.landforms_at(p).0 } else { TERRAIN_Y };
             let before = mix(plain, height, smoothstep(15.0, REACH, hit.edge));
-            let before = mix(TERRAIN_Y, before, smoothstep(PAD, PAD + 10.0, pad));
+            let before = mix(flat, before, smoothstep(PAD, PAD + 10.0, pad));
             let mut after = self.dirt.ground(before, &hit);
             // The banks give way to the flat pads of swept pieces (not the floor and its aprons).
             if hit.edge > 0.0 {
-                after = mix(TERRAIN_Y, after, smoothstep(PAD, 2.0 * PAD, pad));
+                after = mix(flat, after, smoothstep(PAD, 2.0 * PAD, pad));
             }
             let driven = 1.0 - smoothstep(-0.5, 2.0, hit.edge);
             let moved = smoothstep(0.1, 0.5, (after - before).abs()) * (1.0 - smoothstep(8.0, 14.0, hit.edge));
@@ -565,9 +575,18 @@ impl Terrain {
         if rough > 0.0 {
             h += 2.5 * fbm(seed.wrapping_add(2), x / 70.0, z / 70.0, 3) * rough;
         }
-        // Dune fields from about 40 m off the blocks: transverse dunes with a gentle windward
+        // Rolling ground from a few metres past the pad: rises and hollows about 100 m across,
+        // stronger in some stretches than in others.
+        if s.hills > 0.0 {
+            let rise = smoothstep(PAD + 2.0, PAD + 30.0, d) * (1.0 - smoothstep(500.0, 800.0, d));
+            if rise > 0.0 {
+                let patches = 0.5 + 0.5 * smoothstep(-0.3, 0.3, fbm(seed.wrapping_add(14), x / 280.0, z / 280.0, 2));
+                h += s.hills * fbm(seed.wrapping_add(13), x / 100.0, z / 100.0, 2) * patches * rise;
+            }
+        }
+        // Dune fields from about 20 m off the blocks: transverse dunes with a gentle windward
         // side and a steeper lee (about 5° and 14° for 4 m dunes 100 m apart), in patches.
-        let dune_t = smoothstep(35.0, 110.0, d) * (1.0 - smoothstep(900.0, 1300.0, d));
+        let dune_t = smoothstep(18.0, 80.0, d) * (1.0 - smoothstep(900.0, 1300.0, d));
         if dune_t > 0.0 && s.dunes > 0.0 {
             let mask = smoothstep(-0.1, 0.45, fbm(seed.wrapping_add(8), x / 420.0, z / 420.0, 3));
             if mask > 0.0 {

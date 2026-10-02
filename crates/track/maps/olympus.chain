@@ -1,8 +1,15 @@
 # Olympus: climb to the plateau through a long banked curve, a hairpin up there, down into
 # a dirt section with a U-berm, a steep climb to a jump that lands in a descent, then a
 # technical finish. No straight longer than two cells except the jump run-up.
+# The jump is a kicker: the 3-cell climb (its 187 m crest keeps the car on its wheels, so it
+# takes off from the lip) ends on a 20° ramp 22 m up, which throws the car 7 m higher and about
+# a second through the air over the landing hill, then down two levels. The bend after the
+# landing and the last one are berms: the car comes down at 275 km/h, and a turn banked about
+# its centreline would sink its inside half under the ground at level 0.
 name Olympus
 seed 31337
+# 4: the technical finish lined with bumpers, the tarp strapped (the start keeps its sandbags).
+version 4
 start 0 0 0 0
 turn2_right
 slope3_up1
@@ -20,10 +27,10 @@ uberm2_right dirt
 checkpoint dirt
 turn2_left dirt
 to_road
-slope2_up2
-jump_ramp
-landing4_down2
-turn3_right
-turn1_left
-banked2_right
-finish
+slope3_up2
+kicker
+kicker_landing5_down2
+berm3_right bumpers
+turn1_left bumpers
+berm2_right bumpers
+finish bumpers

@@ -6,7 +6,8 @@
 //! (390 × 844), where the buggy accelerates by itself: the bottom strip brakes, holding the left or
 //! right half of the screen steers (the two halves blink at the start to show it), the speed is a
 //! thin gauge on the right edge, and a settings button pauses the race (camera, sound, last
-//! checkpoint, restart, menu). The wide layout takes the same touch controls once the screen has
+//! checkpoint, restart, menu). On a computer Escape (or the pad's Start) opens the same sheet, and
+//! the arrows move through it. The wide layout takes the same touch controls once the screen has
 //! been touched. Debug (FPS, profile, tuning) only shows with Tab.
 
 use std::collections::BTreeMap;
@@ -16,6 +17,7 @@ use egui::{Align2, Color32, Event, Id, LayerId, Order, Painter, Pos2, Rect, Sens
 use physics::Input;
 
 use crate::game::Game;
+use crate::input::Nav;
 use crate::menu::Layout;
 use crate::menu::catalog::{MEDALS, TrackInfo};
 use crate::menu::paint::{self, Font, Icon, MEDAL_COLOURS, col, fade};
@@ -90,11 +92,20 @@ pub struct Hud {
     touch_seen: bool,
     /// The settings sheet, open since then; the race waits while it is.
     sheet: Option<f64>,
+    /// Escape or Start: the sheet opens on the next frame.
+    open_requested: bool,
+    /// Keyboard and pad: the sheet's item with the focus (`SHEET_*`), none until a key is used.
+    focus: Option<usize>,
+    navs: Vec<Nav>,
     /// Self-test: open the sheet that far into the race (`MARS_HUD_SETTINGS=seconds`).
     sheet_test: Option<f64>,
     cues: Vec<Cue>,
     requests: Vec<HudRequest>,
 }
+
+/// The sheet's items for the keyboard and pad: the camera, the four rows, then "Reprendre".
+const SHEET_CAMERA: usize = 0;
+const SHEET_RESUME: usize = 5;
 
 /// A vertical gradient band.
 fn band(p: &Painter, rect: Rect, top: Color32, bottom: Color32) {
@@ -209,6 +220,9 @@ impl Hud {
             touches: BTreeMap::new(),
             touch_seen: false,
             sheet: None,
+            open_requested: false,
+            focus: None,
+            navs: Vec::new(),
             sheet_test: std::env::var("MARS_HUD_SETTINGS").ok().and_then(|v| v.parse().ok()),
             cues: Vec::new(),
             requests: Vec::new(),
@@ -225,7 +239,25 @@ impl Hud {
 
     /// The settings sheet is open: the race waits.
     pub fn paused(&self) -> bool {
-        self.sheet.is_some()
+        self.sheet.is_some() || self.open_requested
+    }
+
+    /// Escape or the pad's Start in a race: the sheet opens with the focus on "Reprendre".
+    pub fn open_sheet(&mut self) {
+        self.open_requested = true;
+    }
+
+    /// Escape or Start again: the race goes on.
+    pub fn close_sheet(&mut self) {
+        self.open_requested = false;
+        if self.sheet.take().is_some() {
+            self.cues.push(Cue::SheetClose);
+        }
+    }
+
+    /// A keyboard or pad move in the open sheet.
+    pub fn push_nav(&mut self, nav: Nav) {
+        self.navs.push(nav);
     }
 
     /// Countdown steps, checkpoints and the finish, from the run's state.
@@ -317,6 +349,14 @@ impl Hud {
         let wide = Layout::for_size(r.width(), r.height()) == Layout::Wide;
         let p = ui.painter().clone();
         self.events(game, now);
+        if std::mem::take(&mut self.open_requested) && self.sheet.is_none() {
+            self.sheet = Some(now);
+            self.focus = Some(SHEET_RESUME);
+            self.cues.push(Cue::SheetOpen);
+        }
+        if self.sheet.is_none() {
+            self.navs.clear();
+        }
         self.note_touches(ui);
         let touch = !wide || self.touch_seen;
         if self.sheet_test.is_some_and(|t| game.run.countdown == 0 && game.run.tick as f64 >= t * 100.0) {
@@ -747,6 +787,7 @@ impl Hud {
         gear_icon(p, rect.center(), 22.0, fade(if resp.hovered() { Color32::WHITE } else { col::DUST }, a));
         if resp.clicked() {
             self.sheet = Some(now);
+            self.focus = None;
             self.cues.push(Cue::SheetOpen);
         }
     }

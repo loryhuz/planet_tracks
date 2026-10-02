@@ -55,8 +55,9 @@ def material(name, quarter=False, target=(0.5, 0.2, 0.1), pull=0.7, contrast=1.0
 
 
 MATERIALS = [
-    # Dusty racing asphalt: the grain only, the shader lays dust and rubber.
-    material("asphalt", target=(0.085, 0.075, 0.07), pull=0.8, flatten=0.012, relief=0.03, bump=4.0),
+    # Off-white laminated woven tarpaulin of the roads: the weave and fine dust only, the shader
+    # lays the panels, seams, markings, dust and rubber.
+    material("tarp", target=(0.50, 0.47, 0.42), pull=0.85, flatten=0.02, relief=0.02, bump=3.0),
     # The compacted floor of a dirt track, lightly churned, small clods.
     material("dirt", quarter=True, target=(0.25, 0.09, 0.05), pull=0.9, contrast=1.2, relief=0.05, bump=5.0),
     # Freshly dug loose earth of the banks, full of clods.
@@ -71,10 +72,21 @@ MATERIALS = [
     material("rock", quarter=True, target=(0.28, 0.10, 0.055), pull=0.8, contrast=1.2, relief=0.08, bump=6.0),
     # Light poured concrete, one formwork panel per tile (its joints stay on the borders).
     material("concrete", quarter=True, target=(0.50, 0.48, 0.45), pull=0.5, relief=0.05, bump=2.0, seam=0.0),
+    # Khaki woven polypropylene of the regolith sandbags, dust in the weave (tile about 0.6 m).
+    material("sandbag", target=(0.45, 0.34, 0.20), pull=0.85, flatten=0.03, relief=0.03, bump=4.0),
+    # Safety-orange polyester webbing of the ratchet straps, the strap's length along u (tile
+    # about 0.2 m).
+    material("webbing", target=(0.80, 0.17, 0.02), pull=0.85, flatten=0.06, relief=0.02, bump=3.0),
+    # Hot-dip galvanised steel of the stakes and buckles, its zinc spangle and scuffs (tile about
+    # 0.35 m); the shader mirrors the sky in it, this colour is its tint.
+    material("galvanized", target=(0.52, 0.53, 0.55), pull=0.8, contrast=1.15, flatten=0.05, relief=0.03, bump=2.5),
+    # Rusty steel: bare patches and flaking rust.
+    material("rust", target=(0.20, 0.09, 0.045), pull=0.7, contrast=1.2, flatten=0.05, relief=0.04, bump=4.0),
 ]
 
 SOURCES = """
-asphalt   dark worn asphalt of a Mars base circuit, dust in the pores (mood: sandstorm road)
+tarp      off-white laminated woven plastic tarpaulin stretched taut, Martian dust in the weave
+          (GPT Image 2.5, with art/roads/moodboard/04-chaussee.jpg as reference)
 dirt      compacted floor of a Martian off-road track, lightly churned (mood: off-road)
 earth     loose soil pushed aside by a bulldozer to bank a dirt track (mood: off-road)
 pebbles   regolith with gravel, dark basalt pebbles and red stones (mood: off-road)
@@ -82,6 +94,13 @@ slabs     orange regolith, angular pebbles, half-buried flat stones (mood: off-r
 sand      fine orange-red sand with gentle wind ripples (mood: sandstorm)
 rock      layered red sandstone like the Martian mesas (mood: off-road canyon walls)
 concrete  light grey poured concrete of a racing barrier, dusty (mood: sandstorm)
+sandbag   khaki woven polypropylene sandbag cloth, soft wrinkles, orange dust in the weave
+          (GPT Image 2.5; cropped and stretched vertically to 68 tapes, 72 across, so the
+          seam pass's half-tile shifts land on the weave)
+galvanized hot-dip galvanised steel, zinc spangle, hammer scuffs, Martian dust (GPT Image 2.5)
+rust      weathered steel, bare patches and flaking rust, pitting (GPT Image 2.5)
+webbing   safety-orange polyester ratchet-strap webbing, ribs along x, a little dust and wear
+          (GPT Image 2.5; cropped and stretched vertically to 36 ribs, as for sandbag)
 """
 
 

@@ -1,0 +1,87 @@
+# Noctis: the technical one, in a maze of buttes. A plunge off a mesa into a square hairpin
+# (two tight right-handers) around its tip, a chicane in its shadow, a steep climb onto a butte
+# for a U-turn 16 m up, a long descent onto a dirt section of square hairpins (gently banked, no
+# whoops), then a climb onto a last butte to a kicker: the landing hill bends one cell to the
+# left under the flight (a "Tetris" jump: drift a little left in the air, land straight) and runs
+# out onto the finish. Tight 90° turns everywhere; the speed comes from the drops.
+name Noctis
+seed 1971
+# 2: smooth dirt, the whoops replaced by a straight. 3: the kicker and its shifted landing to the
+# finish, instead of a climb into a 90° left and a plunge.
+version 3
+start 0 0 3 0
+slope3_down3
+turn1_right
+straight
+turn1_right
+straight2
+turn1_left
+turn1_right
+slope3_up2
+turn1_left
+checkpoint
+turn1_left
+slope3_down2
+turn1_right
+to_dirt
+straight dirt
+berm1_right dirt
+straight2 dirt
+berm1_left dirt
+straight dirt
+berm1_left dirt
+checkpoint dirt
+straight3 dirt
+berm1_left dirt
+to_road
+turn1_right
+checkpoint
+slope3_up2
+kicker
+kicker_landing5_down2_left
+finish
+
+terrain hills 10.0
+terrain relief 18.0
+# The start mesa, 24 m, stretched along the plunge so it runs down a cutting, with a spur of rock
+# between the plunge and the road back; the cliffs to the west of it.
+landform mesa 10 50 34 34 110 0
+landform butte 150 80 45 64
+landform butte 60 -95 30 40
+# The butte of the U-turn, 16 m: both of its roads climb and drop through slots cut into it. A
+# needle between them and a wall to the south.
+landform mesa -112 -32 56 24 60 0
+landform butte -112 10 12 34
+landform mesa -122 -222 60 52 220 90
+# Around the dirt section.
+landform butte -192 -42 16 28
+landform butte -367 -92 20 38
+landform butte -377 138 16 30
+landform mesa -462 28 50 46 280 0
+# The last butte, 16 m, under the climb to the kicker. The jump flies over open ground, rock
+# kept well clear of the landing on both sides; an escarpment closes the view past the finish.
+landform mesa -240 200 44 24 60 0
+landform butte -130 310 22 30
+landform mesa -60 280 45 42
+landform butte 40 210 25 36
+landform mesa -370 298 45 50 160 20
+landform mesa -200 760 55 55 300 90
+# Hoodoos and boulders: in the island of the dirt hairpins, beyond them, below the start mesa,
+# around the last butte (hiding the foot of its climb from the dirt), beside the jump and at the
+# finish.
+prop spire -272 0 30 20 6
+prop rock -270 0 4 75 2.5
+prop spire -300 0 -112 10 9
+prop spire -318 0 -98 140 6
+prop boulder -284 0 -126 60 7
+prop boulder -92 0 104 30 7
+prop rock -100 0 92 200 2.5
+prop spire -118 0 222 15 8
+prop spire -104 0 242 100 5
+prop boulder -274 0 156 40 10
+prop slab -273 0 180 300 7
+prop spire -292 0 340 30 7
+prop boulder -300 0 392 80 8
+prop spire -158 0 392 120 6
+prop spire -110 0 384 70 8
+prop boulder -96 0 372 10 6

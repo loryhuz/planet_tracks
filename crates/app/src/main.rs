@@ -450,9 +450,15 @@ impl ApplicationHandler for App {
         // scale given before).
         #[cfg(target_os = "ios")]
         {
-            use winit::platform::ios::WindowExtIOS;
+            use winit::platform::ios::{ScreenEdge, WindowExtIOS};
             ios::attach_to_scene(&window);
             window.set_scale_factor(2.0);
+            // Asked again now that the window is in the scene: winit asked when it made the
+            // window, outside any scene, and iOS ignored it (taps along the edges waited for a
+            // system gesture, and quick ones were lost).
+            window.set_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL);
+            window.set_prefers_home_indicator_hidden(true);
+            window.set_prefers_status_bar_hidden(true);
         }
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);

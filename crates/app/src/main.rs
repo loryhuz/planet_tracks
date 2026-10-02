@@ -17,6 +17,7 @@ mod ios;
 mod marks;
 mod menu;
 mod menu_gfx;
+mod music;
 mod particles;
 mod race;
 mod sample;
@@ -454,7 +455,7 @@ impl App {
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
-            audio.set_scene(!self.menu.active, self.menu.ambience());
+            audio.set_scene(!self.menu.active);
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }
@@ -556,6 +557,10 @@ impl ApplicationHandler for App {
         // On iOS the window is the screen.
         #[cfg(not(target_os = "ios"))]
         let attrs = attrs.with_inner_size(window_size());
+        // `MARS_FULLSCREEN=1`: opens full screen, as the F key does (sessions filmed with
+        // tools/video/record.swift).
+        #[cfg(not(target_os = "ios"))]
+        let attrs = attrs.with_fullscreen(std::env::var("MARS_FULLSCREEN").is_ok().then_some(Fullscreen::Borderless(None)));
         // Full screen without the status bar; swipes from the edges reach the game first (a
         // second swipe opens the Control Centre).
         #[cfg(target_os = "ios")]

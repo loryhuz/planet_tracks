@@ -15,7 +15,7 @@ use egui::{Id, Rect, Response, Sense};
 
 use crate::input::Nav;
 use crate::menu_gfx::SkyScene;
-use crate::ui_sound::{Ambience, Cue};
+use crate::ui_sound::Cue;
 use catalog::{PLANETS, SLOTS, Series, TrackInfo};
 pub use paint::fonts;
 
@@ -195,18 +195,6 @@ impl Menu {
     /// screen fades out).
     pub fn shows(&self) -> bool {
         self.active || self.outro.is_some()
-    }
-
-    /// The screen's background loop.
-    pub fn ambience(&self) -> Ambience {
-        if !self.active {
-            return Ambience::Off;
-        }
-        match self.screen {
-            Screen::Title => Ambience::Title,
-            Screen::Planets => Ambience::Space,
-            Screen::Solo => Ambience::Base,
-        }
     }
 
     pub fn push_nav(&mut self, nav: Nav) {

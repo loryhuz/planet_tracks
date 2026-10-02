@@ -7,3 +7,6 @@
 # Python bytecode and Blender backups
 __pycache__/
 *.blend1
+# Xcode's per-user state and local builds of the iOS app
+xcuserdata/
+/ios/build/

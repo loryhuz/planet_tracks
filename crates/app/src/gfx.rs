@@ -39,6 +39,13 @@ pub struct Gpu {
     pub config: wgpu::SurfaceConfiguration,
 }
 
+/// The window's drawable size, physical pixels. On iOS the whole screen: winit's inner size there
+/// is the safe area (without the notch and the home indicator), and its `Resized` events count
+/// the screen's native pixels rather than the view's scale.
+pub fn window_pixels(window: &Window) -> winit::dpi::PhysicalSize<u32> {
+    if cfg!(target_os = "ios") { window.outer_size() } else { window.inner_size() }
+}
+
 impl Gpu {
     pub fn new(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -55,11 +62,14 @@ impl Gpu {
         .expect("no GPU adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("device"),
+            // What the GPU offers rather than wgpu's defaults: the iOS simulator falls short of
+            // them (15 inter-stage shader variables, not 16).
+            required_limits: adapter.limits(),
             ..Default::default()
         }))
         .expect("no GPU device");
 
-        let size = window.inner_size();
+        let size = window_pixels(&window);
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .expect("surface not supported");

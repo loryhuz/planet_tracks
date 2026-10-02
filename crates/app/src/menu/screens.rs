@@ -158,6 +158,7 @@ impl Menu {
         paint::stripes(&clip, rect, fade(col::INK_STRIPE, alpha));
         paint::shine(&clip, rect, now);
         let ts = paint::text_size(p, label, font);
+        let key = key.filter(|_| !self.touch);
         let key_w = key.map_or(0.0, |k| paint::text_size(p, k, Font::data(11.0)).x.max(14.0) + 14.0 + 12.0);
         let x = rect.center().x - (ts.x + key_w) / 2.0;
         paint::text(p, pos2(x, rect.center().y), Align2::LEFT_CENTER, label, font, fade(col::LIVERY_INK, alpha));
@@ -173,6 +174,8 @@ impl Menu {
 
     pub(super) fn title(&mut self, ui: &mut Ui, r: Rect, layout: Layout, now: f64) {
         let p = ui.painter().clone();
+        // The planets may run under the screen's notch and home indicator, the text may not.
+        let screen = ui.ctx().viewport_rect();
         if ui.interact(r, Id::new("menu title"), Sense::click()).clicked() {
             self.start(now);
         }
@@ -184,9 +187,9 @@ impl Menu {
             let gas_c = r.min + vec2(w - 510.0, 125.0 + bob(now, 9.0, 8.0));
             let ice_c = r.min + vec2(w - 680.0, h - 110.0 + bob(now, 6.5, -7.0));
             self.sky.glow = [r.left() + 0.7 * w, r.top() + 1.15 * h, 0.9 * w, 0.6 * h];
-            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(330.0), rot * 0.9 + 2.0, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, 34.0, rot * 1.4 + 0.4, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, 310.0, rot * 0.6 - 0.9, 0.0, show, r, (HALO_WARM, 0.22, 1.94)));
+            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(330.0), rot * 0.9 + 2.0, 0.0, show, screen, ([0.0; 3], 0.0, 0.0)));
+            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, 34.0, rot * 1.4 + 0.4, 0.0, show, screen, ([0.0; 3], 0.0, 0.0)));
+            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, 310.0, rot * 0.6 - 0.9, 0.0, show, screen, (HALO_WARM, 0.22, 1.94)));
             self.mars_pins(&p, mars_c, 310.0, rot * 0.6 - 0.9, show, 1.35, now);
 
             let font = Font::display(124.0);
@@ -197,8 +200,13 @@ impl Menu {
             paint::para(&p, at + vec2(4.0, 2.0 * line + 58.0), 340.0, "À chaque planète son style de conduite particulier", Font::body(22.0), 1.4, fade(col::DUST_2, show));
 
             let pulse = 0.35 + 0.65 * (0.5 + 0.5 * (std::f32::consts::TAU * now as f32 / 1.8).cos());
-            let sub = paint::text(&p, pos2(r.left() + 96.0, r.bottom() - 88.0), Align2::LEFT_BOTTOM, "Clavier, souris ou manette · son activé", Font::data(12.0), fade(col::DUST_3, show));
-            paint::text(&p, pos2(r.left() + 96.0, sub.top() - 10.0), Align2::LEFT_BOTTOM, "APPUIE SUR UNE TOUCHE", Font::label(20.0, 0.3), fade(col::DUST, show * pulse));
+            let (devices, press) = if self.touch {
+                ("Son activé · casque conseillé", "TOUCHER POUR DÉMARRER")
+            } else {
+                ("Clavier, souris ou manette · son activé", "APPUIE SUR UNE TOUCHE")
+            };
+            let sub = paint::text(&p, pos2(r.left() + 96.0, r.bottom() - 88.0), Align2::LEFT_BOTTOM, devices, Font::data(12.0), fade(col::DUST_3, show));
+            paint::text(&p, pos2(r.left() + 96.0, sub.top() - 10.0), Align2::LEFT_BOTTOM, press, Font::label(20.0, 0.3), fade(col::DUST, show * pulse));
         } else {
             let s = (w * 1.5).max(h * 0.62);
             let vis = (s * 0.4).min(h * 0.3);
@@ -225,9 +233,9 @@ impl Menu {
             let (y0, y1) = (tag_rect.bottom(), press.top() - 12.0);
             let is = ((y1 - y0) * 0.5).clamp(36.0, 84.0);
             let ice_c = pos2(r.left() + w * 0.15, (y0 + y1) / 2.0 + bob(now, 6.0, -6.0));
-            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(gb), rot * 0.9 + 2.0, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, is / 2.0, rot * 1.4 + 0.4, 0.0, show, r, ([0.0; 3], 0.0, 0.0)));
-            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, s / 2.0, rot * 0.6 - 0.9, 0.0, show, r, (HALO_WARM, 0.22, 1.3)));
+            self.sky.planets.push(planet(PlanetKind::Gas, gas_c, ringed_radius(gb), rot * 0.9 + 2.0, 0.0, show, screen, ([0.0; 3], 0.0, 0.0)));
+            self.sky.planets.push(planet(PlanetKind::Ice, ice_c, is / 2.0, rot * 1.4 + 0.4, 0.0, show, screen, ([0.0; 3], 0.0, 0.0)));
+            self.sky.planets.push(planet(PlanetKind::Mars, mars_c, s / 2.0, rot * 0.6 - 0.9, 0.0, show, screen, (HALO_WARM, 0.22, 1.3)));
             self.mars_pins(&p, mars_c, s / 2.0, rot * 0.6 - 0.9, show, 1.15, now);
         }
     }

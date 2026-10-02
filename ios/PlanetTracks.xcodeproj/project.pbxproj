@@ -1,0 +1,192 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXFileReference section */
+		51B7DA91A78D66F4B16F869D /* PlanetTracks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlanetTracks.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		75A3A6241A910AB0C6367198 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		ED0DD5D3D1A917642559CA0D /* build-rust.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-rust.sh"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		E5EA034338E79B4015519A30 = {
+			isa = PBXGroup;
+			children = (
+				75A3A6241A910AB0C6367198 /* Info.plist */,
+				ED0DD5D3D1A917642559CA0D /* build-rust.sh */,
+				337C82CC63F2E093C1C25A44 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		337C82CC63F2E093C1C25A44 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				51B7DA91A78D66F4B16F869D /* PlanetTracks.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7EFC446B2B6B451531894DE9 /* PlanetTracks */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C3AF469989E49B01FCB156A /* Build configuration list for PBXNativeTarget "PlanetTracks" */;
+			buildPhases = (
+				2D1727EFF7FC50D8400A3847 /* Build the game (cargo) */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PlanetTracks;
+			productName = PlanetTracks;
+			productReference = 51B7DA91A78D66F4B16F869D /* PlanetTracks.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AE78FA457467701BAB7A87BD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					7EFC446B2B6B451531894DE9 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = 68525CB641790076757F0E07 /* Build configuration list for PBXProject "PlanetTracks" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = fr;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				fr,
+				Base,
+			);
+			mainGroup = E5EA034338E79B4015519A30;
+			productRefGroup = 337C82CC63F2E093C1C25A44 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7EFC446B2B6B451531894DE9 /* PlanetTracks */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		2D1727EFF7FC50D8400A3847 /* Build the game (cargo) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build the game (cargo)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "exec \"$SRCROOT/build-rust.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		497FCA3A2CA74E68D92D1335 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CURRENT_PROJECT_VERSION = 1;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CB477ECCDA979BFCDE63DC87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CURRENT_PROJECT_VERSION = 1;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		FCF14E43E6C5EE7B57D08A7F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5KVMHF799N;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks;
+				PRODUCT_NAME = PlanetTracks;
+			};
+			name = Debug;
+		};
+		40DF23A8827542DDA91210F8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5KVMHF799N;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks;
+				PRODUCT_NAME = PlanetTracks;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		68525CB641790076757F0E07 /* Build configuration list for PBXProject "PlanetTracks" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				497FCA3A2CA74E68D92D1335 /* Debug */,
+				CB477ECCDA979BFCDE63DC87 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1C3AF469989E49B01FCB156A /* Build configuration list for PBXNativeTarget "PlanetTracks" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCF14E43E6C5EE7B57D08A7F /* Debug */,
+				40DF23A8827542DDA91210F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AE78FA457467701BAB7A87BD /* Project object */;
+}

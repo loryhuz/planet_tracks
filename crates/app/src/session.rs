@@ -1,6 +1,6 @@
 //! The tuning session: every gameplay profile with its tuned parameters, its best run on each
 //! map and whether the player eliminated it. Saved to tuning/session.json so it survives
-//! restarts.
+//! restarts (on iOS, to the app's Documents folder).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -59,6 +59,8 @@ pub struct Session {
     pub map: String,
     /// Surfaces drawn with their textures (off: the earlier procedural look, to compare).
     pub textures: bool,
+    /// Touch screens: the casual mode (automatic throttle, steering by halves of the screen).
+    pub casual: bool,
     /// Off for self-test runs: they never write the player's session file.
     pub persist: bool,
     dirty_since: Option<Instant>,
@@ -74,6 +76,8 @@ struct Saved {
     map: String,
     #[serde(default)]
     textures_off: bool,
+    #[serde(default)]
+    casual: bool,
     profiles: Vec<SavedProfile>,
 }
 
@@ -102,6 +106,11 @@ struct SavedProfile {
 }
 
 pub fn path() -> PathBuf {
+    if cfg!(target_os = "ios") {
+        // HOME is the app's container.
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        return home.join("Documents/session.json");
+    }
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tuning/session.json"))
 }
 
@@ -143,7 +152,7 @@ impl Session {
             .collect::<Vec<_>>();
         // By name; a session saved before names were stored starts on the first profile.
         let current = profiles.iter().position(|p| p.defaults.name == saved.current_name).unwrap_or(0);
-        Self { profiles, current, map: saved.map, textures: !saved.textures_off, persist: true, dirty_since: None }
+        Self { profiles, current, map: saved.map, textures: !saved.textures_off, casual: saved.casual, persist: true, dirty_since: None }
     }
 
     pub fn toggle_textures(&mut self) {
@@ -180,6 +189,7 @@ impl Session {
             current_name: self.profiles[self.current].defaults.name.clone(),
             map: self.map.clone(),
             textures_off: !self.textures,
+            casual: self.casual,
             profiles: self
                 .profiles
                 .iter()

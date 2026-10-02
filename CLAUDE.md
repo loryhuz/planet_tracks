@@ -14,7 +14,8 @@ reference taken from the real game is its observed behaviour, summarised as numb
 
 ## Toolchain
 
-Rust comes from Homebrew's rustup, which is keg-only. Prefix commands with:
+Rust comes from Homebrew's rustup (with the `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+targets), which is keg-only. Prefix commands with:
 
     export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
@@ -29,7 +30,19 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
 
 - `crates/track` — block kit, maps, triangle meshes with a surface per triangle.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
-- `crates/app` — the macOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
+- `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
+- `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a
+  simulator), whose only build phase, `ios/build-rust.sh`, builds `mars-racer` with cargo for
+  `aarch64-apple-ios` or `aarch64-apple-ios-sim` (into the main checkout's `target/`, with the
+  worktree fingerprint clean-up below) and makes it the app's executable; Xcode then signs it.
+  From the command line: `xcodebuild -project ios/PlanetTracks.xcodeproj -scheme PlanetTracks
+  -sdk iphonesimulator -derivedDataPath DIR build`. On iOS the window is the whole screen
+  (`gfx::window_pixels`; winit's inner size is the safe area), drawn at 2× rather than 3×, put
+  in the scene `Info.plist` declares (iOS 27 stops apps without one; winit 0.30 makes none, so
+  `crates/app/src/ios.rs` attaches its window), and
+  the session is saved in the app's Documents folder. The race's touch controls are
+  `crates/app/src/touch.rs`. Self-test variables reach the app as `SIMCTL_CHILD_MARS_MAP=Jezero
+  xcrun simctl launch booted com.marsracer.planettracks`.
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title, planets, modes, solo circuits),
   in a wide layout (1280 × 720 design space) and a tall phone one (390 × 844), fitted to the
   window with egui's zoom. Its background (night sky, procedural planets) is `menu_gfx.rs` with

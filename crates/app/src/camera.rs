@@ -2,7 +2,18 @@
 
 use glam::{Mat4, Quat, Vec3};
 
-pub const MODES: [&str; 3] = ["Poursuite", "Proche", "Capot"];
+pub const MODES: [&str; 4] = ["Poursuite", "Grand angle", "Proche", "Capot"];
+/// The wide-angle chase camera (the touch screens' first).
+pub const WIDE: usize = 1;
+const HOOD: usize = 3;
+
+/// The wide-angle camera's field of view across the screen's diagonal, degrees: a lens rather
+/// than the others' 60° high view, so a portrait screen sees about twice as wide as with them
+/// (like a phone's ultra-wide camera), a landscape one a little wider.
+const WIDE_DIAGONAL: f32 = 112.0;
+/// How far the wide-angle view slides down on a portrait screen, in half screen heights: the
+/// horizon rises and the road fills the screen down to the car.
+const PORTRAIT_SHIFT: f32 = 0.1;
 
 pub struct ChaseCamera {
     pub mode: usize,
@@ -33,21 +44,36 @@ impl ChaseCamera {
         let k = 1.0 - (-rate * dt).exp();
         self.dir = (self.dir + (target - self.dir) * k).normalize_or(target);
 
-        let fov_target = (60.0 + 12.0 * (speed_kmh / 350.0).clamp(0.0, 1.0)).to_radians();
+        let rush = (speed_kmh / 350.0).clamp(0.0, 1.0);
+        let fov_target = if self.mode == WIDE {
+            // The height of a view that spans the diagonal.
+            let diagonal = (WIDE_DIAGONAL + 8.0 * rush).to_radians();
+            2.0 * ((diagonal / 2.0).tan() / (1.0 + aspect * aspect).sqrt()).atan()
+        } else {
+            (60.0 + 12.0 * rush).to_radians()
+        };
         self.fov += (fov_target - self.fov) * (1.0 - (-3.0 * dt).exp());
 
         let (eye, look) = match self.mode {
             0 => (position - self.dir * 7.2 + Vec3::Y * 2.7, position + self.dir * 5.0 + Vec3::Y * 0.9),
-            1 => (position - self.dir * 4.6 + Vec3::Y * 1.8, position + self.dir * 6.0 + Vec3::Y * 0.7),
+            // Closer and a little higher, so the car stays big in the wider view.
+            WIDE => (position - self.dir * 4.4 + Vec3::Y * 2.3, position + self.dir * 7.0 + Vec3::Y * 0.6),
+            2 => (position - self.dir * 4.6 + Vec3::Y * 1.8, position + self.dir * 6.0 + Vec3::Y * 0.7),
             _ => {
                 let up = rotation * Vec3::Y;
                 let eye = position + up * 0.9 + forward * 0.2;
                 (eye, eye + forward * 10.0)
             }
         };
-        let up = if self.mode == 2 { rotation * Vec3::Y } else { Vec3::Y };
+        let up = if self.mode == HOOD { rotation * Vec3::Y } else { Vec3::Y };
         let view = glam::camera::rh::view::look_at_mat4(eye, look, up);
-        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(self.fov, aspect, 0.1);
+        let mut proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(self.fov, aspect, 0.1);
+        if self.mode == WIDE {
+            // Lens shift: the frame slides down (verticals stay upright), from none on a square or
+            // wide screen to `PORTRAIT_SHIFT` on a phone held upright (aspect 0.46).
+            let shift = PORTRAIT_SHIFT * ((1.0 - aspect) / 0.54).clamp(0.0, 1.0);
+            proj = Mat4::from_translation(Vec3::new(0.0, shift, 0.0)) * proj;
+        }
         (view, proj, eye)
     }
 }

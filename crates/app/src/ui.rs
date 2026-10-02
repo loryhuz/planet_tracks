@@ -44,8 +44,9 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
     let ctx = ui.ctx().clone();
     let telemetry = game.telemetry();
 
-    // Top left: FPS (always), profile, camera.
-    egui::Area::new(egui::Id::new("fps")).anchor(Align2::LEFT_TOP, vec2(12.0, 10.0)).interactable(false).show(&ctx, |ui| {
+    // Top left: FPS (always), profile, camera; under the race time on a narrow (portrait) screen.
+    let top = if ctx.content_rect().width() < 560.0 { 96.0 } else { 10.0 };
+    egui::Area::new(egui::Id::new("fps")).anchor(Align2::LEFT_TOP, vec2(12.0, top)).interactable(false).show(&ctx, |ui| {
         hud_frame().show(ui, |ui| {
             ui.add(egui::Label::new(mono(format!("{:>4.0} FPS {:>5.1} ms", fps.fps, fps.frame_ms), 15.0)).extend());
             let p = game.session.profile();
@@ -80,7 +81,8 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
                             ui.label(mono(Game::delta_text(d), 20.0).color(color));
                         }
                         if game.run.finished.is_some() {
-                            ui.label(RichText::new("Entrée ou Retour arrière pour recommencer").color(Color32::from_gray(210)).size(13.0));
+                            let hint = if game.controls.touch.active { "Drapeau ou flèche ronde pour recommencer" } else { "Entrée ou Retour arrière pour recommencer" };
+                            ui.label(RichText::new(hint).color(Color32::from_gray(210)).size(13.0));
                         }
                     });
                 });
@@ -96,8 +98,9 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
         });
     }
 
-    // Bottom centre: speed.
-    egui::Area::new(egui::Id::new("speed")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -18.0)).interactable(false).show(&ctx, |ui| {
+    // Bottom centre: speed (above the touch controls when they reach the middle).
+    let lift = if game.controls.touch.active { game.controls.touch.middle_clearance() } else { 0.0 };
+    egui::Area::new(egui::Id::new("speed")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -18.0 - lift)).interactable(false).show(&ctx, |ui| {
         hud_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(mono(format!("{:>3.0}", telemetry.speed_kmh), 40.0));
@@ -106,8 +109,18 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
         });
     });
 
-    // Bottom left: keys.
-    egui::Area::new(egui::Id::new("help")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -10.0)).interactable(false).show(&ctx, |ui| {
+    // On a touch screen, its controls; otherwise the keys, bottom left.
+    if game.controls.touch.active {
+        game.controls.touch.draw(&ctx);
+    } else {
+        keys_help(&ctx, game);
+    }
+
+    game.controls.touch.panel = if game.panel_open { panel(&ctx, game, telemetry) } else { None };
+}
+
+fn keys_help(ctx: &egui::Context, game: &Game) {
+    egui::Area::new(egui::Id::new("help")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -10.0)).interactable(false).show(ctx, |ui| {
         hud_frame().show(ui, |ui| {
             let c = Color32::from_gray(215);
             ui.label(RichText::new("Haut/W : gaz · Bas/S : frein · Gauche/Droite ou A/D : tourner · Entrée : dernier CP · Retour arrière : recommencer · Échap : menu").color(c).size(12.0));
@@ -117,13 +130,10 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game, fps: &Fps) {
             }
         });
     });
-
-    if game.panel_open {
-        panel(&ctx, game, telemetry);
-    }
 }
 
-fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
+/// The tuning panel; returns where it is.
+fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) -> Option<egui::Rect> {
     let mut select = None;
     let mut select_map = None;
     let mut toggle = None;
@@ -131,10 +141,14 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     let mut reset = false;
     let mut clear = false;
     let mut restart = false;
-    egui::Window::new("Profils et réglages")
-        .anchor(Align2::RIGHT_TOP, vec2(-12.0, 12.0))
-        .default_width(380.0)
-        .default_height(ctx.content_rect().height() - 40.0)
+    // Clear of the touch controls' buttons, so the one closing it stays in reach.
+    let screen = ctx.content_rect();
+    let room = if game.controls.touch.active { game.controls.touch.room(screen) } else { screen };
+    let shown = egui::Window::new("Profils et réglages")
+        .anchor(Align2::RIGHT_TOP, vec2(room.right() - screen.right() - 12.0, room.top() - screen.top() + 12.0))
+        .default_width(380.0f32.min(room.width() - 24.0))
+        .default_height(room.height() - 40.0)
+        .max_height(room.height() - 24.0)
         .resizable(true)
         .vscroll(true)
         .show(ctx, |ui| {
@@ -271,4 +285,5 @@ fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
     if let Some(i) = select_map {
         game.select_map(i);
     }
+    shown.map(|w| w.response.rect)
 }

@@ -23,3 +23,7 @@ bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 cpal = "0.18"
 png = "0.18"
+
+# iOS: putting winit's window in the app's scene (src/ios.rs).
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"

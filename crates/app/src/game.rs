@@ -99,6 +99,7 @@ impl Game {
             autodrive: None,
             pending_respawn: false,
         };
+        game.controls.touch.casual = game.session.casual;
         game.restart();
         game
     }
@@ -220,6 +221,11 @@ impl Game {
             Action::Mute => self.mute_requested = true,
             Action::NextMap => self.select_map((self.map_index + 1) % self.maps.len()),
             Action::Textures => self.session.toggle_textures(),
+            Action::Casual => {
+                self.session.casual = !self.session.casual;
+                self.controls.touch.casual = self.session.casual;
+                self.session.mark_dirty();
+            }
             // The app opens the menu.
             Action::Menu => {}
         }

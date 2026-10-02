@@ -114,6 +114,8 @@ impl Layout {
 pub struct Menu {
     /// The menu is on screen (otherwise the race is).
     pub active: bool,
+    /// Played on a touch screen: no key hints.
+    pub touch: bool,
     screen: Screen,
     entered: f64,
     /// Set when the menu opens from a race: the screen's time starts on the next frame.
@@ -159,6 +161,7 @@ impl Menu {
     pub fn new(maps: &[track::Map]) -> Self {
         Self {
             active: true,
+            touch: false,
             screen: Screen::Title,
             entered: 0.0,
             reopened: false,
@@ -573,7 +576,7 @@ impl Menu {
                 Screen::Modes => self.modes(ui, screen_rect, layout, now, input.muted),
                 Screen::Solo => self.solo(ui, screen_rect, layout, now, input.muted, input.bests),
             }
-            if layout == Layout::Wide && self.screen != Screen::Title {
+            if layout == Layout::Wide && self.screen != Screen::Title && !self.touch {
                 self.hints(ui, screen_rect, now);
             }
         }

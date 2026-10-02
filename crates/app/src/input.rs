@@ -1,10 +1,12 @@
-//! Keyboard and gamepad → driving input, game actions and menu navigation.
+//! Keyboard, gamepad and touch screen → driving input, game actions and menu navigation.
 
 use std::collections::HashSet;
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 use physics::Input;
 use winit::keyboard::KeyCode;
+
+use crate::touch::TouchControls;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -20,6 +22,8 @@ pub enum Action {
     Mute,
     NextMap,
     Textures,
+    /// Touch screens: the casual mode on or off.
+    Casual,
     /// Leave the race for the menu.
     Menu,
 }
@@ -45,6 +49,7 @@ pub struct Controls {
     /// Left stick past the threshold on each axis (-1, 0, 1), for one move per push.
     stick: (i32, i32),
     pub gamepad_name: Option<String>,
+    pub touch: TouchControls,
 }
 
 const STICK_DEAD_ZONE: f32 = 0.12;
@@ -53,7 +58,7 @@ impl Controls {
     pub fn new() -> Self {
         let gilrs = Gilrs::new().ok();
         let gamepad_name = gilrs.as_ref().and_then(|g| g.gamepads().next().map(|(_, p)| p.name().to_string()));
-        Self { held: HashSet::new(), gilrs, actions: Vec::new(), nav: Vec::new(), stick: (0, 0), gamepad_name }
+        Self { held: HashSet::new(), gilrs, actions: Vec::new(), nav: Vec::new(), stick: (0, 0), gamepad_name, touch: TouchControls::new() }
     }
 
     pub fn key(&mut self, code: KeyCode, pressed: bool, repeat: bool) {
@@ -103,9 +108,10 @@ impl Controls {
         }
     }
 
-    /// Forget held keys (window lost focus).
+    /// Forget held keys and fingers (window lost focus, app in the background).
     pub fn clear(&mut self) {
         self.held.clear();
+        self.touch.clear();
     }
 
     fn down(&self, codes: &[KeyCode]) -> bool {
@@ -162,21 +168,26 @@ impl Controls {
     }
 
     pub fn take_actions(&mut self) -> Vec<Action> {
-        std::mem::take(&mut self.actions)
+        let mut actions = std::mem::take(&mut self.actions);
+        actions.extend(self.touch.take_actions());
+        actions
     }
 
     pub fn take_nav(&mut self) -> Vec<Nav> {
         std::mem::take(&mut self.nav)
     }
 
-    /// The driving input for the next tick: keyboard, overridden by the gamepad when it is used.
+    /// The driving input for the next tick: keyboard or touch screen, overridden by the gamepad
+    /// when it is used.
     pub fn driving(&self) -> Input {
         let left = self.down(&[KeyCode::ArrowLeft, KeyCode::KeyA]);
         let right = self.down(&[KeyCode::ArrowRight, KeyCode::KeyD]);
+        let touch = self.touch.driving();
+        let steer = (right as i32 - left as i32) as f32;
         let mut input = Input {
-            steer: (right as i32 - left as i32) as f32,
-            gas: self.down(&[KeyCode::ArrowUp, KeyCode::KeyW]) as i32 as f32,
-            brake: self.down(&[KeyCode::ArrowDown, KeyCode::KeyS]) as i32 as f32,
+            steer: if steer != 0.0 { steer } else { touch.steer },
+            gas: touch.gas.max(self.down(&[KeyCode::ArrowUp, KeyCode::KeyW]) as i32 as f32),
+            brake: touch.brake.max(self.down(&[KeyCode::ArrowDown, KeyCode::KeyS]) as i32 as f32),
         };
         if let Some(gilrs) = &self.gilrs {
             for (_, pad) in gilrs.gamepads() {

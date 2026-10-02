@@ -1,6 +1,6 @@
-//! Planet Tracks (codename Mars Racer): a native macOS window (winit + wgpu on Metal) opening on
-//! the menu, then running the deterministic physics at 100 Hz, rendering interpolated between
-//! ticks, with an egui tuning panel.
+//! Planet Tracks (codename Mars Racer): a native window (winit + wgpu on Metal, on macOS and iOS)
+//! opening on the menu, then running the deterministic physics at 100 Hz, rendering interpolated
+//! between ticks, with an egui tuning panel.
 
 mod audio;
 mod camera;
@@ -10,6 +10,8 @@ mod engine_sound;
 mod game;
 mod gfx;
 mod input;
+#[cfg(target_os = "ios")]
+mod ios;
 mod marks;
 mod menu;
 mod menu_gfx;
@@ -18,6 +20,7 @@ mod race;
 mod sample;
 mod session;
 mod surfaces;
+mod touch;
 mod ui;
 mod ui_sound;
 
@@ -25,6 +28,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use winit::application::ApplicationHandler;
+#[cfg(not(target_os = "ios"))]
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -190,6 +194,7 @@ impl App {
                 }
                 Action::Menu => {
                     game.restart();
+                    game.controls.touch.clear();
                     self.menu.open_from_race(game.map_index);
                 }
                 _ => game.apply(action),
@@ -225,7 +230,7 @@ impl App {
         let surface_texture = match g.gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                let size = g.window.inner_size();
+                let size = gfx::window_pixels(&g.window);
                 g.gpu.resize(size.width, size.height);
                 None
             }
@@ -259,7 +264,8 @@ impl App {
             (None, None) => return,
         };
 
-        // The menu is laid out in a fixed design space that egui's zoom fits to the window.
+        // The menu is laid out in a fixed design space that egui's zoom fits to the window (on iOS,
+        // its inner size is the safe area, which the menu keeps to).
         let size = g.window.inner_size();
         let scale = g.window.scale_factor() as f32;
         let zoom = if self.menu.shows() { Layout::zoom(size.width as f32 / scale, size.height as f32 / scale) } else { 1.0 };
@@ -271,6 +277,10 @@ impl App {
 
         // UI first: it can change the profile or the tuning.
         let mut raw = g.egui_state.take_egui_input(&g.window);
+        #[cfg(target_os = "ios")]
+        {
+            raw.safe_area_insets = Some(ios::safe_area(&g.window, zoom));
+        }
         // A hidden window (self-tests) reports no screen size: take the surface's.
         let screen = egui::vec2(g.gpu.config.width as f32, g.gpu.config.height as f32) / (scale * zoom);
         if raw.screen_rect.is_none_or(|r| (r.size() - screen).length() > 1.0) {
@@ -278,6 +288,7 @@ impl App {
         }
         let fps = &self.fps;
         let menu = &mut self.menu;
+        menu.touch = game.controls.touch.active;
         let bests: Vec<Option<u32>> =
             game.maps.iter().map(|m| game.session.profile().best(&session::map_key(m)).map(|b| b.ticks)).collect();
         let muted = self.audio.as_ref().is_some_and(|a| a.muted());
@@ -415,13 +426,34 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
+            // Back from the background (iOS): the race carries on from here.
+            self.last_frame = Instant::now();
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("Planet Tracks")
-            .with_inner_size(window_size())
-            .with_visible(!self.debug.runs_hidden());
+        let attrs = Window::default_attributes().with_title("Planet Tracks").with_visible(!self.debug.runs_hidden());
+        // On iOS the window is the screen.
+        #[cfg(not(target_os = "ios"))]
+        let attrs = attrs.with_inner_size(window_size());
+        // Full screen without the status bar; swipes from the edges reach the game first (a
+        // second swipe opens the Control Centre).
+        #[cfg(target_os = "ios")]
+        let attrs = {
+            use winit::platform::ios::{ScreenEdge, WindowAttributesExtIOS};
+            attrs
+                .with_prefers_status_bar_hidden(true)
+                .with_prefers_home_indicator_hidden(true)
+                .with_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL)
+        };
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
+        // In the app's scene, then drawn at twice the points rather than the 3× of recent
+        // iPhones: hardly visible, and far lighter (set once the view is shown: UIKit resets a
+        // scale given before).
+        #[cfg(target_os = "ios")]
+        {
+            use winit::platform::ios::WindowExtIOS;
+            ios::attach_to_scene(&window);
+            window.set_scale_factor(2.0);
+        }
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_mesh_data(&self.game.track.mesh));
@@ -451,17 +483,32 @@ impl ApplicationHandler for App {
             }
             return;
         }
+        // Every finger goes to the touch controls (egui follows only one, for the menu and the
+        // settings panel).
+        if let WindowEvent::Touch(t) = &event {
+            let pos = egui::pos2(t.location.x as f32, t.location.y as f32);
+            self.game.controls.touch.touch(t.id, t.phase, pos, !self.menu.shows());
+        }
         let _ = g.egui_state.on_window_event(&g.window, &event);
         match event {
             WindowEvent::CloseRequested => {
                 self.game.session.save();
                 event_loop.exit();
             }
-            WindowEvent::Resized(size) => g.gpu.resize(size.width, size.height),
+            WindowEvent::Resized(_) => {
+                let size = gfx::window_pixels(&g.window);
+                g.gpu.resize(size.width, size.height);
+            }
             WindowEvent::Focused(false) => self.game.controls.clear(),
             WindowEvent::RedrawRequested => self.frame(),
             _ => {}
         }
+    }
+
+    /// iOS: the app leaves the foreground, and may be closed from there without notice.
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.game.controls.clear();
+        self.game.session.save();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -485,6 +532,7 @@ impl ApplicationHandler for App {
 
 /// The window's logical size: 1600 × 900, or `MARS_WINDOW=WxH` (a portrait size shows the phone
 /// layout of the menu).
+#[cfg(not(target_os = "ios"))]
 fn window_size() -> LogicalSize<f64> {
     std::env::var("MARS_WINDOW")
         .ok()
@@ -659,8 +707,13 @@ fn main() {
     if let Some(p) = debug.profile {
         game.select_profile(p);
     }
-    if std::env::var("MARS_HIDE_UI").is_ok() {
+    // The tuning panel starts closed on a phone (its button opens it), and the wide-angle camera
+    // shows the sides of the road on its narrow screen.
+    if std::env::var("MARS_HIDE_UI").is_ok() || game.controls.touch.active {
         game.panel_open = false;
+    }
+    if game.controls.touch.active {
+        game.camera.mode = camera::WIDE;
     }
     // Surface textures on (1) or off (0) for this run, whatever the session says.
     if let Ok(v) = std::env::var("MARS_TEXTURES") {

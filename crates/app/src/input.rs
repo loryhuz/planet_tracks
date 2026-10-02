@@ -19,7 +19,7 @@ pub enum Action {
     Fullscreen,
     Mute,
     NextMap,
-    /// Leave the race for the menu.
+    /// Pause the race on the settings sheet (and resume), or leave a finished one for the menu.
     Menu,
 }
 

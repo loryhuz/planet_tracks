@@ -215,6 +215,7 @@ impl App {
 
         game.controls.poll();
         let navs = game.controls.take_nav();
+        let sheet_open = self.hud.paused();
         for action in game.controls.take_actions() {
             match action {
                 // In the menu the keys move through it; only the window and the sound keys stay.
@@ -223,9 +224,25 @@ impl App {
                         game.apply(action);
                     }
                 }
+                // In a race Escape (or the pad's Start) pauses on the HUD's settings sheet and
+                // resumes; once the race is over it leaves for the menu, as the finish card says.
+                Action::Menu if game.run.finished.is_none() && !self.debug.no_hud => {
+                    if sheet_open {
+                        self.hud.close_sheet();
+                    } else {
+                        self.hud.open_sheet();
+                    }
+                }
                 Action::Menu => {
                     game.restart();
                     self.menu.open_from_race(game.map_index);
+                }
+                // The paused race keeps the window, sound and debug keys; the others move
+                // through the sheet.
+                _ if sheet_open => {
+                    if matches!(action, Action::Fullscreen | Action::Mute | Action::TogglePanel) {
+                        game.apply(action);
+                    }
                 }
                 _ => game.apply(action),
             }
@@ -233,6 +250,11 @@ impl App {
         if self.menu.active {
             for n in navs {
                 self.menu.push_nav(n);
+            }
+        } else if sheet_open && self.hud.paused() {
+            // Not the key that just opened or closed the sheet.
+            for n in navs {
+                self.hud.push_nav(n);
             }
         }
         if std::mem::take(&mut game.fullscreen_requested) {

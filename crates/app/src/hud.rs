@@ -351,6 +351,17 @@ impl Hud {
         let wide = Layout::for_size(r.width(), r.height()) == Layout::Wide;
         let p = ui.painter().clone();
         self.events(game, now);
+        self.note_touches(ui);
+        let touch = !wide || self.touch_seen;
+        if self.sheet_test.is_some_and(|t| game.run.countdown == 0 && game.run.tick as f64 >= t * 100.0) {
+            self.sheet_test = None;
+            // As it opens there: Escape on a computer, the button on a phone.
+            if wide {
+                self.open_requested = true;
+            } else {
+                self.sheet = Some(now);
+            }
+        }
         if std::mem::take(&mut self.open_requested) && self.sheet.is_none() {
             self.sheet = Some(now);
             self.focus = Some(SHEET_RESUME);
@@ -358,12 +369,6 @@ impl Hud {
         }
         if self.sheet.is_none() {
             self.navs.clear();
-        }
-        self.note_touches(ui);
-        let touch = !wide || self.touch_seen;
-        if self.sheet_test.is_some_and(|t| game.run.countdown == 0 && game.run.tick as f64 >= t * 100.0) {
-            self.sheet_test = None;
-            self.sheet = Some(now);
         }
 
         band(&p, Rect::from_min_max(full.min, pos2(full.right(), r.top() + r.height() * 0.18)), VIG_TOP, Color32::TRANSPARENT);
@@ -803,9 +808,50 @@ impl Hud {
         }
     }
 
+    /// Keyboard and pad in the sheet: up and down move the focus (shown from the first move when
+    /// the sheet was opened by touch), left and right change the camera, confirm acts on the item
+    /// with the focus, back resumes. Returns the item to act on and whether to resume.
+    fn sheet_nav(&mut self, game: &mut Game) -> (Option<usize>, bool) {
+        let modes = crate::camera::MODES.len();
+        let (mut pressed, mut resume) = (None, false);
+        for nav in std::mem::take(&mut self.navs) {
+            let Some(f) = self.focus else {
+                match nav {
+                    Nav::Up | Nav::Down | Nav::Left | Nav::Right => {
+                        self.focus = Some(SHEET_RESUME);
+                        self.cues.push(Cue::Select);
+                    }
+                    Nav::Confirm => pressed = Some(SHEET_RESUME),
+                    Nav::Back => resume = true,
+                    Nav::Any => {}
+                }
+                continue;
+            };
+            match nav {
+                Nav::Up if f > SHEET_CAMERA => self.focus = Some(f - 1),
+                Nav::Down if f < SHEET_RESUME => self.focus = Some(f + 1),
+                Nav::Left if f == SHEET_CAMERA && game.camera.mode > 0 => game.camera.mode -= 1,
+                Nav::Right if f == SHEET_CAMERA && game.camera.mode + 1 < modes => game.camera.mode += 1,
+                Nav::Confirm if f == SHEET_CAMERA => game.camera.mode = (game.camera.mode + 1) % modes,
+                Nav::Confirm => {
+                    pressed = Some(f);
+                    continue;
+                }
+                Nav::Back => {
+                    resume = true;
+                    continue;
+                }
+                _ => continue,
+            }
+            self.cues.push(Cue::Select);
+        }
+        (pressed, resume)
+    }
+
     /// The settings sheet, from the bottom: camera, sound, last checkpoint, restart, menu, resume.
     #[allow(clippy::too_many_arguments)]
     fn settings_sheet(&mut self, ui: &Ui, r: Rect, wide: bool, game: &mut Game, muted: bool, now: f64, since: f64) {
+        let (pressed, back) = self.sheet_nav(game);
         let full = ui.ctx().viewport_rect();
         let mut p = ui.ctx().layer_painter(LayerId::new(Order::Tooltip, Id::new("hud sheet")));
         p.set_clip_rect(full);
@@ -839,6 +885,9 @@ impl Hud {
         let seg = Rect::from_min_size(pos2(x, y), vec2(iw, 44.0));
         p.rect_filled(seg, 12.0, col::VOID);
         p.rect_stroke(seg, 12.0, Stroke::new(1.0, col::LINE), StrokeKind::Inside);
+        if self.focus == Some(SHEET_CAMERA) {
+            p.rect_stroke(seg.expand(3.0), 15.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Outside);
+        }
         let cw = (iw - 8.0 - 8.0) / 3.0;
         for (i, name) in crate::camera::MODES.iter().enumerate() {
             let cell = Rect::from_min_size(pos2(seg.left() + 4.0 + i as f32 * (cw + 4.0), seg.top() + 4.0), vec2(cw, 36.0));
@@ -875,7 +924,19 @@ impl Hud {
                 p.hline(row.x_range(), row.top(), Stroke::new(1.0, col::LINE));
             }
             let resp = ui.interact(row, Id::new(("hud setting", i)), Sense::click());
-            let colour = if *request == Some(HudRequest::Menu) { SLOW } else if resp.hovered() { Color32::WHITE } else { col::DUST };
+            let focused = self.focus == Some(1 + i);
+            if focused {
+                let ring = Rect::from_min_max(pos2(acts.left() + 4.0, row.top() + 4.0), pos2(acts.right() - 4.0, row.bottom() - 4.0));
+                p.rect_stroke(ring, 10.0, Stroke::new(2.0, col::LIVERY), StrokeKind::Inside);
+            }
+            let clicked = resp.clicked() || pressed == Some(1 + i);
+            let colour = if *request == Some(HudRequest::Menu) {
+                SLOW
+            } else if resp.hovered() || focused {
+                Color32::WHITE
+            } else {
+                col::DUST
+            };
             paint::text(&p, pos2(row.left() + 4.0, row.center().y), Align2::LEFT_CENTER, name, lf, colour);
             match request {
                 None => {
@@ -885,14 +946,14 @@ impl Hud {
                     p.rect_filled(sw, 13.0, if on { col::LIVERY } else { col::LINE });
                     let knob = if on { sw.right() - 13.0 } else { sw.left() + 13.0 };
                     p.circle_filled(pos2(knob, sw.center().y), 10.0, if on { col::LIVERY_INK } else { col::DUST_3 });
-                    if resp.clicked() {
+                    if clicked {
                         game.mute_requested = true;
                         self.cues.push(Cue::Select);
                     }
                 }
                 Some(req) => {
                     paint::icon_at(&p, pos2(row.right() - 10.0, row.center().y), 16.0, Icon::ChevronRight, col::DUST_3);
-                    if resp.clicked() {
+                    if clicked {
                         self.requests.push(*req);
                         self.cues.push(if *req == HudRequest::Menu { Cue::Back } else { Cue::Confirm });
                         close = true;
@@ -905,11 +966,23 @@ impl Hud {
         // Resume.
         let cta = Rect::from_min_size(pos2(x, y), vec2(iw, 54.0));
         let resp = ui.interact(cta, Id::new("hud resume"), Sense::click());
-        p.rect_filled(cta, 14.0, if resp.hovered() { Color32::from_rgb(255, 128, 64) } else { col::LIVERY });
+        let focused = self.focus == Some(SHEET_RESUME);
+        p.rect_filled(cta, 14.0, if resp.hovered() || focused { Color32::from_rgb(255, 128, 64) } else { col::LIVERY });
+        if focused {
+            p.rect_stroke(cta.expand(3.0), 17.0, Stroke::new(2.0, col::DUST), StrokeKind::Outside);
+        }
         paint::stripes(&p.with_clip_rect(cta.shrink(0.5)), Rect::from_min_max(pos2(cta.right() - 70.0, cta.top()), cta.max), col::INK_STRIPE);
-        paint::text(&p, cta.center(), Align2::CENTER_CENTER, "REPRENDRE", Font::label(18.0, 0.14).weight(800.0), col::LIVERY_INK);
+        // On a computer the key that resumes, as on the finish card.
+        let lf = Font::label(18.0, 0.14).weight(800.0);
+        let key_w = if wide { 52.0 } else { 0.0 };
+        let lw = paint::text_size(&p, "REPRENDRE", lf).x;
+        let lx = cta.center().x - (lw + key_w) / 2.0;
+        paint::text(&p, pos2(lx, cta.center().y), Align2::LEFT_CENTER, "REPRENDRE", lf, col::LIVERY_INK);
+        if wide {
+            paint::keycap(&p, pos2(lx + lw + 12.0, cta.center().y), "Échap", col::INK_STRIPE, None, col::LIVERY_INK);
+        }
         let outside = scrim.clicked() && scrim.interact_pointer_pos().is_some_and(|q| !sheet.contains(q));
-        if resp.clicked() || outside {
+        if resp.clicked() || outside || back || pressed == Some(SHEET_RESUME) {
             self.cues.push(Cue::SheetClose);
             close = true;
         }

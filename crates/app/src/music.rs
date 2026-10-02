@@ -16,12 +16,11 @@ use symphonia::core::meta::MetadataOptions;
 
 /// The menu's theme, "Planet Tracks".
 pub const MENU: &[&[u8]] = &[include_bytes!("../assets/music/theme.m4a")];
-/// Raced to on Mars, in turn: "Red Frontier", "Dust Devil", "Night Shift".
-pub const MARS: &[&[u8]] = &[
-    include_bytes!("../assets/music/red_frontier.m4a"),
-    include_bytes!("../assets/music/dust_devil.m4a"),
-    include_bytes!("../assets/music/night_shift.m4a"),
-];
+/// Raced to on Mars by day, in turn: "Red Frontier", "Dust Devil".
+pub const MARS: &[&[u8]] = &[include_bytes!("../assets/music/red_frontier.m4a"), include_bytes!("../assets/music/dust_devil.m4a")];
+/// Raced to on Mars by night (a map's `"time": "night"`): "Night Shift", the hypnotic night
+/// track, in a loop.
+pub const MARS_NIGHT: &[&[u8]] = &[include_bytes!("../assets/music/night_shift.m4a")];
 
 /// Frames per chunk handed to the audio thread (about 21 ms).
 const CHUNK: usize = 1024;
@@ -135,7 +134,7 @@ mod tests {
 
     #[test]
     fn every_track_decodes() {
-        for &bytes in MENU.iter().chain(MARS) {
+        for &bytes in MENU.iter().chain(MARS).chain(MARS_NIGHT) {
             let (mut format, mut decoder, id, rate, channels) = open(bytes).expect("track opens");
             assert_eq!((rate, channels), (48_000, 2));
             let mut pcm: Vec<f32> = Vec::new();

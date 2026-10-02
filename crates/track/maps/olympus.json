@@ -4,6 +4,7 @@
   "author": "mars-racer",
   "version": 4,
   "terrain": {"seed":31337,"size":8192.0,"relief":14.0,"dunes":4.0,"ripples":0.35,"bumps":0.4,"hills":8.0,"mesas":10,"craters":6,"horizon":180.0,"rocks":1.0},
+  "time": "night",
   "blocks": [
     {"block":"start","cell":[0,0],"level":0,"rotation":0},
     {"block":"turn2_right","cell":[0,1],"level":0,"rotation":0},

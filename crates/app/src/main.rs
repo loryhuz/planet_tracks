@@ -213,7 +213,7 @@ fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu) -> CarMeshes {
             tierod: p.tierod.as_ref().map(&mut up),
         })
         .collect();
-    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius }
+    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius, headlight: buggy.headlight }
 }
 
 impl App {
@@ -415,7 +415,7 @@ impl App {
 
         if std::mem::take(&mut game.track_changed) {
             g.scene.replace(&g.gpu.device, g.track_mesh, &track_render_data(&game.track));
-            g.scene.set_track(&g.gpu, &game.track, g.track_mesh, game.maps[game.map_index].planet);
+            g.scene.set_track(&g.gpu, &game.track, g.track_mesh, game.time_of_day(), game.maps[game.map_index].planet);
         }
 
         let target = target_texture.create_view(&Default::default());
@@ -455,7 +455,7 @@ impl App {
         }];
         items.extend(game.draw_items(alpha, &g.car));
         if let Some(audio) = &self.audio {
-            audio.set_scene(!self.menu.active);
+            audio.set_scene(!self.menu.active, game.time_of_day() == track::map::TimeOfDay::Night);
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
                 audio.cue(cue);
             }
@@ -487,7 +487,8 @@ impl App {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
             _ => {
                 let blur = if self.hud.paused() { 0.0 } else { game.camera.blur };
-                g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur }, &items)
+                let headlights = Some(game.headlights(alpha, &g.car));
+                g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur, headlights }, &items)
             }
         }
 
@@ -593,7 +594,7 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
-        scene.set_track(&gpu, &self.game.track, track_mesh, self.game.maps[self.game.map_index].planet);
+        scene.set_track(&gpu, &self.game.track, track_mesh, self.game.time_of_day(), self.game.maps[self.game.map_index].planet);
         let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(

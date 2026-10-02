@@ -13,6 +13,7 @@ use crate::marks::{CAPACITY as MARKS_CAPACITY, MarkVertex};
 use crate::particles::{CAPACITY as DUST_CAPACITY, ParticleVertex};
 use crate::surfaces::SurfaceTextures;
 use crate::weather::{Climate, GustInstance, MAX_GUSTS, Weather};
+use track::map::TimeOfDay;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const MSAA: u32 = 4;
@@ -26,6 +27,16 @@ const SHADOW_AHEAD: f32 = 40.0;
 /// texels, and how far around the route it reaches, metres.
 const FAR_SHADOW_SIZE: u32 = 4096;
 const FAR_SHADOW_MARGIN: f32 = 250.0;
+/// The headlights' shadow map (by night): its side in texels, and the beam it covers seen from
+/// the lamps (tangents of the angles: to either side, above and below the beam's axis; the beam
+/// itself is shaped in scene.wgsl, inside these), from `LAMP_NEAR` to `LAMP_REACH` metres.
+const LAMP_SHADOW_SIZE: u32 = 1024;
+const LAMP_FRUSTUM: (f32, f32, f32) = (0.92, 0.16, 0.9);
+const LAMP_NEAR: f32 = 0.4;
+/// How far the headlights light, metres (fading out from 40 % of it on, see scene.wgsl).
+const LAMP_REACH: f32 = 150.0;
+/// The beam's axis dips this far under the car's heading (radians), as low beams do.
+const LAMP_DIP: f32 = 0.025;
 const OBJECT_STRIDE: u64 = 256;
 const MAX_OBJECTS: u64 = 128;
 /// The sandstorm's front starts this far beyond the circuit and closes in to `STORM_STOP`, metres:
@@ -248,6 +259,75 @@ pub struct View {
     pub eye: Vec3,
     /// The speed blur over the scene, 0..1 (a booster's push, see [`crate::blur`]).
     pub blur: f32,
+    /// The player's headlights, lit by night.
+    pub headlights: Option<Headlights>,
+}
+
+/// Where a car's headlights shine from, and the car's axes there.
+#[derive(Clone, Copy, Debug)]
+pub struct Headlights {
+    /// Between the two lamps.
+    pub at: Vec3,
+    pub forward: Vec3,
+    pub up: Vec3,
+}
+
+/// The light over a track: the sun's by day; by night a moon's, low over the horizon, under a
+/// dark sky (scene.wgsl adds the stars), the headlights lighting the road.
+#[derive(Clone, Copy, Debug)]
+struct Lighting {
+    /// Toward the sun (or the moon).
+    sun_dir: Vec3,
+    sun_color: [f32; 4],
+    /// The sky at the zenith and at the horizon (the distance fog's colour), and the light
+    /// coming back up from the ground.
+    sky_top: [f32; 4],
+    sky_horizon: [f32; 4],
+    ground_bounce: [f32; 4],
+    /// Distance fog: density per metre, distance it starts at.
+    fog: [f32; 2],
+    /// 0 by day, 1 by night (the shaders' night sky, darker dust, headlights).
+    night: f32,
+}
+
+impl Lighting {
+    fn of(time: TimeOfDay, planet: track::Planet) -> Self {
+        let scaled = |c: [f32; 3], s: f32| [c[0] * s, c[1] * s, c[2] * s, 1.0];
+        if planet == track::Planet::Ice && time == TimeOfDay::Day {
+            // The ice planet's prototype: a cold sky, a weaker sun (it is farther from it).
+            return Self {
+                sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+                sun_color: scaled(srgb(255, 248, 240), 2.0),
+                sky_top: scaled(srgb(70, 104, 150), 0.8),
+                sky_horizon: scaled(srgb(184, 204, 226), 1.0),
+                ground_bounce: scaled(srgb(150, 165, 185), 0.5),
+                fog: [1.0 / 1400.0, 150.0],
+                night: 0.0,
+            };
+        }
+        match time {
+            TimeOfDay::Day => Self {
+                sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+                sun_color: scaled(srgb(255, 238, 214), 2.6),
+                sky_top: scaled(srgb(176, 118, 92), 0.8),
+                sky_horizon: scaled(srgb(226, 178, 140), 1.0),
+                ground_bounce: scaled(srgb(170, 100, 70), 0.5),
+                fog: [1.0 / 1400.0, 150.0],
+                night: 0.0,
+            },
+            // Not a true Martian night (Phobos lights next to nothing): a moonlit night, dark
+            // enough for the headlights to matter, light enough to read the circuit ahead.
+            TimeOfDay::Night => Self {
+                sun_dir: Vec3::new(-0.54, 0.34, 0.77).normalize(),
+                sun_color: scaled(srgb(196, 208, 255), 0.8),
+                sky_top: scaled(srgb(46, 60, 112), 0.5),
+                sky_horizon: scaled(srgb(60, 66, 104), 0.7),
+                ground_bounce: scaled(srgb(70, 52, 60), 0.25),
+                fog: [1.0 / 1100.0, 120.0],
+                night: 1.0,
+            },
+        }
+    }
 }
 
 #[repr(C)]
@@ -277,6 +357,12 @@ struct FrameUniform {
     /// strength (0: none); the axle and the footprint's half width; the heading and its half
     /// length (all in the ground's plane).
     contacts: [[f32; 4]; 3 * MAX_CONTACTS],
+    /// The headlights (by night): where the beam starts and its strength (0: off), the beam's
+    /// axis and its reach (metres), the car's up axis; the matrix of their shadow map.
+    lamp_pos: [f32; 4],
+    lamp_dir: [f32; 4],
+    lamp_up: [f32; 4],
+    lamp_view_proj: [[f32; 4]; 4],
 }
 
 #[repr(C)]
@@ -382,7 +468,15 @@ pub struct SceneRenderer {
     size: (u32, u32),
     format: wgpu::TextureFormat,
     meshes: Vec<GpuMesh>,
-    sun_dir: Vec3,
+    lighting: Lighting,
+    /// `MARS_TIME=day|night`: every map at that time (checks).
+    time_override: Option<TimeOfDay>,
+    /// The current track's mesh: what the headlights' shadow map draws.
+    track_mesh: Option<MeshId>,
+    /// The headlights' shadow map and what draws it (their matrix in a frame of its own).
+    lamp_shadow_view: wgpu::TextureView,
+    lamp_shadow_buffer: wgpu::Buffer,
+    lamp_shadow_group: wgpu::BindGroup,
     speed_blur: crate::blur::SpeedBlur,
 }
 
@@ -406,6 +500,7 @@ impl SceneRenderer {
 
         let shadow_view = create_shadow_map(device, "shadow map", SHADOW_SIZE);
         let far_shadow_view = create_shadow_map(device, "far shadow map", FAR_SHADOW_SIZE);
+        let lamp_shadow_view = create_shadow_map(device, "headlight shadow map", LAMP_SHADOW_SIZE);
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -489,9 +584,19 @@ impl SceneRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // The far shadow map (sampled with the shadow sampler).
+                // The far shadow map, and the headlights' (sampled with the shadow sampler).
                 wgpu::BindGroupLayoutEntry {
                     binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 9,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
@@ -545,7 +650,7 @@ impl SceneRenderer {
             device,
             &frame_layout,
             &frame_buffer,
-            [&shadow_view, &far_shadow_view],
+            [&shadow_view, &far_shadow_view, &lamp_shadow_view],
             &shadow_sampler,
             &livery_view,
             &livery_sampler,
@@ -567,6 +672,17 @@ impl SceneRenderer {
             label: Some("far shadow frame group"),
             layout: &shadow_frame_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: far_shadow_buffer.as_entire_binding() }],
+        });
+        let lamp_shadow_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("headlight shadow frame"),
+            size: 3 * std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let lamp_shadow_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("headlight shadow frame group"),
+            layout: &shadow_frame_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: lamp_shadow_buffer.as_entire_binding() }],
         });
         let object_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("object group"),
@@ -952,16 +1068,23 @@ impl SceneRenderer {
             size: (gpu.config.width, gpu.config.height),
             format,
             meshes: Vec::new(),
-            sun_dir: Vec3::new(-0.45, 0.62, 0.64).normalize(),
+            lighting: Lighting::of(TimeOfDay::Day, track::Planet::Mars),
+            time_override: std::env::var("MARS_TIME").ok().and_then(|t| serde_json::from_value(t.into()).ok()),
+            track_mesh: None,
+            lamp_shadow_view,
+            lamp_shadow_buffer,
+            lamp_shadow_group,
             speed_blur: crate::blur::SpeedBlur::new(device, format),
         }
     }
 
-    /// Sets the scene up for a new track on `planet`, drawn with `mesh`: bakes its far shadows,
-    /// places the sandstorm and starts its approach over (kilometres beyond the route, ahead of
-    /// the start), and starts the weather over, the wind blowing from the storm. The ice planet's
-    /// prototype has neither: still, clear air.
-    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, planet: track::Planet) {
+    /// Sets the scene up for a new track on `planet`, drawn with `mesh` and raced at `time`:
+    /// lights it, bakes its far shadows, places the sandstorm and starts its approach over
+    /// (kilometres beyond the route, ahead of the start), and starts the weather over, the wind
+    /// blowing from the storm. The ice planet's prototype has neither: still, clear air.
+    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, time: TimeOfDay, planet: track::Planet) {
+        self.lighting = Lighting::of(self.time_override.unwrap_or(time), planet);
+        self.track_mesh = Some(mesh);
         self.bake_shadows(gpu, track, mesh);
         self.planet = planet;
         if !planet.is_mars() {
@@ -974,7 +1097,7 @@ impl SceneRenderer {
         });
         let mid = if lo.x <= hi.x { 0.5 * (lo + hi) } else { Vec2::new(track.start.position.x, track.start.position.z) };
         let reach = track.route.iter().map(|p| Vec2::new(p.x, p.z).distance(mid)).fold(0.0, f32::max);
-        let sun = Vec2::new(self.sun_dir.x, self.sun_dir.z);
+        let sun = Vec2::new(self.lighting.sun_dir.x, self.lighting.sun_dir.z);
         let forward = Vec2::new(track.start.forward().x, track.start.forward().z);
         let away = if forward.perp_dot(sun) > 0.0 { -STORM_SUN_OFFSET } else { STORM_SUN_OFFSET };
         let dir = Vec2::from_angle(away.to_radians()).rotate(forward);
@@ -989,7 +1112,7 @@ impl SceneRenderer {
 
     /// The sun's view, shared by both shadow maps.
     fn light_view(&self) -> Mat4 {
-        glam::camera::rh::view::look_at_mat4(self.sun_dir * 400.0, Vec3::ZERO, Vec3::Y)
+        glam::camera::rh::view::look_at_mat4(self.lighting.sun_dir * 400.0, Vec3::ZERO, Vec3::Y)
     }
 
     /// Draws the far shadow map once for the track: the track's shadows (the sun is fixed and the
@@ -1021,7 +1144,7 @@ impl SceneRenderer {
         }
         // Distances from the sun's plane (the light looks down -z). Casters stand up to `top`,
         // up the ray to the sun from the ground: that much nearer.
-        let reach = (top - lo.y) / self.sun_dir.y.max(0.1);
+        let reach = (top - lo.y) / self.lighting.sun_dir.y.max(0.1);
         let light_proj =
             glam::camera::rh::proj::directx::orthographic(min.x, max.x, min.y, max.y, -max.z - reach - 1.0, -min.z + 1.0);
         self.far_light_view_proj = light_proj * light_view;
@@ -1078,7 +1201,7 @@ impl SceneRenderer {
             &gpu.device,
             &self.frame_layout,
             &self.frame_buffer,
-            [&self.shadow_view, &self.far_shadow_view],
+            [&self.shadow_view, &self.far_shadow_view, &self.lamp_shadow_view],
             &self.shadow_sampler,
             &self.livery_view,
             &self.livery_sampler,
@@ -1134,27 +1257,35 @@ impl SceneRenderer {
         let light_view_proj = light_proj * light_view;
         let view_proj = view.proj * view.view;
 
-        // Mars's butterscotch sky, or the ice planet's cold one.
-        let mars = self.planet.is_mars();
-        let (sky_top, sky_horizon, sun, bounce) = if mars {
-            (srgb(176, 118, 92), srgb(226, 178, 140), srgb(255, 238, 214), srgb(170, 100, 70))
-        } else {
-            (srgb(70, 104, 150), srgb(184, 204, 226), srgb(255, 248, 240), srgb(150, 165, 185))
-        };
-        let four = |c: [f32; 3], s: f32| [c[0] * s, c[1] * s, c[2] * s, 1.0];
+        let light = self.lighting;
+        let lamp = view.headlights.filter(|_| light.night > 0.0).map(|h| {
+            // The beam's axis dips a little under the heading.
+            let (sin, cos) = LAMP_DIP.sin_cos();
+            let dir = (h.forward * cos - h.up * sin).normalize();
+            let up = (h.up * cos + h.forward * sin).normalize();
+            let (side, above, below) = LAMP_FRUSTUM;
+            let proj = glam::camera::rh::proj::directx::frustum(
+                -side * LAMP_NEAR,
+                side * LAMP_NEAR,
+                -below * LAMP_NEAR,
+                above * LAMP_NEAR,
+                LAMP_NEAR,
+                LAMP_REACH,
+            );
+            (h.at, dir, up, proj * glam::camera::rh::view::look_to_mat4(h.at, dir, up))
+        });
         let mut frame = FrameUniform {
             view_proj: view_proj.to_cols_array_2d(),
             inv_view_proj: view_proj.inverse().to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
             camera_pos: view.eye.extend(1.0).to_array(),
-            sun_dir: self.sun_dir.extend(0.0).to_array(),
-            // The ice planet is farther from the Sun.
-            sun_color: four(sun, if mars { 2.6 } else { 2.0 }),
-            sky_top: four(sky_top, 0.8),
-            sky_horizon: four(sky_horizon, 1.0),
-            ground_bounce: four(bounce, 0.5),
-            fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, if mars { 0.0 } else { 1.0 }],
+            sun_dir: light.sun_dir.extend(0.0).to_array(),
+            sun_color: light.sun_color,
+            sky_top: light.sky_top,
+            sky_horizon: light.sky_horizon,
+            ground_bounce: light.ground_bounce,
+            fog: [light.fog[0], light.fog[1], if self.planet.is_mars() { 0.0 } else { 1.0 }, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, light.night],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
             far_light_view_proj: self.far_light_view_proj.to_cols_array_2d(),
@@ -1163,6 +1294,10 @@ impl SceneRenderer {
             eye_vel: [0.0; 4],
             viewport: [self.size.0 as f32, self.size.1 as f32, 0.5 * self.size.1 as f32 * view.proj.y_axis.y, 0.0],
             contacts: tyre_contacts(items),
+            lamp_pos: lamp.map_or([0.0; 4], |(at, ..)| at.extend(1.0).to_array()),
+            lamp_dir: lamp.map_or([0.0; 4], |(_, dir, ..)| dir.extend(LAMP_REACH).to_array()),
+            lamp_up: lamp.map_or([0.0; 4], |(_, _, up, _)| up.extend(0.0).to_array()),
+            lamp_view_proj: lamp.map_or(Mat4::IDENTITY, |(.., m)| m).to_cols_array_2d(),
         };
         if let Some(s) = &self.storm {
             let since = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32());
@@ -1214,6 +1349,27 @@ impl SceneRenderer {
                     self.draw(&mut pass, i, item.mesh, None);
                 }
             }
+        }
+        // The headlights' shadows: the track only (the car would hide its own lamps).
+        let track_slot = items.iter().take(MAX_OBJECTS as usize).position(|item| Some(item.mesh) == self.track_mesh);
+        if let (Some((.., lamp_view_proj)), Some(slot)) = (lamp, track_slot) {
+            let frame = [[[0.0f32; 4]; 4], [[0.0; 4]; 4], lamp_view_proj.to_cols_array_2d()];
+            gpu.queue.write_buffer(&self.lamp_shadow_buffer, 0, bytemuck::bytes_of(&frame));
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("headlight shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.lamp_shadow_view,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.shadow_pipeline);
+            pass.set_bind_group(0, &self.lamp_shadow_group, &[]);
+            self.draw(&mut pass, slot, items[slot].mesh, None);
         }
         // While a booster pushes the car the scene resolves into the speed blur's image, drawn
         // into the frame smeared once the pass is over.
@@ -1400,7 +1556,7 @@ fn create_frame_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     frame_buffer: &wgpu::Buffer,
-    [shadow_view, far_shadow_view]: [&wgpu::TextureView; 2],
+    [shadow_view, far_shadow_view, lamp_shadow_view]: [&wgpu::TextureView; 3],
     shadow_sampler: &wgpu::Sampler,
     livery_view: &wgpu::TextureView,
     livery_sampler: &wgpu::Sampler,
@@ -1419,6 +1575,7 @@ fn create_frame_group(
             wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&surfaces.relief) },
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&surfaces.sampler) },
             wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(far_shadow_view) },
+            wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(lamp_shadow_view) },
         ],
     })
 }

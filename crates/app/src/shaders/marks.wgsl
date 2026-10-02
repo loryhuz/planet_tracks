@@ -70,7 +70,7 @@ fn fs_marks(in: VsOut) -> @location(0) vec4<f32> {
         color = vec3<f32>(0.10, 0.035, 0.015);
         strength = 0.6;
     }
-    if frame.misc.w > 0.5 {
+    if frame.fog.z > 0.5 {
         // The ice planet: tracks pressed into the snow, blue-grey, or white scratches on the ice.
         if in.surface == 1u || in.surface == 2u {
             color = vec3<f32>(0.07, 0.09, 0.14);

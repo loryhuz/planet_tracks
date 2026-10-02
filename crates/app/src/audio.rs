@@ -3,7 +3,7 @@
 //! squeal at the grip limit, gravel on dirt and thumps on impacts. The game writes a few values per frame; the audio thread reads them through
 //! atomics and smooths them per sample. The menu's cues (ui_sound.rs) play on the same stream,
 //! while the car and the race ambience are silent. The music (music.rs) is the menu's theme in
-//! the menu and the planet's tracks in a race.
+//! the menu and the planet's tracks in a race (its night track by night).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -52,6 +52,8 @@ struct Shared {
     muted: AtomicBool,
     /// The car is heard (a race is on); off in the menu.
     race: AtomicBool,
+    /// The race is by night: its music is the planet's night track.
+    night: AtomicBool,
 }
 
 fn store(a: &AtomicU32, v: f32) {
@@ -140,9 +142,11 @@ impl Audio {
         }
     }
 
-    /// Whether a race is on (the car and the race's music) or the menu (its theme).
-    pub fn set_scene(&self, race: bool) {
+    /// Whether a race is on (the car and the race's music) or the menu (its theme), and whether
+    /// the race is by night (its own music).
+    pub fn set_scene(&self, race: bool, night: bool) {
         self.shared.race.store(race, Ordering::Relaxed);
+        self.shared.night.store(night, Ordering::Relaxed);
     }
 }
 
@@ -249,12 +253,14 @@ struct Synth {
     ui: UiSynth,
     /// How much of the car is heard, smoothed (0 in the menu).
     race: f32,
-    /// The menu's theme and the race's tracks (none when rendering offline), and how much of
-    /// each is heard, fading linearly.
+    /// The menu's theme, the race's tracks by day and by night (none when rendering offline),
+    /// and how much of each is heard, fading linearly.
     menu_music: Option<Music>,
     race_music: Option<Music>,
+    night_music: Option<Music>,
     menu_music_level: f32,
     race_music_level: f32,
+    night_music_level: f32,
 }
 
 /// The next sample of a player heard at `level`; one that is not heard is not read, so it waits
@@ -273,8 +279,9 @@ impl Synth {
     fn new(rate: f32, shared: Arc<Shared>, ui: UiSynth, music: bool) -> Self {
         let race = if shared.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
         // Every circuit is on Mars for now.
-        let (menu_music, race_music) =
-            if music { (Some(Music::new(crate::music::MENU, rate)), Some(Music::new(crate::music::MARS, rate))) } else { (None, None) };
+        let player = |tracks| music.then(|| Music::new(tracks, rate));
+        let (menu_music, race_music, night_music) =
+            (player(crate::music::MENU), player(crate::music::MARS), player(crate::music::MARS_NIGHT));
         Self {
             rate,
             shared,
@@ -307,8 +314,10 @@ impl Synth {
             race,
             menu_music,
             race_music,
+            night_music,
             menu_music_level: 0.0,
             race_music_level: 0.0,
+            night_music_level: 0.0,
         }
     }
 
@@ -332,6 +341,8 @@ impl Synth {
             if s.muted.load(Ordering::Relaxed) { 0.0 } else { 0.7 },
         );
         let race_target = if s.race.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+        let night = if s.night.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+        let (day_target, night_target) = (race_target * (1.0 - night), race_target * night);
         let gear = s.gear.load(Ordering::Relaxed);
         let revs = crate::engine_sound::revs(target.0, gear, target.1);
         if gear > self.seen_gear && target.1 > 0.3 {
@@ -419,14 +430,17 @@ impl Synth {
             // The Martian ambience is the race's; the menu has its theme.
             let amb = 0.35 * self.master * self.race;
             let whoosh = BOOSTER_GAIN * self.master * self.race;
-            // The theme fades out as a race starts and the race's tracks fade in, and back.
+            // The theme fades out as a race starts and the race's tracks (by day or by night) fade
+            // in, and back.
             self.menu_music_level = (self.menu_music_level + fade.copysign(0.5 - race_target)).clamp(0.0, 1.0);
-            self.race_music_level = (self.race_music_level + fade.copysign(race_target - 0.5)).clamp(0.0, 1.0);
+            self.race_music_level = (self.race_music_level + fade.copysign(day_target - 0.5)).clamp(0.0, 1.0);
+            self.night_music_level = (self.night_music_level + fade.copysign(night_target - 0.5)).clamp(0.0, 1.0);
             let (ml, mr) = play(&mut self.menu_music, self.menu_music_level * MENU_MUSIC_GAIN * self.master);
             let (rl, rr) = play(&mut self.race_music, self.race_music_level * RACE_MUSIC_GAIN * self.master);
+            let (nl, nr) = play(&mut self.night_music, self.night_music_level * RACE_MUSIC_GAIN * self.master);
             let (l, r) = (
-                (mix + al * amb + bl * whoosh + ml + rl).tanh(),
-                (mix + ar * amb + br * whoosh + mr + rr).tanh(),
+                (mix + al * amb + bl * whoosh + ml + rl + nl).tanh(),
+                (mix + ar * amb + br * whoosh + mr + rr + nr).tanh(),
             );
             match frame {
                 [mono] => *mono = 0.5 * (l + r),
@@ -465,6 +479,11 @@ mod tests {
         shared.race.store(true, Ordering::Relaxed);
         synth.fill(&mut out, 2);
         synth.fill(&mut out, 2);
-        assert_eq!((synth.menu_music_level, synth.race_music_level), (0.0, 1.0));
+        assert_eq!((synth.menu_music_level, synth.race_music_level, synth.night_music_level), (0.0, 1.0, 0.0));
+        // Then a race by night: its own track in their place.
+        shared.night.store(true, Ordering::Relaxed);
+        synth.fill(&mut out, 2);
+        synth.fill(&mut out, 2);
+        assert_eq!((synth.menu_music_level, synth.race_music_level, synth.night_music_level), (0.0, 0.0, 1.0));
     }
 }

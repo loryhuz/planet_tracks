@@ -6,7 +6,7 @@ use track::Track;
 
 use crate::camera::ChaseCamera;
 use crate::car_model::{self, CornerRig, Look};
-use crate::gfx::{DrawItem, MeshId, Tyre};
+use crate::gfx::{DrawItem, Headlights, MeshId, Tyre};
 use crate::input::{Action, Controls};
 use crate::race::{Frame, RaceEvent, Run, format_time};
 use crate::session::{Best, Session, map_key};
@@ -39,6 +39,8 @@ pub struct CarMeshes {
     pub rigs: [CornerRig; 4],
     /// Wheel radius the model was built for, m.
     pub wheel_radius: f32,
+    /// Between the headlights, in the car frame (see [`car_model::Buggy::headlight`]).
+    pub headlight: Vec3,
 }
 
 pub struct Game {
@@ -136,6 +138,11 @@ impl Game {
 
     pub fn map_name(&self) -> &str {
         &self.maps[self.map_index].name
+    }
+
+    /// Whether the map is raced by day or by night.
+    pub fn time_of_day(&self) -> track::map::TimeOfDay {
+        self.maps[self.map_index].time
     }
 
     pub fn select_map(&mut self, index: usize) {
@@ -375,6 +382,15 @@ impl Game {
     pub fn car_pose(&self, alpha: f32) -> (Vec3, Quat) {
         let (a, b) = (&self.run.prev, &self.run.car.state);
         (a.position.lerp(b.position, alpha), a.rotation.slerp(b.rotation, alpha))
+    }
+
+    /// The player's headlights, on the body as it is drawn (pitching with the render-only dive
+    /// and squat, as [`car_items`] poses it).
+    pub fn headlights(&self, alpha: f32, meshes: &CarMeshes) -> Headlights {
+        let (pos, rot) = self.car_pose(alpha);
+        let pitch = self.run.look_prev.lerp(&self.run.look, alpha).pitch;
+        let body = Mat4::from_rotation_translation(rot, pos) * Mat4::from_rotation_x(pitch);
+        Headlights { at: body.transform_point3(meshes.headlight), forward: body.transform_vector3(Vec3::Z), up: body.transform_vector3(Vec3::Y) }
     }
 }
 

@@ -50,6 +50,12 @@ const MIN_PX: f32 = 1.4;
 // Albedo of the airborne sand (linear).
 const SAND: vec3<f32> = vec3<f32>(0.48, 0.28, 0.16);
 const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
+// By night (frame.misc.w), as in scene.wgsl.
+const DUST_AIR_NIGHT: vec3<f32> = vec3<f32>(0.05, 0.028, 0.035);
+
+fn dust_air() -> vec3<f32> {
+    return mix(DUST_AIR, DUST_AIR_NIGHT, frame.misc.w);
+}
 
 fn pcg(v: u32) -> u32 {
     let s = v * 747796405u + 2891336453u;
@@ -129,7 +135,7 @@ fn fogged(col: vec3<f32>, to_point: vec3<f32>) -> vec3<f32> {
     let low = 1.0 - smoothstep(-0.05, 0.4, dir.y);
     let dust = toward * low * (0.45 + 0.45 * frame.storm_b.w);
     let fog = 1.0 - exp(-max(dist - frame.fog.y, 0.0) * frame.fog.x);
-    return mix(col, mix(frame.sky_horizon.rgb, DUST_AIR, dust), fog);
+    return mix(col, mix(frame.sky_horizon.rgb, dust_air(), dust), fog);
 }
 
 // Corner `c` (0..5) of a quad of two triangles: x across (-1, 1), y along (0, 1).

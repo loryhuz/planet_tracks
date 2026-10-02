@@ -33,6 +33,11 @@ pub struct SurfaceGrip {
     pub rolling: f32,
     /// Extra speed-proportional drag (1/s): what makes off-track terrain slow.
     pub drag: f32,
+    /// Drag growing with the square of the speed, 1/m (the deceleration in m/s² is this times
+    /// v²): it pulls a car coming in faster back toward the surface's own top speed within a few
+    /// seconds, where a linear drag barely slows it (snow).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub drag_quad: f32,
     /// Engine top speed multiplier on this surface (also caps the reverse speed).
     pub top_speed: f32,
     /// Engine force multiplier on this surface.
@@ -291,6 +296,7 @@ fn surface_tunables<'a>(group: &'static str, s: &'a mut SurfaceGrip, out: &mut V
     out.push(t("Angle de dérive max (°)", &mut s.drift_angle_deg, 0.0, 60.0));
     out.push(t("Roue libre (m/s²)", &mut s.rolling, 0.0, 10.0));
     out.push(t("Freinage du sol (1/s)", &mut s.drag, 0.0, 2.0));
+    out.push(t("Freinage au carré de la vitesse (1/m)", &mut s.drag_quad, 0.0, 0.01));
     out.push(t("Vitesse max (×)", &mut s.top_speed, 0.2, 1.5));
     out.push(t("Force moteur (×)", &mut s.traction, 0.1, 2.0));
     out.push(t("Vitesse de virage (×)", &mut s.yaw, 0.2, 1.5));
@@ -359,9 +365,11 @@ impl CarParams {
         t!("Adhérence", "Couplage motricité / virage", self.combined_grip, 0.0, 1.0);
         t!("Adhérence", "Freinage en virage (m/s² par (rad/s)²)", self.turn_drag, 0.0, 5.0);
         t!("Adhérence", "Mémoire de l'adhérence sur les bosses (s)", self.grip_memory, 0.01, 1.0);
-        surface_tunables("Route", &mut self.road, &mut v);
-        surface_tunables("Terre", &mut self.dirt, &mut v);
-        surface_tunables("Hors-piste", &mut self.ground, &mut v);
+        // The ice planet's car drives the same surfaces as other materials.
+        let names = if self.front_skis { ["Glace", "Neige", "Poudreuse"] } else { ["Route", "Terre", "Hors-piste"] };
+        surface_tunables(names[0], &mut self.road, &mut v);
+        surface_tunables(names[1], &mut self.dirt, &mut v);
+        surface_tunables(names[2], &mut self.ground, &mut v);
 
         t!("Dérive", "Traces de pneus dès (× adhérence)", self.mark_start, 0.3, 1.0);
         t!("Dérive", "Excès d'adhérence pour l'angle max (×)", self.drift_excess_full, 0.05, 3.0);
@@ -577,6 +585,7 @@ pub fn neige() -> CarParams {
         drift_angle_deg: 45.0,
         rolling: 0.4,
         drag: 0.0,
+        drag_quad: 0.0,
         top_speed: 1.0,
         traction: 0.85,
         yaw: 1.0,
@@ -586,38 +595,41 @@ pub fn neige() -> CarParams {
         sink: 0.0,
         trail: 0.0,
     };
-    // Packed snow: the wheels sink in and plough it. More grip than Mars's dirt and the steering
-    // as sharp, but the car is heavier there (it slows as it ploughs, its top speed is lower),
-    // a slide stays small and costs a lot of speed, the ruts rock it gently, and every wheel
-    // leaves its track.
+    // Packed snow, the track: the wheels sink in, the skis carve. More grip than Mars's dirt and
+    // the steering as sharp; the engine keeps pulling, less than on ice (a light ploughing drag
+    // with the square of the speed, a lower top speed), a slide stays small and costs speed, the
+    // ruts rock the car gently, and every wheel leaves its track.
     p.dirt = SurfaceGrip {
         grip: 8.5,
         long_grip: 6.0,
         drift_angle_deg: 20.0,
-        rolling: 1.5,
-        drag: 0.05,
-        top_speed: 0.9,
-        traction: 0.85,
+        rolling: 1.0,
+        drag: 0.0,
+        drag_quad: 0.0006,
+        top_speed: 0.95,
+        traction: 0.75,
         yaw: 1.0,
         drift_turn: 1.0,
         response: 0.9,
-        slide_cost: 2.5,
+        slide_cost: 2.0,
         sink: 0.1,
         trail: 0.6,
     };
-    // Deep powder off the track: the car sinks deep and slows, and never slides.
+    // Deep powder off the track: the car sinks deep and ploughs it, braked with the square of its
+    // speed toward about 110 km/h (fast when it leaves the track at speed), and never slides far.
     p.ground = SurfaceGrip {
-        grip: 10.0,
-        long_grip: 2.5,
-        drift_angle_deg: 8.0,
-        rolling: 2.5,
-        drag: 0.3,
-        top_speed: 0.5,
-        traction: 0.5,
+        grip: 9.0,
+        long_grip: 4.0,
+        drift_angle_deg: 10.0,
+        rolling: 1.0,
+        drag: 0.0,
+        drag_quad: 0.003,
+        top_speed: 0.7,
+        traction: 0.6,
         yaw: 1.0,
         drift_turn: 1.0,
         response: 0.6,
-        slide_cost: 1.0,
+        slide_cost: 2.5,
         sink: 0.22,
         trail: 1.0,
     };
@@ -701,6 +713,7 @@ pub fn fidele() -> CarParams {
             drift_angle_deg: 12.0,
             rolling: 1.0,
             drag: 0.0,
+            drag_quad: 0.0,
             top_speed: 1.0,
             traction: 1.0,
             yaw: 1.0,
@@ -718,6 +731,7 @@ pub fn fidele() -> CarParams {
             drift_angle_deg: 32.0,
             rolling: 1.0,
             drag: 0.0,
+            drag_quad: 0.0,
             top_speed: 0.92,
             traction: 0.75,
             yaw: 1.0,
@@ -734,6 +748,7 @@ pub fn fidele() -> CarParams {
             drift_angle_deg: 0.0,
             rolling: 2.0,
             drag: 0.15,
+            drag_quad: 0.0,
             top_speed: 0.65,
             traction: 0.6,
             yaw: 1.0,

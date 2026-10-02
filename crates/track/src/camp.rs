@@ -1716,11 +1716,12 @@ mod tests {
     use super::*;
 
     /// Every triangle of every structure on the shipped maps, solid and drawn only: finite, not
-    /// degenerate, its vertex normals on its visible side.
+    /// degenerate, its vertex normals on its visible side. Every Mars map has some (the ice
+    /// planet's scenery is still to come, docs/blocks-ice.md).
     #[test]
     fn camps_are_valid() {
         for map in crate::builtin_maps() {
-            assert!(!map.structures.is_empty(), "{} has structures", map.name);
+            assert!(!map.planet.is_mars() || !map.structures.is_empty(), "{} has structures", map.name);
             let built = map.build_detailed().expect("build");
             let (solid, decor) = build(&map.structures, &built.terrain);
             check(&map.name, &solid, &decor);

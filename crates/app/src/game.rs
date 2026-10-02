@@ -164,8 +164,16 @@ impl Game {
         self.restart();
     }
 
+    /// Whether profile `i` is a car of the current map's planet: a map is always driven with its
+    /// planet's car, whatever the shortcuts (digits, page keys, the pad's shoulder buttons, the
+    /// debug panel's list) ask for.
+    pub fn drives_here(&self, i: usize) -> bool {
+        let car = physics::car_for(self.maps[self.map_index].planet).name;
+        self.session.profiles.get(i).is_some_and(|p| p.defaults.name == car)
+    }
+
     pub fn select_profile(&mut self, index: usize) {
-        if index < self.session.profiles.len() {
+        if index < self.session.profiles.len() && self.drives_here(index) {
             self.session.current = index;
             self.session.mark_dirty();
             self.restart();
@@ -177,7 +185,7 @@ impl Game {
         let mut i = self.session.current as isize;
         for _ in 0..n {
             i = (i + step).rem_euclid(n);
-            if !self.session.profiles[i as usize].eliminated {
+            if !self.session.profiles[i as usize].eliminated && self.drives_here(i as usize) {
                 break;
             }
         }

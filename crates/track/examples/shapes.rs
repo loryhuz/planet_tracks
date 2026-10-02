@@ -7,13 +7,16 @@
 //!
 //!     cargo run -p track --example shapes [-- OUT_DIR]
 //!
-//! Rerun it after changing a block's geometry or the catalogue.
+//! Rerun it after changing a block's geometry or the catalogue. The ice planet's shapes
+//! (docs/blocks-ice.md) go to their own sheet, `docs/blocks-ice/` (`OUT_DIR-ice`), drawn in ice
+//! and snow.
 
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use glam::{Vec2, Vec3};
 use track::Surface;
-use track::kit::{CELL, Connector, Edge, Gate, Heading, Kind, LEVEL, Layout, Placed, half_width};
+use track::kit::{CELL, Connector, Edge, Gate, Heading, Kind, LEVEL, Layout, Placed};
 use track::map::parse_block;
 
 /// One tile: the pieces chained from `level`, heading north.
@@ -54,6 +57,39 @@ const ROWS: &[&[Tile]] = &[
         tile(&[("kicker", None), ("kicker_landing5_down2_left", None)], 2),
     ],
 ];
+
+/// The ice planet's sheet (docs/blocks-ice.md): its drift turns and S-bends on ice, its snow
+/// track's shapes.
+const ICE_ROWS: &[&[Tile]] = &[
+    &[tile(&[("curve2_left", None)], 0), tile(&[("curve3_left", None)], 0), tile(&[("curve4_left", None)], 0)],
+    &[tile(&[("curveberm2_left", None)], 0), tile(&[("curveberm3_left", None)], 0), tile(&[("curveberm4_left", None)], 0)],
+    &[tile(&[("sbend2_left", None)], 0), tile(&[("sbend3_left", None)], 0), tile(&[("sbend4_left", None)], 0)],
+    &[tile(&[("snake2", Some("snow"))], 0), tile(&[("snake3", Some("snow"))], 0), tile(&[("snake4", Some("snow"))], 0)],
+    &[tile(&[("to_dirt", Some("snow"))], 0), tile(&[("sbend2_left", Some("snow"))], 0), tile(&[("uberm1_left", Some("snow"))], 0)],
+    &[
+        tile(&[("curve3_left_down2", None)], 2),
+        tile(&[("curveberm3_left_up1", None)], 0),
+        tile(&[("curve2_left_down1", Some("snow"))], 1),
+    ],
+    &[tile(&[("berm2_left_up1", Some("snow"))], 0), tile(&[("curveberm2_left_down1", Some("snow"))], 1), tile(&[("uberm2_left_up1", Some("snow"))], 0)],
+];
+
+/// Drawing the ice planet's sheet: ice for road decks, snow for dirt ones.
+static ICE: AtomicBool = AtomicBool::new(false);
+const ICE_DECK: [f32; 3] = [150.0, 196.0, 228.0];
+const SNOW_DECK: [f32; 3] = [196.0, 205.0, 218.0];
+const RIB_ICE: &str = "#4f7fa6";
+const RIB_SNOW: &str = "#7b8aa0";
+
+/// A deck's colour at height `y`.
+fn deck_colour(deck: Surface, y: f32) -> [f32; 3] {
+    match (ICE.load(Ordering::Relaxed), deck) {
+        (true, Surface::Dirt) => SNOW_DECK,
+        (true, _) => ICE_DECK,
+        (false, Surface::Dirt) => DIRT,
+        (false, _) => height_tint(y),
+    }
+}
 
 // Tile size and drawing area, SVG pixels.
 const W: f32 = 800.0;
@@ -235,6 +271,32 @@ fn file_name(t: &Tile) -> String {
     v.map_or(id.to_string(), |v| format!("{id}_{v}"))
 }
 
+/// How a turn climbs or descends, for its caption.
+fn climb(p: &Placed) -> String {
+    let rise = p.exit.pos.y - p.entry.pos.y;
+    if rise.abs() < 0.1 {
+        String::new()
+    } else {
+        format!(" · {} de {} m", if rise > 0.0 { "monte" } else { "descend" }, fr(rise.abs(), 0))
+    }
+}
+
+/// Tightest radius along a piece's centreline, metres.
+fn tightest(p: &Placed) -> f32 {
+    let h = 0.25;
+    let mut best = f32::INFINITY;
+    let mut s = h;
+    while s <= p.length - h {
+        let (a, b, c) = (p.frame(s - h).horiz, p.frame(s).horiz, p.frame(s + h).horiz);
+        let area2 = (b - a).cross(c - a).length();
+        if area2 > 1e-6 {
+            best = best.min(a.distance(b) * b.distance(c) * c.distance(a) / (2.0 * area2));
+        }
+        s += h;
+    }
+    best
+}
+
 /// Largest bank along a piece, degrees.
 fn max_bank(p: &Placed) -> f32 {
     p.samples().into_iter().map(|s| p.frame(s).bank.abs()).fold(0.0, f32::max).to_degrees()
@@ -247,7 +309,7 @@ fn edge_rise(p: &Placed) -> f32 {
         .into_iter()
         .map(|s| {
             let f = p.frame(s);
-            let hw = half_width(f.deck);
+            let hw = f.half_width;
             f.deck_point(hw).y.max(f.deck_point(-hw).y) - base
         })
         .fold(0.0, f32::max)
@@ -269,12 +331,20 @@ fn spec(layout: &Layout) -> String {
             let r = fr((size as f32 - 0.5) * CELL, 0);
             let cells = if quarters >= 2 { format!("{} × {size} cellules", 2 * size) } else { format!("{size} × {size} {}", if size > 1 { "cellules" } else { "cellule" }) };
             if bank_deg == 0.0 {
-                format!("rayon {r} m · {cells}")
+                format!("rayon {r} m · {cells}{}", climb(p))
             } else if pivot == track::kit::Pivot::Centre {
                 format!("rayon {r} m · dévers {}° autour de l'axe · ici au niveau {}", fr(max_bank(p), 0), p.entry.level().unwrap_or(0))
             } else {
-                let deck = if p.piece.deck == Surface::Dirt { "terre 28 m · " } else { "" };
-                format!("{deck}rayon {r} m · {cells} · l'extérieur monte de {} m ({}°)", fr(edge_rise(p), 1), fr(max_bank(p), 0))
+                let deck = match (p.piece.deck, p.piece.narrow) {
+                    (Surface::Dirt, true) => "neige 16 m · ",
+                    (Surface::Dirt, false) => "terre 28 m · ",
+                    _ => "",
+                };
+                if p.exit.pos.y != p.entry.pos.y {
+                    format!("{deck}rayon {r} m · {cells} · relevé de {}°{}", fr(max_bank(p), 0), climb(p))
+                } else {
+                    format!("{deck}rayon {r} m · {cells} · l'extérieur monte de {} m ({}°)", fr(edge_rise(p), 1), fr(max_bank(p), 0))
+                }
             }
         }
         (Kind::Slope { cells, levels }, _) => {
@@ -293,12 +363,35 @@ fn spec(layout: &Layout) -> String {
         (Kind::Whoops { cells, bumps, height }, _) => {
             format!("{} · {} de {} m", plural(cells, "cellule"), plural(bumps, "bosse"), fr(height, 1))
         }
-        (Kind::Transition { to }, _) => {
-            if to == Surface::Dirt {
-                "1 cellule · route 20 m, puis terre 28 m à mi-cellule".into()
-            } else {
-                "1 cellule · terre 28 m, puis route 20 m à mi-cellule".into()
-            }
+        (Kind::Transition { to }, _) => match (to, p.piece.narrow) {
+            (Surface::Dirt, true) => "1 cellule · glace 20 m, puis neige 16 m à mi-cellule".into(),
+            (Surface::Dirt, false) => "1 cellule · route 20 m, puis terre 28 m à mi-cellule".into(),
+            (_, true) => "1 cellule · neige 16 m, puis glace 20 m à mi-cellule".into(),
+            (_, false) => "1 cellule · terre 28 m, puis route 20 m à mi-cellule".into(),
+        },
+        (Kind::Curve { size, bank_deg, .. }, _) => {
+            let apex = tightest(p);
+            let climbs = p.exit.pos.y != p.entry.pos.y;
+            let rise = match (bank_deg == 0.0, climbs) {
+                (true, _) => String::new(),
+                (false, true) => format!(" · relevé de {}°", fr(max_bank(p), 0)),
+                (false, false) => format!(" · l'extérieur monte de {} m ({}°)", fr(edge_rise(p), 1), fr(max_bank(p), 0)),
+            };
+            let deck = if p.piece.narrow { "neige 16 m · " } else { "" };
+            format!("{deck}{size} × {size} cellules · {} m · rayon {} m à l'apex{rise}{}", fr(p.length, 0), fr(apex, 0), climb(p))
+        }
+        (Kind::Shift { cells, .. }, _) => {
+            let deck = if p.piece.narrow { "neige 16 m · " } else { "" };
+            format!("{deck}une cellule de côté sur {} · rayon {} m au plus serré", plural(cells, "cellule"), fr(tightest(p), 0))
+        }
+        (Kind::Snake { cells }, _) => {
+            format!(
+                "neige 16 m · {} · {} de {} m · rayon {} m",
+                plural(cells, "cellule"),
+                plural(cells, "virage"),
+                fr(track::kit::SNAKE_SWERVE, 0),
+                fr(tightest(p), 0)
+            )
         }
         (Kind::JumpRamp { lip_deg }, _) => {
             let landing = &layout.pieces[1];
@@ -374,7 +467,7 @@ fn scene(cam: &Camera, layout: &Layout) -> Scene {
         for (c, s) in [(first.entry, 0.0), (last.exit, last.length)] {
             let piece = if s == 0.0 { first } else { last };
             let f = piece.frame(s);
-            let side = f.horiz - f.left * (half_width(f.deck) + 9.0);
+            let side = f.horiz - f.left * (f.half_width + 9.0);
             let at = Vec3::new(side.x, c.pos.y, side.z);
             sc.label(at, Vec2::new(0.0, 6.0), format!("{} m", fr(c.pos.y, 0)), label_style.clone());
         }
@@ -385,7 +478,7 @@ fn scene(cam: &Camera, layout: &Layout) -> Scene {
         if let Kind::Turn { bank_deg, pivot: track::kit::Pivot::Inner, .. } = p.piece.kind {
             if bank_deg > 0.0 {
                 let f = p.frame(0.5 * p.length);
-                let hw = half_width(f.deck);
+                let hw = f.half_width;
                 let (l, r) = (f.deck_point(hw), f.deck_point(-hw));
                 let (top, out) = if l.y > r.y { (l, f.left) } else { (r, -f.left) };
                 let style = format!("fill=\"{INK}\" font-size=\"19\" font-weight=\"600\" text-anchor=\"middle\"");
@@ -423,7 +516,7 @@ fn scene(cam: &Camera, layout: &Layout) -> Scene {
 
 /// The open end of a raised deck: its cross-section down to the ground.
 fn end_cap(cam: &Camera, sc: &mut Scene, f: &track::kit::Frame) {
-    let hw = half_width(f.deck);
+    let hw = f.half_width;
     let top: Vec<Vec3> = [hw, 0.5 * hw, 0.0, -0.5 * hw, -hw].iter().map(|&u| f.deck_point(u)).collect();
     if top.iter().all(|q| q.y < 0.05) {
         return;
@@ -444,8 +537,7 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
     let mut outline = Vec::new();
     let mut back = Vec::new();
     for i in 0..n {
-        let deck = frames[i.min(n - 2)].deck;
-        let hw = half_width(deck);
+        let hw = frames[i.min(n - 2)].half_width;
         let (l, r) = (frames[i].deck_point(hw), frames[i].deck_point(-hw));
         outline.push(Vec3::new(l.x, 0.0, l.z));
         back.push(Vec3::new(r.x, 0.0, r.z));
@@ -459,7 +551,7 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
         let (fa, fb) = (&frames[i], &frames[i + 1]);
         let mid = p.frame(0.5 * (ss[i] + ss[i + 1]));
         let deck = mid.deck;
-        let hw = half_width(deck);
+        let hw = mid.half_width;
         let us = [hw, 0.5 * hw, 0.0, -0.5 * hw, -hw];
         let pa: Vec<Vec3> = us.iter().map(|&u| fa.deck_point(u)).collect();
         let pb: Vec<Vec3> = us.iter().map(|&u| fb.deck_point(u)).collect();
@@ -474,7 +566,7 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
             }
             let k = 0.8 + 0.2 * nrm.dot(cam.light).max(0.0);
             let c = quad.iter().copied().sum::<Vec3>() / 4.0;
-            let base = if deck == Surface::Dirt { DIRT } else { height_tint(c.y) };
+            let base = deck_colour(deck, c.y);
             strip_depth[j] = cam.depth(c);
             sc.solid(cam, quad, face(&rgb(base, k)), 0.0);
         }
@@ -519,7 +611,13 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
 
         let (ra, rb) = (route_s + ss[i], route_s + ss[i + 1]);
         // Ribs across the deck where the route passes a multiple of 8 m, strip by strip.
-        let rib = format!("stroke=\"{}\" stroke-width=\"1.1\"", if deck == Surface::Dirt { RIB_DIRT } else { RIB_ROAD });
+        let rib_colour = match (ICE.load(Ordering::Relaxed), deck == Surface::Dirt) {
+            (true, true) => RIB_SNOW,
+            (true, false) => RIB_ICE,
+            (false, true) => RIB_DIRT,
+            (false, false) => RIB_ROAD,
+        };
+        let rib = format!("stroke=\"{rib_colour}\" stroke-width=\"1.1\"");
         let mut mark = (ra / 8.0).ceil() * 8.0;
         while mark < rb {
             let t = (mark - ra) / (rb - ra);
@@ -634,7 +732,11 @@ fn main() {
     std::fs::create_dir_all(&out).expect("create the output directory");
     let cam = Camera::new();
     let mut count = 0;
-    for row in ROWS {
+    let ice_out = format!("{out}-ice");
+    std::fs::create_dir_all(&ice_out).expect("create the ice output directory");
+    let sheets = ROWS.iter().map(|r| (r, &out, false)).chain(ICE_ROWS.iter().map(|r| (r, &ice_out, true)));
+    for (row, out, ice) in sheets {
+        ICE.store(ice, Ordering::Relaxed);
         let built: Vec<(Layout, Scene)> = row.iter().map(|t| {
             let layout = build_layout(t);
             let sc = scene(&cam, &layout);
@@ -651,5 +753,5 @@ fn main() {
             count += 1;
         }
     }
-    println!("wrote {count} shapes to {out}");
+    println!("wrote {count} shapes to {out} and {ice_out}");
 }

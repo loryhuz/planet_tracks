@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "name": "Sulcus",
+  "author": "mars-racer",
+  "version": 2,
+  "planet": "ice",
+  "terrain": {"seed":2207,"size":8192.0,"relief":12.0,"dunes":4.0,"ripples":0.35,"bumps":0.4,"hills":8.0,"mesas":10,"craters":6,"horizon":180.0,"rocks":1.0},
+  "blocks": [
+    {"block":"start","cell":[0,0],"level":3,"rotation":0},
+    {"block":"turn1_right","cell":[0,1],"level":3,"rotation":0},
+    {"block":"curve3_left_down2","cell":[-1,1],"level":3,"rotation":3},
+    {"block":"slope2_down1","cell":[-3,4],"level":1,"rotation":0},
+    {"block":"curveberm3_left","cell":[-3,6],"level":0,"rotation":0},
+    {"block":"sbend4_right","cell":[0,8],"level":0,"rotation":1},
+    {"block":"curveberm3_left_up1","cell":[4,9],"level":0,"rotation":1},
+    {"block":"checkpoint","cell":[6,6],"level":1,"rotation":2},
+    {"block":"to_dirt","cell":[6,5],"level":1,"rotation":2,"variant":"snow"},
+    {"block":"berm2_right","cell":[6,4],"level":1,"rotation":2,"variant":"snow"},
+    {"block":"slope2_up1","cell":[8,3],"level":1,"rotation":1,"variant":"snow"},
+    {"block":"curveberm2_left","cell":[10,3],"level":2,"rotation":1,"variant":"snow"},
+    {"block":"snake2","cell":[11,1],"level":2,"rotation":2,"variant":"snow"},
+    {"block":"curve2_left_down1","cell":[11,-1],"level":2,"rotation":2,"variant":"snow"},
+    {"block":"sbend2_right","cell":[9,-2],"level":1,"rotation":3,"variant":"snow"},
+    {"block":"turn1_right","cell":[7,-3],"level":1,"rotation":3,"variant":"snow"},
+    {"block":"curveberm2_left_down1","cell":[7,-4],"level":1,"rotation":2,"variant":"snow"},
+    {"block":"checkpoint","cell":[5,-5],"level":0,"rotation":3,"variant":"snow"},
+    {"block":"to_road","cell":[4,-5],"level":0,"rotation":3,"variant":"snow"},
+    {"block":"sbend3_left","cell":[3,-5],"level":0,"rotation":3},
+    {"block":"straight","cell":[0,-4],"level":0,"rotation":3},
+    {"block":"finish","cell":[-1,-4],"level":0,"rotation":3}
+  ],
+  "landforms": [
+    {"landform":"mesa","position":[-30.0,70.0],"radius":40.0,"height":24.0,"length":120.0,"yaw":-38.0},
+    {"landform":"mesa","position":[300.0,40.0],"radius":60.0,"height":16.0,"length":160.0},
+    {"landform":"butte","position":[70.0,140.0],"radius":16.0,"height":18.0},
+    {"landform":"mesa","position":[120.0,440.0],"radius":60.0,"height":40.0,"length":260.0,"yaw":90.0},
+    {"landform":"mesa","position":[120.0,-330.0],"radius":50.0,"height":30.0,"length":260.0,"yaw":90.0},
+    {"landform":"butte","position":[-210.0,110.0],"radius":28.0,"height":26.0},
+    {"landform":"butte","position":[-180.0,-120.0],"radius":22.0,"height":20.0}
+  ],
+  "scenery": []
+}

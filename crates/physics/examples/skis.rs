@@ -72,9 +72,42 @@ fn onset(p: &CarParams, world: &World, kmh: f32) -> Vec<f32> {
     out
 }
 
+/// Speed (km/h) every 2 s over 10 s, full throttle straight on, from `kmh`.
+fn straight_on(p: &CarParams, world: &World, kmh: f32) -> Vec<f32> {
+    let mut car = Car::new(p.clone(), world, Pose { position: Vec3::new(0.0, 0.0, 0.0), yaw: 0.0 });
+    for _ in 0..30 {
+        car.step(world, Input::default());
+    }
+    let rot = car.state.rotation;
+    car.state.velocity = rot * Vec3::Z * (kmh / 3.6);
+    let mut out = Vec::new();
+    for t in 1..=1000 {
+        car.step(world, Input { steer: 0.0, gas: 1.0, brake: 0.0 });
+        if t % 200 == 0 {
+            out.push(car.state.velocity.length() * 3.6);
+        }
+    }
+    out
+}
+
 fn main() {
     let snow = World::new(&testing::flat(800.0, Surface::Dirt));
     let ice = World::new(&testing::flat(800.0, Surface::Road));
+    // The snow straight on: where the speed goes from below and from above its top speed (the
+    // snow before its quadratic drag for comparison: rolling 1.5 m/s², linear drag 0.05/s).
+    let long_snow = World::new(&testing::strip(3000.0, Surface::Dirt));
+    let mut linear = neige();
+    linear.name = "linéaire".into();
+    (linear.dirt.rolling, linear.dirt.drag, linear.dirt.drag_quad) = (1.5, 0.05, 0.0);
+    let long_powder = World::new(&testing::strip(3000.0, Surface::Ground));
+    let long_ice = World::new(&testing::strip(3000.0, Surface::Road));
+    println!("full throttle straight on: km/h at 2 / 4 / 6 / 8 / 10 s");
+    for (name, p, world) in [("snow before", &linear, &long_snow), ("snow", &neige(), &long_snow), ("powder", &neige(), &long_powder), ("ice", &neige(), &long_ice)] {
+        for kmh in [60.0, 100.0, 150.0, 190.0, 220.0] {
+            let v: Vec<String> = straight_on(p, world, kmh).iter().map(|x| format!("{x:4.0}")).collect();
+            println!("  {name:<11} from {kmh:3.0}: {}", v.join(" "));
+        }
+    }
     println!("drift angle every 0.1 s, full lock held from 120 km/h:");
     for p in [combo(), neige()] {
         for (name, world) in [("snow", &snow), ("ice", &ice)] {

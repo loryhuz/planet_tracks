@@ -329,6 +329,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     // The wheels that drive and brake (skis never do), and how much of the drift's tighter turn
     // the surfaces allow.
     let mut n_drive = 0usize;
+    let mut drag_quad = 0.0f32;
     let mut drift_turn_mult = 0.0f32;
     let mut response = 0.0f32;
     let mut slide_cost = 0.0f32;
@@ -345,6 +346,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         slide_cost += sg.slide_cost;
         rolling += sg.rolling;
         drag += sg.drag;
+        drag_quad += sg.drag_quad;
         let rho = c.force * c.hit.normal.dot(up).max(0.0) / (corner_mass(i) * g.max(0.1));
         let rho_eff = (rho_ref(rho) + (rho - rho_ref(rho)) * sens).clamp(0.0, 2.5);
         let share = corner_mass(i) / m * rho_eff;
@@ -372,6 +374,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         slide_cost *= k;
         rolling *= k;
         drag *= k;
+        drag_quad *= k;
         n_sum.normalize_or(up)
     } else {
         top_mult = 1.0;
@@ -470,10 +473,16 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
             s.drift_ref = target;
         }
         drift_ref_rate = (s.drift_ref - before) / dt;
-        // The end of a drift under throttle: the path swings onto the body by `drift_exit` of the
-        // angle closing, so the car leaves along its nose instead of the nose swinging back.
-        if grounded && p.drift_exit > 0.0 && !building && drift_ref_rate * before < 0.0 {
-            exit_pull = -drift_ref_rate * p.drift_exit.clamp(0.0, 1.0) * gas;
+        // The end of a drift under throttle: while the wanted angle is below the body's, the path
+        // swings onto the body by `drift_exit` of the closing the release time asks for, so the
+        // car leaves along its nose instead of the nose swinging back. Measured on that gap, not
+        // on the closing done this tick: that stops and starts as the wanted angle hovers about
+        // the body's, and the line would judder from one tick to the next.
+        if grounded && p.drift_exit > 0.0 && before != 0.0 {
+            let kept = if target * before > 0.0 { target.abs().min(before.abs()) } else { 0.0 };
+            let tau = (p.drift_release_s / response).max(dt);
+            let closing = ((before.abs() - kept) / tau).min(p.drift_swing_rate.max(0.1) * response);
+            exit_pull = before.signum() * closing * p.drift_exit.clamp(0.0, 1.0) * gas;
         }
 
         // The path: as asked within the grip. Beyond it, drifting lets the car turn tighter: as
@@ -493,6 +502,10 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         } else {
             s.yaw_cmd
         };
+        // The end of a drift turns the path onto the body: part of what the path wants this tick,
+        // so it goes through the smoothing below (added after it, it would build up tick after
+        // tick against the steering until the path crossed zero and jumped to the full lock).
+        let wanted = wanted + exit_pull;
         // The path can always turn less at once, but turns tighter only at the steering's own
         // response, so grip coming back (dirt to road) never jerks the car into the turn.
         s.path_rate = if wanted.abs() > s.path_rate.abs() && wanted * s.path_rate > 0.0 {
@@ -500,9 +513,6 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         } else {
             wanted
         };
-        if exit_pull != 0.0 {
-            s.path_rate += exit_pull;
-        }
     }
     let path_accel = (s.path_rate - path_before) / dt;
 
@@ -531,6 +541,9 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     if grounded {
         let cap_long = long_raw * G * m;
         let mut resist = brake_total + rolling * m + drag * m * v_long.abs();
+        if drag_quad > 0.0 {
+            resist += drag_quad * m * v_long * v_long;
+        }
         if hold {
             resist += cap_long;
         }

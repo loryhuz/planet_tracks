@@ -68,6 +68,11 @@ pub const DIRT_DISH_DEG: f32 = 4.0;
 /// and irregular along its edges (see [`crate::dirt`]); a swept dirt piece (jump ramp, landing)
 /// is exactly this wide.
 pub const DIRT_HALF_WIDTH: f32 = 14.0;
+/// Half the width of a snow track (a narrow dirt deck, [`Piece::narrow`]), which is 16 m wide:
+/// snow is slow, so its tracks are tight and winding (docs/blocks-ice.md).
+pub const SNOW_HALF_WIDTH: f32 = 8.0;
+/// Depth of the swerves of a snake ([`Kind::Snake`]), metres.
+pub const SNAKE_SWERVE: f32 = 4.0;
 /// White edge line painted on the road, inside the driving surface.
 pub const LINE_WIDTH: f32 = 0.5;
 /// Nominal width of the border along a road's edges, outside the driving surface (gates and
@@ -102,8 +107,8 @@ const GATE_POST_U: f32 = HALF_WIDTH + LIP_WIDTH + 1.2;
 pub(crate) const GATE_POST_HALF: f32 = 0.5;
 pub(crate) const GATE_BEAM_BOTTOM: f32 = 7.5;
 pub(crate) const GATE_BEAM_HEIGHT: f32 = 1.2;
-/// Gate posts of a dirt piece stand this far out from its centreline, on the banks.
-const DIRT_GATE_POST_U: f32 = DIRT_HALF_WIDTH + 4.0;
+/// Gate posts of a dirt piece stand this far out from its deck edge, on the banks.
+const DIRT_GATE_POST_OUT: f32 = 4.0;
 /// Half extents of checkpoint and finish triggers on the road: across (deck, lips and a margin),
 /// height, along the road (4 m thick: more than a tick of travel at 1400 km/h).
 pub const TRIGGER_HALF: Vec3 = Vec3::new(HALF_WIDTH + LIP_WIDTH + 0.5, 4.5, 2.0);
@@ -372,8 +377,9 @@ pub enum Kind {
     Straight { cells: u32 },
     /// A circular arc of `quarters` × 90° whose centreline radius is `(size − ½)` cells: it fills
     /// `size × size` cells (a quarter) or `2·size × size` cells (a U-turn). `bank_deg` tilts the
-    /// deck towards the inside, ramping in and out within the turn.
-    Turn { size: u32, side: Side, quarters: u32, bank_deg: f32, pivot: Pivot },
+    /// deck towards the inside, ramping in and out within the turn. It climbs (`levels` > 0) or
+    /// descends as it turns, with a slope's profile ([`climb_fits`] says which can).
+    Turn { size: u32, side: Side, quarters: u32, bank_deg: f32, pivot: Pivot, levels: i32 },
     /// Climb (`levels` > 0) or descent over `cells`, flat at both ends. A parabolic sag on the
     /// low 35 % and a longer parabolic crest on the high 65 %, so crests stay gentle.
     Slope { cells: u32, levels: i32 },
@@ -390,21 +396,45 @@ pub enum Kind {
     /// straight off the lip lands on it if it drifts that way in the air, a little more the
     /// farther it flies. Its profile is the same, measured along the ramp's axis.
     Landing { cells: u32, levels: i32, gap: f32, epsilon: f32, outrun: f32, shift: i32 },
+    /// An S: the deck bends one cell to the left (`shift` +1) or the right (−1) over `cells`
+    /// and ends on the grid one column over, heading the same way; the curvature comes and goes
+    /// gently (a smootherstep across). On ice a drift flips from one side to the other through
+    /// it; a short one on snow is a chicane. `s` is measured along the entry's axis.
+    Shift { cells: u32, shift: i32 },
+    /// A snake: `cells` swerves [`SNAKE_SWERVE`] m deep, one per cell, to the left then the right
+    /// in turn, back on the centreline at every cell edge: tight and winding, for snow. `s` is
+    /// measured along the axis.
+    Snake { cells: u32 },
+    /// A progressive quarter turn between the same joins as a [`Kind::Turn`] of `size`: its
+    /// curvature grows from nothing at the entry to its tightest at the apex and dies away to the
+    /// exit (k ∝ sin²), so a drift builds into it and unwinds out of it. Its apex is tighter than
+    /// the arc of the same size (radius 26 m on two cells, 43 m on three), its entry and exit
+    /// far gentler. `bank_deg`, `pivot` and `levels` as for a turn.
+    Curve { size: u32, side: Side, bank_deg: f32, pivot: Pivot, levels: i32 },
 }
 
 impl Kind {
     pub const fn turn(size: u32, side: Side) -> Self {
-        Kind::Turn { size, side, quarters: 1, bank_deg: 0.0, pivot: Pivot::Centre }
+        Kind::Turn { size, side, quarters: 1, bank_deg: 0.0, pivot: Pivot::Centre, levels: 0 }
     }
 
     /// A quarter turn banked about its centreline (for elevated roads).
     pub const fn banked(size: u32, side: Side, bank_deg: f32) -> Self {
-        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Centre }
+        Kind::Turn { size, side, quarters: 1, bank_deg, pivot: Pivot::Centre, levels: 0 }
     }
 
     /// A ground-level banked turn: the outside rises, the inside stays on the ground.
     pub const fn berm(size: u32, side: Side, quarters: u32, bank_deg: f32) -> Self {
-        Kind::Turn { size, side, quarters, bank_deg, pivot: Pivot::Inner }
+        Kind::Turn { size, side, quarters, bank_deg, pivot: Pivot::Inner, levels: 0 }
+    }
+
+    /// The same turn climbing (`levels` > 0) or descending as it turns; other shapes unchanged.
+    pub const fn climbing(self, levels: i32) -> Self {
+        match self {
+            Kind::Turn { size, side, quarters, bank_deg, pivot, .. } => Kind::Turn { size, side, quarters, bank_deg, pivot, levels },
+            Kind::Curve { size, side, bank_deg, pivot, .. } => Kind::Curve { size, side, bank_deg, pivot, levels },
+            k => k,
+        }
     }
 }
 
@@ -439,15 +469,31 @@ pub struct Piece {
     pub edge: Edge,
     /// A road with booster arrows painted along it: its deck is [`Surface::Booster`].
     pub boost: bool,
+    /// A snow track: a dirt deck [`SNOW_HALF_WIDTH`] to each side instead of
+    /// [`DIRT_HALF_WIDTH`] (on a transition, its dirt half).
+    pub narrow: bool,
 }
 
 impl Piece {
     pub fn road(kind: Kind) -> Self {
-        Self { kind, deck: Surface::Road, gate: None, edge: Edge::Auto, boost: false }
+        Self { kind, deck: Surface::Road, gate: None, edge: Edge::Auto, boost: false, narrow: false }
     }
 
     pub fn dirt(kind: Kind) -> Self {
-        Self { kind, deck: Surface::Dirt, gate: None, edge: Edge::Auto, boost: false }
+        Self { kind, deck: Surface::Dirt, gate: None, edge: Edge::Auto, boost: false, narrow: false }
+    }
+
+    /// A narrow dirt deck: a snow track.
+    pub fn snow(kind: Kind) -> Self {
+        Self { narrow: true, ..Self::dirt(kind) }
+    }
+
+    /// Half the width of this piece's `deck` (a transition has two).
+    pub fn half_width(&self, deck: Surface) -> f32 {
+        match deck {
+            Surface::Dirt if self.narrow => SNOW_HALF_WIDTH,
+            d => half_width(d),
+        }
     }
 
     pub fn gate(mut self, gate: Gate) -> Self {
@@ -504,6 +550,34 @@ pub fn turn_radius(size: u32) -> f32 {
     (size as f32 - 0.5) * CELL
 }
 
+/// Heading of a progressive turn ([`Kind::Curve`]) `u` of the way along it (0..1), radians: its
+/// curvature goes as sin²(π u), a quarter turn in all.
+fn curve_heading(u: f32) -> f32 {
+    FRAC_PI_2 * u - 0.25 * libm::sinf(2.0 * PI * u)
+}
+
+/// `(∫₀ᵘ sin θ, ∫₀ᵘ cos θ)` along a progressive turn of unit length (Simpson's rule, plain
+/// arithmetic and libm only: the same on every platform).
+fn curve_integral(u: f32) -> (f32, f32) {
+    const N: usize = 48;
+    let h = u / N as f32;
+    let (mut sx, mut sz) = (0.0f32, 0.0f32);
+    for i in 0..=N {
+        let w = if i == 0 || i == N { 1.0 } else if i % 2 == 1 { 4.0 } else { 2.0 };
+        let a = curve_heading(i as f32 * h);
+        sx += w * libm::sinf(a);
+        sz += w * libm::cosf(a);
+    }
+    (sx * h / 3.0, sz * h / 3.0)
+}
+
+/// Length of the centreline of a progressive turn of `size` cells: it ends where a turn of the
+/// same size does, `turn_radius(size)` ahead and to the side (the turn is symmetric about its
+/// bisector, so both integrals agree).
+pub fn curve_length(size: u32) -> f32 {
+    turn_radius(size) / curve_integral(1.0).1
+}
+
 /// Height of a slope piece at `s` (0 at the entry): parabolic sag on the low 35 %, parabolic
 /// crest on the high 65 %, flat at both ends.
 fn slope_height(s: f32, length: f32, rise: f32) -> f32 {
@@ -522,6 +596,26 @@ pub fn slope_radii(cells: u32, levels: i32) -> (f32, f32) {
     (0.35 * length / m, 0.65 * length / m)
 }
 
+/// Whether a climbing or descending turn rides smoothly: along the centreline of its road deck
+/// (the bank of a berm lifts it too), no crest tighter than 55 m of radius and no sag tighter
+/// than 25 m. A car launches off a crest of radius r above √(g r): 55 m holds it down to
+/// 170 km/h. Measured, since a berm's bank and its climb add up (a quarter turn of two cells
+/// climbs two levels, a banked one only one; a U-turn of one cell cannot climb).
+pub fn climb_fits(kind: Kind) -> bool {
+    let p = Placed::new(Piece::road(kind), Connector::entering((0, 0), 2, Heading::North));
+    let y = |s: f32| p.frame(s).centre().y;
+    let h = 0.5;
+    let mut s = h;
+    while s <= p.length - h {
+        let curv = (y(s + h) - 2.0 * y(s) + y(s - h)) / (h * h);
+        if curv < -1.0 / 55.0 || curv > 1.0 / 25.0 {
+            return false;
+        }
+        s += h;
+    }
+    true
+}
+
 /// The deck at one point along a piece, in world space.
 #[derive(Clone, Copy, Debug)]
 pub struct Frame {
@@ -537,6 +631,8 @@ pub struct Frame {
     pub pivot_u: f32,
     pub pivot_y: f32,
     pub deck: Surface,
+    /// Half the width of the deck here.
+    pub half_width: f32,
     /// A dirt turn's deck is banked only on the outside of its pivot: inside it stays level at
     /// the pivot's height, the bend rounded over [`DIRT_KINK`] m. Its inside never dips below the
     /// ground and the floors around it (on a one-cell turn, those of the pieces before and after
@@ -629,6 +725,8 @@ impl Placed {
             Kind::Straight { cells } | Kind::Slope { cells, .. } | Kind::Whoops { cells, .. } => (cells_len(cells), None),
             Kind::Transition { .. } | Kind::JumpRamp { .. } => (CELL, None),
             Kind::Turn { size, quarters, .. } => (turn_radius(size) * quarters as f32 * FRAC_PI_2, None),
+            Kind::Shift { cells, .. } | Kind::Snake { cells } => (cells_len(cells), None),
+            Kind::Curve { size, .. } => (curve_length(size), None),
             Kind::Landing { cells, levels, gap, epsilon, outrun, .. } => {
                 let length = cells_len(cells);
                 let base = libm::floorf(entry.pos.y / LEVEL + 1e-4) as i32;
@@ -655,7 +753,13 @@ impl Placed {
                     (self.entry.pos + l * (sg * r) + f * r, self.entry.heading.turned(side.quarters()))
                 }
             }
-            Kind::Landing { shift, .. } => (self.entry.pos + f * self.length + l * (shift as f32 * CELL), self.entry.heading),
+            Kind::Curve { size, side, .. } => {
+                let r = turn_radius(size);
+                (self.entry.pos + l * (side.sign() * r) + f * r, self.entry.heading.turned(side.quarters()))
+            }
+            Kind::Landing { shift, .. } | Kind::Shift { shift, .. } => {
+                (self.entry.pos + f * self.length + l * (shift as f32 * CELL), self.entry.heading)
+            }
             _ => (self.entry.pos + f * self.length, self.entry.heading),
         };
         let y = match self.piece.kind {
@@ -692,7 +796,16 @@ impl Placed {
         match (self.piece.kind, self.piece.deck) {
             (Kind::Transition { to: Surface::Dirt }, Surface::Road) => Some((half, self.length)),
             (Kind::Transition { to: Surface::Road }, Surface::Dirt) => Some((0.0, half)),
-            (Kind::Straight { .. } | Kind::Turn { .. } | Kind::Slope { .. } | Kind::Whoops { .. }, Surface::Dirt) => {
+            (
+                Kind::Straight { .. }
+                | Kind::Turn { .. }
+                | Kind::Slope { .. }
+                | Kind::Whoops { .. }
+                | Kind::Shift { .. }
+                | Kind::Snake { .. }
+                | Kind::Curve { .. },
+                Surface::Dirt,
+            ) => {
                 Some((0.0, self.length))
             }
             _ => None,
@@ -739,33 +852,76 @@ impl Placed {
                     l.turn = libm::atanf(w * 30.0 * t * t * (1.0 - t) * (1.0 - t) / span);
                 }
             }
-            Kind::Turn { size, side, bank_deg, pivot, .. } => {
+            Kind::Turn { size, side, bank_deg, pivot, levels, .. } => {
                 let r = turn_radius(size);
                 let sg = side.sign();
                 let (sn, cs) = sin_cos(s / r);
                 l.x = sg * r * (1.0 - cs);
                 l.z = r * sn;
                 l.turn = sg * s / r;
-                if bank_deg != 0.0 {
-                    // The bank builds up over half the turn (at most BANK_RAMP), so the edges,
-                    // and the middle of a berm, rise and fall gently.
-                    let ramp = (0.5 * self.length).min(BANK_RAMP);
-                    let k = smootherstep(0.0, ramp, s) * smootherstep(0.0, ramp, self.length - s);
-                    let mut bank = bank_deg.to_radians();
-                    if self.piece.deck == Surface::Dirt {
-                        bank = bank.min(DIRT_ROLL_RATE * ramp / SMOOTHERSTEP_SLOPE);
-                    }
-                    l.bank = -sg * bank * k;
-                    if pivot == Pivot::Inner {
-                        l.pivot_u = sg * berm_pivot(self.piece.deck);
-                    }
+                self.bank_turn(&mut l, s, side, bank_deg, pivot);
+                if levels != 0 {
+                    l.y = slope_height(s, self.length, levels as f32 * LEVEL);
                 }
+            }
+            Kind::Curve { size, side, bank_deg, pivot, levels } => {
+                let sg = side.sign();
+                if s >= self.length {
+                    // Exactly on the grid at the exit.
+                    let r = turn_radius(size);
+                    (l.x, l.z, l.turn) = (sg * r, r, sg * FRAC_PI_2);
+                } else {
+                    let u = (s / self.length).max(0.0);
+                    let (ix, iz) = curve_integral(u);
+                    (l.x, l.z, l.turn) = (sg * self.length * ix, self.length * iz, sg * curve_heading(u));
+                }
+                self.bank_turn(&mut l, s, side, bank_deg, pivot);
+                if levels != 0 {
+                    l.y = slope_height(s, self.length, levels as f32 * LEVEL);
+                }
+            }
+            Kind::Shift { shift, .. } => {
+                // A smootherstep across one cell, `s` along the entry's axis.
+                let w = shift as f32 * CELL;
+                let t = (s / self.length).clamp(0.0, 1.0);
+                l.x = w * smootherstep(0.0, 1.0, t);
+                l.turn = libm::atanf(w * 30.0 * t * t * (1.0 - t) * (1.0 - t) / self.length);
+            }
+            Kind::Snake { .. } => {
+                // One swerve per cell, 64 t³ (1 − t)³ deep (flat, straight and unbent at both
+                // ends), to the left in even cells and the right in odd ones.
+                let k = libm::floorf(s / CELL).clamp(0.0, (self.length / CELL - 1.0).max(0.0));
+                let t = ((s - k * CELL) / CELL).clamp(0.0, 1.0);
+                let side = if (k as i32) % 2 == 0 { 1.0 } else { -1.0 };
+                let a = side * SNAKE_SWERVE;
+                let (p, q) = (t * (1.0 - t), 1.0 - 2.0 * t);
+                l.x = a * 64.0 * p * p * p;
+                l.turn = libm::atanf(a * 192.0 * p * p * q / CELL);
             }
         }
         let (dy, dbank) = self.wander(s);
         l.y += dy;
         l.bank += dbank;
         l
+    }
+
+    /// Banks a turn's deck `bank_deg` towards its inside: the bank builds up over half the turn
+    /// (at most [`BANK_RAMP`]), so the edges, and the middle of a berm, rise and fall gently.
+    fn bank_turn(&self, l: &mut Local, s: f32, side: Side, bank_deg: f32, pivot: Pivot) {
+        if bank_deg == 0.0 {
+            return;
+        }
+        let sg = side.sign();
+        let ramp = (0.5 * self.length).min(BANK_RAMP);
+        let k = smootherstep(0.0, ramp, s) * smootherstep(0.0, ramp, self.length - s);
+        let mut bank = bank_deg.to_radians();
+        if self.piece.deck == Surface::Dirt {
+            bank = bank.min(DIRT_ROLL_RATE * ramp / SMOOTHERSTEP_SLOPE);
+        }
+        l.bank = -sg * bank * k;
+        if pivot == Pivot::Inner {
+            l.pivot_u = sg * berm_pivot(self.piece.deck);
+        }
     }
 
     /// The natural irregularity of a dirt deck `s` metres along: a slow rise and fall of up to
@@ -777,7 +933,7 @@ impl Placed {
     fn wander(&self, s: f32) -> (f32, f32) {
         let wanders = match self.piece.kind {
             Kind::Straight { .. } => true,
-            Kind::Turn { bank_deg, .. } => bank_deg == 0.0,
+            Kind::Turn { bank_deg, levels, .. } => bank_deg == 0.0 && levels == 0,
             _ => false,
         };
         if self.piece.deck != Surface::Dirt || self.piece.gate.is_some() || !wanders {
@@ -812,7 +968,13 @@ impl Placed {
             pivot_u: l.pivot_u,
             pivot_y: self.entry.pos.y + l.y,
             deck: l.deck,
-            level_inside: self.piece.deck == Surface::Dirt && matches!(self.piece.kind, Kind::Turn { .. }),
+            half_width: match self.piece.kind {
+                // A transition's road keeps its width up to the middle, where the corridor takes
+                // over (a snow track narrower than the road narrows within its corridor).
+                Kind::Transition { .. } => self.piece.half_width(l.deck).max(HALF_WIDTH),
+                _ => self.piece.half_width(l.deck),
+            },
+            level_inside: self.piece.deck == Surface::Dirt && matches!(self.piece.kind, Kind::Turn { .. } | Kind::Curve { .. }),
             edge: self.edge(),
             border: self.border_at(s),
         }
@@ -861,6 +1023,8 @@ impl Placed {
             Kind::Straight { cells } | Kind::Slope { cells, .. } | Kind::Whoops { cells, .. } | Kind::Landing { cells, .. } => cells,
             Kind::Transition { .. } | Kind::JumpRamp { .. } => 1,
             Kind::Turn { size, quarters, .. } => size * size * quarters.min(2),
+            Kind::Shift { cells, .. } | Kind::Snake { cells } => cells,
+            Kind::Curve { size, .. } => size * size,
         }
     }
 
@@ -874,7 +1038,11 @@ impl Placed {
                 let w = if quarters >= 2 { 2 * n } else { n };
                 ((0..w).map(|j| j * side.quarters()).collect(), n)
             }
-            Kind::Landing { cells, shift, .. } if shift != 0 => (vec![0, shift.signum()], cells as i32),
+            Kind::Curve { size, side, .. } => {
+                let n = size as i32;
+                ((0..n).map(|j| j * side.quarters()).collect(), n)
+            }
+            Kind::Landing { cells, shift, .. } | Kind::Shift { cells, shift } if shift != 0 => (vec![0, shift.signum()], cells as i32),
             _ => (vec![0], self.cell_count() as i32),
         };
         let mut out = Vec::new();
@@ -922,6 +1090,9 @@ impl Placed {
         match self.piece.kind {
             Kind::Landing { .. } => cuts.push(self.landing.unwrap().knee),
             Kind::Slope { .. } => cuts.push(if self.exit.pos.y >= self.entry.pos.y { 0.35 } else { 0.65 } * self.length),
+            Kind::Turn { levels, .. } | Kind::Curve { levels, .. } if levels != 0 => {
+                cuts.push(if levels > 0 { 0.35 } else { 0.65 } * self.length)
+            }
             _ => {}
         }
         cuts.push(s1);
@@ -953,10 +1124,14 @@ impl Placed {
         if fa.forward.dot(fb.forward) < libm::cosf(3f32.to_radians()) {
             return true;
         }
+        // An S or a snake can head the same way at both ends of a stretch and swerve between.
+        if matches!(self.piece.kind, Kind::Shift { .. } | Kind::Snake { .. }) && fm.horiz.distance(0.5 * (fa.horiz + fb.horiz)) > 0.03 {
+            return true;
+        }
         if (fa.bank - fb.bank).abs() > 0.01 || (self.grade(a) - self.grade(b)).abs() > 0.012 {
             return true;
         }
-        let hw = half_width(fa.deck);
+        let hw = fa.half_width;
         [-hw, 0.0, hw].into_iter().any(|u| {
             let mid = 0.5 * (fa.deck_point(u).y + fb.deck_point(u).y);
             (fm.deck_point(u).y - mid).abs() > 0.01
@@ -1096,7 +1271,7 @@ impl Section {
     fn new(f: &Frame) -> Self {
         let lat = f.lateral();
         let up = f.up();
-        let hw = half_width(f.deck);
+        let hw = f.half_width;
         let el = f.deck_point(hw);
         let er = f.deck_point(-hw);
         let edge = (f.deck != Surface::Dirt).then_some(f.edge);
@@ -1500,12 +1675,12 @@ fn cap(b: &mut MeshBuilder, sec: &Section, facing_forward: bool, strips: core::o
 pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32, f32)> {
     let (s0, s1) = range;
     let n = libm::ceilf((s1 - s0) / 4.0).max(1.0) as usize;
-    let gate = if p.piece.gate.is_some() { gate_post_u(p.piece.deck) + GATE_POST_HALF } else { 0.0 };
+    let gate = if p.piece.gate.is_some() { gate_post_u(&p.frame(p.gate_s())) + GATE_POST_HALF } else { 0.0 };
     let jump = matches!(p.piece.kind, Kind::JumpRamp { .. } | Kind::Landing { .. });
-    let hw = half_width(p.piece.deck);
     (0..=n)
         .map(|k| {
             let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
+            let hw = f.half_width;
             let sec = Section::new(&f);
             let c = Vec2::new(f.horiz.x, f.horiz.z);
             let reach = |q: Vec3| Vec2::new(q.x, q.z).distance(c);
@@ -1516,10 +1691,10 @@ pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32, f32)> 
         .collect()
 }
 
-/// How far from the centreline the posts of a gate stand.
-pub(crate) fn gate_post_u(deck: Surface) -> f32 {
-    match deck {
-        Surface::Dirt => DIRT_GATE_POST_U,
+/// How far from the centreline the posts of a gate stand, at the gate's frame.
+pub(crate) fn gate_post_u(f: &Frame) -> f32 {
+    match f.deck {
+        Surface::Dirt => f.half_width + DIRT_GATE_POST_OUT,
         _ => GATE_POST_U,
     }
 }

@@ -293,7 +293,9 @@ fn no_builtin_map_buries_a_deck() {
             let n = ((s1 - s0) / 6.0).ceil() as usize;
             for k in 0..=n {
                 let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
-                for u in [-HALF_WIDTH + 0.6, -5.0, 0.0, 5.0, HALF_WIDTH - 0.6] {
+                // (A snow track is narrower than the road: its own width.)
+                let hw = f.half_width.min(HALF_WIDTH);
+                for u in [-hw + 0.6, -5.0, 0.0, 5.0, hw - 0.6] {
                     let q = f.deck_point(u);
                     let surface = world.down(q + Vec3::Y * 3.0).map(|(_, s)| s);
                     assert!(

@@ -36,7 +36,8 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   Roads follow `art/roads/brief.md` ("camp roads": a laminated tarp deck, sandbag or bumper
   edges per block variant, raised slabs on trusses and piers of red plastic tubes,
   `crates/track/src/stilts.rs`); `docs/blocks.md` is the reference of every block and variant,
-  kept up to date with the code.
+  kept up to date with the code. Its shape sheet (`docs/blocks/*.svg`) is drawn from the
+  geometry by `cargo run -p track --release --example shapes`: rerun it when a shape changes.
 - `crates/physics` — deterministic vehicle physics at a fixed 100 Hz tick, gameplay presets.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a

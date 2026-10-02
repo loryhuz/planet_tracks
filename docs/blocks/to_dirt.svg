@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="540" viewBox="0 0 800 540" font-family="'Martian Mono', 'SF Mono', Menlo, ui-monospace, monospace">
+<rect width="800" height="540" fill="#fbf9f5"/>
+<text x="28" y="46" font-size="27" font-weight="600" fill="#2a1d17">to_dirt</text>
+<text x="28" y="76" font-size="16" fill="#6f5a4e" font-family="Saira, system-ui, -apple-system, Helvetica, sans-serif">1 cellule · route 20 m, puis terre 28 m à mi-cellule</text>
+<polygon points="286.3,488.0 28.0,245.1 513.7,116.0 772.0,358.9" fill="#ece4d8"/>
+<polygon points="343.1,395.0 214.0,273.6 456.9,209.0 586.0,330.4" fill="#dfd1bd"/>
+<line x1="221.7" y1="427.3" x2="707.4" y2="298.1" stroke="#c9b7a1" stroke-width="1.2"/>
+<line x1="92.6" y1="305.9" x2="578.3" y2="176.7" stroke="#c9b7a1" stroke-width="1.2"/>
+<line x1="407.7" y1="455.7" x2="149.4" y2="212.9" stroke="#c9b7a1" stroke-width="1.2"/>
+<line x1="650.6" y1="391.1" x2="392.3" y2="148.3" stroke="#c9b7a1" stroke-width="1.2"/>
+<polygon points="238.2,296.3 343.5,248.9 464.9,216.6 577.9,322.8 456.5,355.1 318.9,372.2" fill="#2a1d17" fill-opacity="0.10"/>
+<polygon points="343.5,248.9 464.9,216.6 493.2,243.2 371.8,275.4" fill="#b95d33" stroke="#b95d33" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="343.5" y1="248.9" x2="371.8" y2="275.4" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="404.2" y1="232.7" x2="432.5" y2="259.3" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="343.5" y1="248.9" x2="464.9" y2="216.6" stroke="#8f4020" stroke-width="1.4"/>
+<polygon points="371.8,275.4 493.2,243.2 521.4,269.7 400.0,302.0" fill="#b95d33" stroke="#b95d33" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="371.8" y1="275.4" x2="400.0" y2="302.0" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="432.5" y1="259.3" x2="460.7" y2="285.9" stroke="#8f4020" stroke-width="1.1"/>
+<polygon points="238.2,296.3 359.6,264.1 379.8,283.0 258.4,315.3" fill="#f5f3ef" stroke="#f5f3ef" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="238.2" y1="296.3" x2="258.4" y2="315.3" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="298.9" y1="280.2" x2="319.1" y2="299.2" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="238.2" y1="296.3" x2="359.6" y2="264.1" stroke="#a38659" stroke-width="4.5" stroke-linecap="round"/>
+<polygon points="400.0,302.0 521.4,269.7 549.7,296.3 428.2,328.6" fill="#b95d33" stroke="#b95d33" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="400.0" y1="302.0" x2="428.2" y2="328.6" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="460.7" y1="285.9" x2="489.0" y2="312.4" stroke="#8f4020" stroke-width="1.1"/>
+<polygon points="258.4,315.3 379.8,283.0 400.0,302.0 278.6,334.3" fill="#f5f3ef" stroke="#f5f3ef" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="258.4" y1="315.3" x2="278.6" y2="334.3" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="319.1" y1="299.2" x2="339.3" y2="318.1" stroke="#b8aa96" stroke-width="1.1"/>
+<polygon points="428.2,328.6 549.7,296.3 577.9,322.8 456.5,355.1" fill="#b95d33" stroke="#b95d33" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="428.2" y1="328.6" x2="456.5" y2="355.1" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="489.0" y1="312.4" x2="517.2" y2="339.0" stroke="#8f4020" stroke-width="1.1"/>
+<line x1="456.5" y1="355.1" x2="577.9" y2="322.8" stroke="#8f4020" stroke-width="1.4"/>
+<polygon points="278.6,334.3 400.0,302.0 420.2,321.0 298.7,353.3" fill="#f5f3ef" stroke="#f5f3ef" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="278.6" y1="334.3" x2="298.7" y2="353.3" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="339.3" y1="318.1" x2="359.5" y2="337.1" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="278.6" y1="334.3" x2="308.9" y2="326.2" stroke="#e2690f" stroke-width="1.6"/>
+<line x1="339.3" y1="318.1" x2="369.6" y2="310.1" stroke="#e2690f" stroke-width="1.6"/>
+<polygon points="294.8,312.6 346.9,315.8 323.0,339.1" fill="#e2690f"/>
+<polygon points="298.7,353.3 420.2,321.0 440.4,339.9 318.9,372.2" fill="#f5f3ef" stroke="#f5f3ef" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="298.7" y1="353.3" x2="318.9" y2="372.2" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="359.5" y1="337.1" x2="379.6" y2="356.1" stroke="#b8aa96" stroke-width="1.1"/>
+<line x1="318.9" y1="372.2" x2="440.4" y2="339.9" stroke="#a38659" stroke-width="4.5" stroke-linecap="round"/>
+</svg>

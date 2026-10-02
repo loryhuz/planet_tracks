@@ -366,7 +366,7 @@ impl App {
 
         if std::mem::take(&mut game.track_changed) {
             g.scene.replace(&g.gpu.device, g.track_mesh, &track_render_data(&game.track));
-            g.scene.set_track(&game.track);
+            g.scene.set_track(&g.gpu, &game.track, g.track_mesh);
         }
 
         let target = target_texture.create_view(&Default::default());
@@ -424,7 +424,7 @@ impl App {
         g.scene.write_marks(&g.gpu.queue, clear, game.marks.take_pending());
         match (&sky, self.menu.active) {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
-            _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, focus: car_pos }, &items),
+            _ => g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye }, &items),
         }
 
         let screen = egui_wgpu::ScreenDescriptor {
@@ -498,7 +498,7 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(window.clone());
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
-        scene.set_track(&self.game.track);
+        scene.set_track(&gpu, &self.game.track, track_mesh);
         let car = upload_car(&mut scene, &gpu);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(

@@ -13,12 +13,15 @@ struct Frame {
     ground_bounce: vec4<f32>,
     // x: density per metre, y: start distance
     fog: vec4<f32>,
-    // x: shadow map texel size in uv
+    // x: near shadow map texel size in uv; y: the far map's; z: how far lookups in the far map
+    // are lifted off surfaces (metres, half one of its texels)
     misc: vec4<f32>,
     // xy: circuit centre (x, z), zw: unit direction from the centre to the storm (x, z)
     storm_a: vec4<f32>,
     // x: distance from the centre to the front, y: time (s), z: ground height, w: approach 0..1
     storm_b: vec4<f32>,
+    // The far shadow map's sun: baked once over the whole circuit (see shadow_factor).
+    far_light_view_proj: mat4x4<f32>,
 };
 
 struct Object {
@@ -37,6 +40,7 @@ struct Object {
 @group(0) @binding(5) var surf_colour: texture_2d_array<f32>;
 @group(0) @binding(6) var surf_relief: texture_2d_array<f32>;
 @group(0) @binding(7) var surf_sampler: sampler;
+@group(0) @binding(8) var far_shadow_map: texture_depth_2d;
 @group(1) @binding(0) var<uniform> object: Object;
 
 // Vertex kinds: 0 road, 1 dirt, 2 ground, 3 wall (painted gates), 10 car paint, 11 rubber,
@@ -436,22 +440,54 @@ fn rubber(uv: vec2<f32>) -> f32 {
     return clamp(r * (0.6 + 0.6 * streaks), 0.0, 1.0);
 }
 
-// How much sun reaches `world`, on a surface of normal `n`. The lookup is lifted off the surface
-// by about one texel of the shadow map (7 cm) against acne; more, and the shadows of low things
-// (sandbags, stakes) start well away from their feet, which then seem to float.
-fn shadow_factor(world: vec3<f32>, n: vec3<f32>) -> f32 {
-    let p = frame.light_view_proj * vec4<f32>(world + n * 0.06 + frame.sun_dir.xyz * 0.03, 1.0);
-    let ndc = p.xyz / p.w;
+// Where `p` falls in a shadow map of sun `m`: xy, uv; z, depth; w, 0 outside the map rising to 1
+// `band` (in uv) inside its edges.
+fn shadow_coords(m: mat4x4<f32>, p: vec3<f32>, band: f32) -> vec4<f32> {
+    let c = m * vec4<f32>(p, 1.0);
+    let ndc = c.xyz / c.w;
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    let texel = frame.misc.x;
-    var sum = 0.0;
-    for (var y = -1; y <= 1; y++) {
-        for (var x = -1; x <= 1; x++) {
-            sum += textureSampleCompareLevel(shadow_map, shadow_sampler, uv + vec2<f32>(f32(x), f32(y)) * texel, ndc.z);
+    let edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    let inside = select(0.0, smoothstep(0.0, band, edge), ndc.z < 1.0);
+    return vec4<f32>(uv, ndc.z, inside);
+}
+
+// How much sun reaches `world`, on a surface of normal `n`, from two shadow maps: the near one,
+// sharp, redrawn every frame over the ground just ahead of the camera (the car's shadow is
+// there), and the far one, coarser, baked once over the whole circuit. Toward the near map's
+// edges the far one takes over across a band, and far shadows only sharpen as they come closer.
+// Each lookup is lifted off the surface against acne, by about a texel of the near map (7 cm),
+// half one of the far map's; more, and the shadows of low things (sandbags, stakes) start well
+// away from their feet, which then seem to float.
+fn shadow_factor(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let near = shadow_coords(frame.light_view_proj, world + n * 0.06 + frame.sun_dir.xyz * 0.03, 0.12);
+    var sun = 1.0;
+    if near.w > 0.0 {
+        let texel = frame.misc.x;
+        var sum = 0.0;
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                sum += textureSampleCompareLevel(shadow_map, shadow_sampler, near.xy + vec2<f32>(f32(x), f32(y)) * texel, near.z);
+            }
         }
+        sun = sum / 9.0;
     }
-    let inside = all(uv > vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) && ndc.z < 1.0;
-    return select(1.0, sum / 9.0, inside);
+    if near.w < 1.0 {
+        let lift = frame.misc.z;
+        let far = shadow_coords(frame.far_light_view_proj, world + n * lift + frame.sun_dir.xyz * (0.5 * lift), 0.03);
+        var far_sun = 1.0;
+        if far.w > 0.0 {
+            let texel = frame.misc.y;
+            var sum = 0.0;
+            for (var y = -1; y <= 1; y++) {
+                for (var x = -1; x <= 1; x++) {
+                    sum += textureSampleCompareLevel(far_shadow_map, shadow_sampler, far.xy + vec2<f32>(f32(x), f32(y)) * texel, far.z);
+                }
+            }
+            far_sun = mix(1.0, sum / 9.0, far.w);
+        }
+        sun = mix(far_sun, sun, near.w);
+    }
+    return sun;
 }
 
 // ACES filmic fit (Narkowicz).
@@ -903,7 +939,8 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     // stay readable instead of going black under a hard terminator.
     let cloth = k == 26u;
     let ndl = select(max(dot(n, l), 0.0), max((dot(n, l) + 0.45) / 1.45, 0.0), cloth);
-    let sh = select(shadow_factor(in.world, n), mix(shadow_factor(in.world, n), 1.0, 0.35), cloth);
+    let sun = shadow_factor(in.world, n);
+    let sh = select(sun, mix(sun, 1.0, 0.35), cloth);
     let hemi = mix(frame.ground_bounce.rgb, frame.sky_top.rgb, n.y * 0.5 + 0.5);
     let storm = storm_ground(in.world);
     var col = base * (frame.sun_color.rgb * ndl * sh * (1.0 - 0.9 * storm.x) + hemi);

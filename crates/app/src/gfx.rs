@@ -16,8 +16,15 @@ use crate::surfaces::SurfaceTextures;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const MSAA: u32 = 4;
 const SHADOW_SIZE: u32 = 2048;
-/// Half-width of the square the shadow map covers around the car, metres.
+/// Half-width of the square the near shadow map covers, metres.
 const SHADOW_EXTENT: f32 = 70.0;
+/// The near map's centre stands this far ahead of the camera: it covers the ground the eye sees
+/// closest (the car included), not the road behind it.
+const SHADOW_AHEAD: f32 = 40.0;
+/// The far shadow map, baked once per track over the whole circuit (`bake_shadows`): its side in
+/// texels, and how far around the route it reaches, metres.
+const FAR_SHADOW_SIZE: u32 = 4096;
+const FAR_SHADOW_MARGIN: f32 = 250.0;
 const OBJECT_STRIDE: u64 = 256;
 const MAX_OBJECTS: u64 = 128;
 /// The sandstorm's front starts this far beyond the circuit and closes in to `STORM_STOP`, metres:
@@ -197,8 +204,6 @@ pub struct View {
     pub view: Mat4,
     pub proj: Mat4,
     pub eye: Vec3,
-    /// Centre of the shadow map (usually the car).
-    pub focus: Vec3,
 }
 
 #[repr(C)]
@@ -217,6 +222,7 @@ struct FrameUniform {
     misc: [f32; 4],
     storm_a: [f32; 4],
     storm_b: [f32; 4],
+    far_light_view_proj: [[f32; 4]; 4],
 }
 
 #[repr(C)]
@@ -268,6 +274,14 @@ pub struct SceneRenderer {
     frame_group: wgpu::BindGroup,
     shadow_frame_group: wgpu::BindGroup,
     shadow_sampler: wgpu::Sampler,
+    /// The far shadow map and what draws it: the sun's matrix in a frame of its own.
+    far_shadow_view: wgpu::TextureView,
+    far_shadow_buffer: wgpu::Buffer,
+    far_shadow_group: wgpu::BindGroup,
+    far_light_view_proj: Mat4,
+    /// How far lookups in the far map are lifted off surfaces against acne, metres (half a texel:
+    /// the slope bias of the shadow pass does the rest).
+    far_lift: f32,
     livery_sampler: wgpu::Sampler,
     livery_view: wgpu::TextureView,
     surfaces: SurfaceTextures,
@@ -300,17 +314,8 @@ impl SceneRenderer {
             mapped_at_creation: false,
         });
 
-        let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("shadow map"),
-            size: wgpu::Extent3d { width: SHADOW_SIZE, height: SHADOW_SIZE, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let shadow_view = shadow_texture.create_view(&Default::default());
+        let shadow_view = create_shadow_map(device, "shadow map", SHADOW_SIZE);
+        let far_shadow_view = create_shadow_map(device, "far shadow map", FAR_SHADOW_SIZE);
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -394,6 +399,17 @@ impl SceneRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // The far shadow map (sampled with the shadow sampler).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let shadow_frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -439,7 +455,7 @@ impl SceneRenderer {
             device,
             &frame_layout,
             &frame_buffer,
-            &shadow_view,
+            [&shadow_view, &far_shadow_view],
             &shadow_sampler,
             &livery_view,
             &livery_sampler,
@@ -449,6 +465,18 @@ impl SceneRenderer {
             label: Some("shadow frame group"),
             layout: &shadow_frame_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: frame_buffer.as_entire_binding() }],
+        });
+        // The start of a frame (shadow.wgsl reads its first three matrices only).
+        let far_shadow_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("far shadow frame"),
+            size: 3 * std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let far_shadow_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("far shadow frame group"),
+            layout: &shadow_frame_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: far_shadow_buffer.as_entire_binding() }],
         });
         let object_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("object group"),
@@ -752,6 +780,12 @@ impl SceneRenderer {
             frame_group,
             shadow_frame_group,
             shadow_sampler,
+            far_shadow_view,
+            far_shadow_buffer,
+            far_shadow_group,
+            // Until a track is baked, every point falls outside the far map.
+            far_light_view_proj: Mat4::from_cols(Vec4::ZERO, Vec4::ZERO, Vec4::ZERO, Vec4::new(3.0, 3.0, 0.5, 1.0)),
+            far_lift: 0.0,
             livery_sampler,
             livery_view,
             surfaces,
@@ -767,9 +801,10 @@ impl SceneRenderer {
         }
     }
 
-    /// Places the sandstorm for a new track and starts its approach over: kilometres beyond the
-    /// route, ahead of the start.
-    pub fn set_track(&mut self, track: &track::Track) {
+    /// Sets the scene up for a new track, drawn with `mesh`: bakes its far shadows, places the
+    /// sandstorm and starts its approach over (kilometres beyond the route, ahead of the start).
+    pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId) {
+        self.bake_shadows(gpu, track, mesh);
         let (lo, hi) = track.route.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(lo, hi), p| {
             (lo.min(Vec2::new(p.x, p.z)), hi.max(Vec2::new(p.x, p.z)))
         });
@@ -785,6 +820,71 @@ impl SceneRenderer {
             reach,
             since: Instant::now(),
         });
+    }
+
+    /// The sun's view, shared by both shadow maps.
+    fn light_view(&self) -> Mat4 {
+        glam::camera::rh::view::look_at_mat4(self.sun_dir * 400.0, Vec3::ZERO, Vec3::Y)
+    }
+
+    /// Draws the far shadow map once for the track: the track's shadows (the sun is fixed and the
+    /// track does not move) over the route and `FAR_SHADOW_MARGIN` around it. The near map,
+    /// redrawn every frame, only reaches a hundred metres or so ahead of the camera; beyond it,
+    /// the shadows of rocks and raised roads used to appear as the car came closer.
+    fn bake_shadows(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId) {
+        let (lo, hi) = track
+            .route
+            .iter()
+            .fold((track.start.position, track.start.position), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+        // The ground the map shades (rock faces up to a hundred metres above the road included),
+        // and the top of whatever can cast a shadow on it.
+        let lo = lo - Vec3::new(FAR_SHADOW_MARGIN, 30.0, FAR_SHADOW_MARGIN);
+        let hi = hi + Vec3::new(FAR_SHADOW_MARGIN, 120.0, FAR_SHADOW_MARGIN);
+        let top = track.mesh.positions.iter().chain(&track.decor.positions).fold(hi.y, |top, p| top.max(p.y));
+
+        let light_view = self.light_view();
+        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for i in 0..8 {
+            let corner = Vec3::new(
+                if i & 1 == 0 { lo.x } else { hi.x },
+                if i & 2 == 0 { lo.y } else { hi.y },
+                if i & 4 == 0 { lo.z } else { hi.z },
+            );
+            let p = light_view.transform_point3(corner);
+            min = min.min(p);
+            max = max.max(p);
+        }
+        // Distances from the sun's plane (the light looks down -z). Casters stand up to `top`,
+        // up the ray to the sun from the ground: that much nearer.
+        let reach = (top - lo.y) / self.sun_dir.y.max(0.1);
+        let light_proj =
+            glam::camera::rh::proj::directx::orthographic(min.x, max.x, min.y, max.y, -max.z - reach - 1.0, -min.z + 1.0);
+        self.far_light_view_proj = light_proj * light_view;
+        self.far_lift = 0.5 * (max.x - min.x).max(max.y - min.y) / FAR_SHADOW_SIZE as f32;
+
+        let object = ObjectUniform { model: Mat4::IDENTITY.to_cols_array_2d(), tint: [1.0; 4] };
+        gpu.queue.write_buffer(&self.object_buffer, 0, bytemuck::bytes_of(&object));
+        let frame = [[[0.0f32; 4]; 4], [[0.0; 4]; 4], self.far_light_view_proj.to_cols_array_2d()];
+        gpu.queue.write_buffer(&self.far_shadow_buffer, 0, bytemuck::bytes_of(&frame));
+        let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("far shadows") });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("far shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.far_shadow_view,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.shadow_pipeline);
+            pass.set_bind_group(0, &self.far_shadow_group, &[]);
+            self.draw(&mut pass, 0, mesh, None);
+        }
+        gpu.queue.submit([encoder.finish()]);
     }
 
     pub fn write_dust(&mut self, queue: &wgpu::Queue, vertices: &[ParticleVertex]) {
@@ -813,7 +913,7 @@ impl SceneRenderer {
             &gpu.device,
             &self.frame_layout,
             &self.frame_buffer,
-            &self.shadow_view,
+            [&self.shadow_view, &self.far_shadow_view],
             &self.shadow_sampler,
             &self.livery_view,
             &self.livery_sampler,
@@ -850,10 +950,13 @@ impl SceneRenderer {
     ) {
         self.ensure_targets(gpu);
 
-        // Sun camera, snapped to shadow texels so shadows do not shimmer as the car moves.
-        let light_view = glam::camera::rh::view::look_at_mat4(self.sun_dir * 400.0, Vec3::ZERO, Vec3::Y);
+        // Near shadow map: the sun's camera over the ground just ahead of ours, snapped to shadow
+        // texels so shadows do not shimmer as it moves.
+        let light_view = self.light_view();
         let texel = 2.0 * SHADOW_EXTENT / SHADOW_SIZE as f32;
-        let focus_ls = light_view.transform_point3(view.focus);
+        let forward = -view.view.row(2).truncate();
+        let focus = view.eye + Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero() * SHADOW_AHEAD;
+        let focus_ls = light_view.transform_point3(focus);
         let snapped = Vec3::new((focus_ls.x / texel).round() * texel, (focus_ls.y / texel).round() * texel, focus_ls.z);
         let light_proj = glam::camera::rh::proj::directx::orthographic(
             snapped.x - SHADOW_EXTENT,
@@ -880,9 +983,10 @@ impl SceneRenderer {
             sky_horizon: four(sky_horizon, 1.0),
             ground_bounce: four(srgb(170, 100, 70), 0.5),
             fog: [1.0 / 1400.0, 150.0, 0.0, 0.0],
-            misc: [1.0 / SHADOW_SIZE as f32, 0.0, 0.0, 0.0],
+            misc: [1.0 / SHADOW_SIZE as f32, 1.0 / FAR_SHADOW_SIZE as f32, self.far_lift, 0.0],
             storm_a: [0.0; 4],
             storm_b: [0.0; 4],
+            far_light_view_proj: self.far_light_view_proj.to_cols_array_2d(),
         };
         if let Some(s) = &self.storm {
             let t = self.clock.unwrap_or_else(|| s.since.elapsed().as_secs_f32()) + self.storm_skip;
@@ -1053,12 +1157,27 @@ fn create_targets(
 }
 
 
+fn create_shadow_map(device: &wgpu::Device, label: &str, size: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&Default::default())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_frame_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     frame_buffer: &wgpu::Buffer,
-    shadow_view: &wgpu::TextureView,
+    [shadow_view, far_shadow_view]: [&wgpu::TextureView; 2],
     shadow_sampler: &wgpu::Sampler,
     livery_view: &wgpu::TextureView,
     livery_sampler: &wgpu::Sampler,
@@ -1076,6 +1195,7 @@ fn create_frame_group(
             wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&surfaces.colour) },
             wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&surfaces.relief) },
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&surfaces.sampler) },
+            wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(far_shadow_view) },
         ],
     })
 }

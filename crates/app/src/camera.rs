@@ -20,11 +20,14 @@ pub struct ChaseCamera {
     /// Smoothed viewing direction.
     dir: Vec3,
     fov: f32,
+    /// The mode `fov` follows: a new mode takes its field of view at once (the wide angle's is far
+    /// wider), only the speed's widening eases in.
+    fov_mode: usize,
 }
 
 impl ChaseCamera {
     pub fn new() -> Self {
-        Self { mode: 0, dir: Vec3::Z, fov: 60f32.to_radians() }
+        Self { mode: 0, dir: Vec3::Z, fov: 60f32.to_radians(), fov_mode: 0 }
     }
 
     pub fn cycle(&mut self) {
@@ -52,6 +55,10 @@ impl ChaseCamera {
         } else {
             (60.0 + 12.0 * rush).to_radians()
         };
+        if self.fov_mode != self.mode {
+            self.fov_mode = self.mode;
+            self.fov = fov_target;
+        }
         self.fov += (fov_target - self.fov) * (1.0 - (-3.0 * dt).exp());
 
         let (eye, look) = match self.mode {
@@ -85,4 +92,27 @@ impl ChaseCamera {
 /// Heading with a softened pitch: the camera follows climbs a little but keeps the horizon calm.
 fn flatten(forward: Vec3) -> Vec3 {
     Vec3::new(forward.x, forward.y * 0.4, forward.z).normalize_or(Vec3::Z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_camera_takes_its_field_of_view_at_once() {
+        let mut cam = ChaseCamera::new();
+        let frame = |cam: &mut ChaseCamera| cam.update(1.0 / 60.0, Vec3::ZERO, Quat::IDENTITY, 0.0, false, 0.46);
+        for _ in 0..120 {
+            frame(&mut cam);
+        }
+        let chase = cam.fov;
+        cam.mode = WIDE;
+        frame(&mut cam);
+        let wide = cam.fov;
+        for _ in 0..120 {
+            frame(&mut cam);
+        }
+        assert!(wide > chase * 1.5, "the wide angle is far wider ({chase} → {wide})");
+        assert!((cam.fov - wide).abs() < 1e-4, "no zoom after the change ({wide} → {})", cam.fov);
+    }
 }

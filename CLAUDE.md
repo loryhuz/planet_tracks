@@ -42,7 +42,9 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   `crates/app/src/ios.rs` attaches its window; the edges deferring system gestures, the hidden
   status bar and home indicator are asked again once it is there, or iOS holds back taps along
   the edges), and the session is saved in the app's Documents folder. The race's touch controls
-  are the HUD's (`hud.rs`, from egui's touch events). Self-test variables reach the app as
+  are the HUD's (`hud.rs`, from egui's touch events). egui clips painting to the safe area
+  unless a painter's clip rect is set to `viewport_rect()`; `MARS_SAFE_AREA=59,0,34,0` gives a
+  macOS self-test an iPhone's insets. Self-test variables reach the app as
   `SIMCTL_CHILD_MARS_MAP=Jezero xcrun simctl launch booted com.marsracer.planettracks`.
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title, planets, modes, solo circuits),
   in a wide layout (1280 × 720 design space) and a tall phone one (390 × 844), fitted to the
@@ -55,7 +57,9 @@ a bare `rm target/debug/.fingerprint/app-*` aborts in zsh when nothing matches).
   beat, chrono with the checkpoint gaps above it, speed in a ring coloured by the gear), plus the
   countdown and the finish card in the menu's style; wide and tall like the menu. On phones the
   buggy accelerates by itself, the bottom strip brakes, the screen's halves steer, and a settings
-  button pauses the race (`MARS_HUD_SETTINGS=seconds` opens it in a self-test). Everything for
+  button pauses the race and slides the scene up so the car shows above its sheet
+  (`MARS_HUD_SETTINGS=seconds` opens it in a self-test; a hidden run draws the HUD only on its
+  screenshot frames, so the sheet opens on one and needs another shot 0.3 s later). Everything for
   debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, or
   `MARS_DEBUG_PANEL=1`.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged

@@ -287,6 +287,10 @@ impl App {
         {
             raw.safe_area_insets = Some(ios::safe_area(&g.window, zoom));
         }
+        if let Some([top, right, bottom, left]) = self.debug.safe_area {
+            let k = 1.0 / zoom;
+            raw.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { left: left * k, right: right * k, top: top * k, bottom: bottom * k }));
+        }
         // A hidden window (self-tests) reports no screen size: take the surface's.
         let screen = egui::vec2(g.gpu.config.width as f32, g.gpu.config.height as f32) / (scale * zoom);
         if raw.screen_rect.is_none_or(|r| (r.size() - screen).length() > 1.0) {
@@ -359,6 +363,13 @@ impl App {
             eye = from;
             view = glam::camera::rh::view::look_at_mat4(eye, at, glam::Vec3::Y);
         }
+        // While the HUD's settings sheet is open the scene slides up with it, so the car sits in
+        // the part of the screen left above the sheet and a camera change shows on it.
+        let shift = self.hud.car_focus().map_or(0.0, |(k, y)| {
+            let c = proj * view * (car_pos + glam::Vec3::Y * 0.6).extend(1.0);
+            k * ((1.0 - 2.0 * y) - c.y / c.w.max(1e-3))
+        });
+        let proj = glam::Mat4::from_translation(glam::Vec3::new(0.0, shift, 0.0)) * proj;
         let mut items = vec![gfx::DrawItem {
             mesh: g.track_mesh,
             model: glam::Mat4::IDENTITY,

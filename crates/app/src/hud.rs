@@ -4,10 +4,12 @@
 //! with the revs in the gear's colour. The countdown and the finish card keep the menu's richer
 //! style. Two layouts as in the menu: wide (1280 × 720 design space) and tall for phones
 //! (390 × 844), where the buggy accelerates by itself: the bottom strip brakes, holding the left or
-//! right half of the screen steers (the two halves blink at the start to show it), the speed is a
-//! thin gauge on the right edge, and a settings button pauses the race (camera, sound, last
-//! checkpoint, restart, menu). The wide layout takes the same touch controls once the screen has
-//! been touched. Debug (FPS, profile, tuning) only shows with Tab.
+//! right half of the screen steers (the brake strip and the two halves show during the countdown),
+//! the speed is a thin gauge on the right edge, and a settings button pauses the race (camera,
+//! sound, last checkpoint, restart, menu). The wide layout takes the same touch controls once the
+//! screen has been touched. The shading and the touch zones reach the screen's edges, behind the
+//! notch and the home indicator; the text keeps to the safe area. Debug (FPS, profile, tuning)
+//! only shows with Tab.
 
 use std::collections::BTreeMap;
 
@@ -45,15 +47,16 @@ const GEAR_COLOURS: [Color32; 6] = [
 /// Darker top and bottom of the scene, so the text reads over bright sand.
 const VIG_TOP: Color32 = Color32::from_rgba_premultiplied(2, 2, 2, 97);
 const VIG_BOTTOM: Color32 = Color32::from_rgba_premultiplied(3, 2, 2, 107);
-/// The touch zones' dark fill (the brake strip's foot, the start's steering tutorial).
+/// The touch zones' dark fill, during the countdown.
 const ZONE_DARK: Color32 = Color32::from_rgba_premultiplied(5, 3, 4, 107);
 const ZONE_LIGHT: Color32 = Color32::from_rgba_premultiplied(1, 1, 1, 26);
 /// Height of the brake strip, and where the steering halves start from the top.
 const BRAKE_H: f32 = 108.0;
 const STEER_TOP: f32 = 120.0;
-/// How long a checkpoint gap stays, and the start's steering tutorial lasts, seconds.
+/// How long a checkpoint gap stays, seconds.
 const SPLIT_TIME: f32 = 2.6;
-const TUTORIAL_TIME: f32 = 2.0;
+/// How long the touch zones take to fade out once the countdown shows 1, seconds.
+const ZONES_FADE: f32 = 0.3;
 
 /// What the HUD asks of the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,8 +84,6 @@ pub struct Hud {
     count: Option<(u32, f64)>,
     go_at: Option<f64>,
     finish_at: Option<f64>,
-    /// When the run started, for the steering tutorial.
-    start_at: Option<f64>,
     last_tick: u32,
     last_countdown: u32,
     /// Fingers on the screen, by touch id.
@@ -92,6 +93,8 @@ pub struct Hud {
     sheet: Option<f64>,
     /// Self-test: open the sheet that far into the race (`MARS_HUD_SETTINGS=seconds`).
     sheet_test: Option<f64>,
+    /// Set while the sheet is on screen this frame: see [`Hud::car_focus`].
+    focus: Option<(f32, f32)>,
     cues: Vec<Cue>,
     requests: Vec<HudRequest>,
 }
@@ -182,18 +185,6 @@ fn gear_icon(p: &Painter, c: Pos2, size: f32, colour: Color32) {
     p.circle_stroke(c, 3.0 * s, stroke);
 }
 
-/// Opacity of the start's steering tutorial `t` seconds in: two blinks, then gone.
-fn tutorial_alpha(t: f32) -> f32 {
-    const KEYS: [(f32, f32); 7] = [(0.0, 0.0), (0.1, 1.0), (0.28, 1.0), (0.4, 0.0), (0.52, 1.0), (0.72, 1.0), (1.0, 0.0)];
-    let u = t / TUTORIAL_TIME;
-    if !(0.0..1.0).contains(&u) {
-        return 0.0;
-    }
-    let i = KEYS.iter().position(|k| k.0 > u).unwrap_or(KEYS.len() - 1);
-    let (a, b) = (KEYS[i - 1], KEYS[i]);
-    a.1 + (b.1 - a.1) * (u - a.0) / (b.0 - a.0)
-}
-
 impl Hud {
     pub fn new(maps: &[track::Map]) -> Self {
         Self {
@@ -203,13 +194,13 @@ impl Hud {
             count: None,
             go_at: None,
             finish_at: None,
-            start_at: None,
             last_tick: 0,
             last_countdown: 0,
             touches: BTreeMap::new(),
             touch_seen: false,
             sheet: None,
             sheet_test: std::env::var("MARS_HUD_SETTINGS").ok().and_then(|v| v.parse().ok()),
+            focus: None,
             cues: Vec::new(),
             requests: Vec::new(),
         }
@@ -228,6 +219,13 @@ impl Hud {
         self.sheet.is_some()
     }
 
+    /// While the settings sheet is open: how far it has slid in (0 to 1), and where the car
+    /// should sit, as a fraction of the screen's height from the top (the middle of the scene
+    /// left above the sheet), so that a camera change shows on it.
+    pub fn car_focus(&self) -> Option<(f32, f32)> {
+        self.focus
+    }
+
     /// Countdown steps, checkpoints and the finish, from the run's state.
     fn events(&mut self, game: &Game, now: f64) {
         let run = &game.run;
@@ -238,7 +236,6 @@ impl Hud {
             self.count = None;
             self.go_at = None;
             self.finish_at = None;
-            self.start_at = Some(now);
             self.sheet = None;
         }
         self.last_countdown = run.countdown;
@@ -314,6 +311,11 @@ impl Hud {
     pub fn ui(&mut self, ui: &mut Ui, game: &mut Game, fps: &Fps, muted: bool) {
         let now = ui.input(|i| i.time);
         let r = ui.ctx().content_rect();
+        // The whole screen, behind the notch and the home indicator too (`r` is the safe area):
+        // egui clips to the safe area unless told otherwise.
+        let full = ui.ctx().viewport_rect();
+        ui.set_clip_rect(full);
+        self.focus = None;
         let wide = Layout::for_size(r.width(), r.height()) == Layout::Wide;
         let p = ui.painter().clone();
         self.events(game, now);
@@ -324,8 +326,8 @@ impl Hud {
             self.sheet = Some(now);
         }
 
-        band(&p, Rect::from_min_max(r.min, pos2(r.right(), r.top() + r.height() * 0.18)), VIG_TOP, Color32::TRANSPARENT);
-        band(&p, Rect::from_min_max(pos2(r.left(), r.top() + r.height() * 0.78), r.max), Color32::TRANSPARENT, VIG_BOTTOM);
+        band(&p, Rect::from_min_max(full.min, pos2(full.right(), r.top() + r.height() * 0.18)), VIG_TOP, Color32::TRANSPARENT);
+        band(&p, Rect::from_min_max(pos2(full.left(), r.top() + r.height() * 0.78), full.max), Color32::TRANSPARENT, VIG_BOTTOM);
 
         let finished = game.run.finished.is_some();
         let finish_k = self.finish_at.map_or(0.0, |t| (((now - t) as f32 - 0.5) / 0.35).clamp(0.0, 1.0));
@@ -334,7 +336,7 @@ impl Hud {
         // Touch: the buggy accelerates by itself, the bottom strip brakes, the halves steer.
         let controls = touch && !finished;
         game.controls.auto_gas = controls;
-        game.controls.touch = if controls { self.touch_controls(ui, &p, r, now) } else { Input::default() };
+        game.controls.touch = if controls { self.touch_controls(ui, &p, r, full, now) } else { Input::default() };
 
         if wide {
             // Above the brake strip when the touch controls are on.
@@ -532,7 +534,8 @@ impl Hud {
     // ---------------------------------------------------------------- countdown and finish
 
     fn countdown(&self, p: &Painter, r: Rect, wide: bool, now: f64) {
-        let fg = p.ctx().layer_painter(LayerId::new(Order::Foreground, Id::new("hud countdown")));
+        let mut fg = p.ctx().layer_painter(LayerId::new(Order::Foreground, Id::new("hud countdown")));
+        fg.set_clip_rect(p.ctx().viewport_rect());
         if let Some(go) = self.go_at {
             // The livery band sweeping across at GO.
             let t = ((now - go) / 0.8) as f32;
@@ -567,7 +570,7 @@ impl Hud {
     #[allow(clippy::too_many_arguments)]
     fn finish_card(&mut self, ui: &mut Ui, p: &Painter, r: Rect, wide: bool, game: &Game, now: f64, k: f32) {
         let Some(result) = &game.result else { return };
-        p.rect_filled(r, 0.0, fade(Color32::from_rgba_premultiplied(5, 3, 4, 150), k));
+        p.rect_filled(p.ctx().viewport_rect(), 0.0, fade(Color32::from_rgba_premultiplied(5, 3, 4, 150), k));
         let w = if wide { 600.0 } else { r.width() - 32.0 };
         let pad = if wide { 30.0 } else { 18.0 };
         let splits = &game.run.splits;
@@ -697,10 +700,11 @@ impl Hud {
     // ---------------------------------------------------------------- touch
 
     /// The brake strip along the bottom and the two steering halves above it (invisible, lit
-    /// while held, shown at the start by two blinks); returns the input they give.
-    fn touch_controls(&mut self, ui: &Ui, p: &Painter, r: Rect, now: f64) -> Input {
-        let brake = Rect::from_min_max(pos2(r.left(), r.bottom() - BRAKE_H), r.max);
-        let steer = Rect::from_min_max(pos2(r.left(), r.top() + STEER_TOP), pos2(r.right(), brake.top()));
+    /// while held, shown during the countdown); returns the input they give. They reach the
+    /// edges of the whole screen `full`, past the safe area `r`.
+    fn touch_controls(&mut self, ui: &Ui, p: &Painter, r: Rect, full: Rect, now: f64) -> Input {
+        let brake = Rect::from_min_max(pos2(full.left(), r.bottom() - BRAKE_H), full.max);
+        let steer = Rect::from_min_max(pos2(full.left(), r.top() + STEER_TOP), pos2(full.right(), brake.top()));
         let left = Rect::from_min_max(steer.min, pos2(steer.center().x, steer.bottom()));
         let right = Rect::from_min_max(pos2(steer.center().x, steer.top()), steer.max);
         let pts = if self.sheet.is_none() { self.touch_points(ui) } else { Vec::new() };
@@ -716,18 +720,25 @@ impl Hud {
             let w = right.width() * 0.4;
             gradient(p, Rect::from_min_max(pos2(right.right() - w, right.top()), right.max), [Color32::TRANSPARENT, glow, glow, Color32::TRANSPARENT]);
         }
+        // During the countdown the zones show, dark, with their names: steady through 3 and 2,
+        // fading out once 1 shows.
+        let tutorial = match self.count {
+            Some((n, _)) if n >= 2 => 1.0,
+            Some((1, since)) => 1.0 - ((now - since) as f32 / ZONES_FADE).clamp(0.0, 1.0),
+            _ => 0.0,
+        };
         if b {
             band(p, brake, fade(SLOW, 0.1), fade(SLOW, 0.3));
-        } else {
-            band(p, brake, ZONE_LIGHT, ZONE_DARK);
+        } else if tutorial > 0.0 {
+            band(p, brake, fade(ZONE_LIGHT, tutorial), fade(ZONE_DARK, tutorial));
         }
         p.hline(brake.x_range(), brake.top() + 0.5, Stroke::new(1.0, fade(SLOW, 0.35)));
-        // Faint: the player knows where the brake is.
+        // Faint: the player knows where the brake is. In the safe part of the strip, clear of the
+        // home indicator.
         let label = Font::label(15.0, 0.34).weight(800.0);
-        paint::text(p, brake.center(), Align2::CENTER_CENTER, "FREIN", label, fade(SLOW, if b { 0.75 } else { 0.3 }));
+        let at = pos2(r.center().x, (brake.top() + r.bottom()) / 2.0);
+        paint::text(p, at, Align2::CENTER_CENTER, "FREIN", label, fade(SLOW, if b { 0.75 } else { 0.3 }));
 
-        // At the start, the two halves blink twice, dark like the brake, with their names.
-        let tutorial = self.start_at.map_or(0.0, |t| tutorial_alpha((now - t) as f32));
         if tutorial > 0.0 {
             let font = Font::label(18.0, 0.3).weight(800.0);
             for (half, name) in [(left.with_max_x(left.right() - 1.0), "GAUCHE"), (right.with_min_x(right.left() + 1.0), "DROITE")] {
@@ -754,15 +765,22 @@ impl Hud {
     /// The settings sheet, from the bottom: camera, sound, last checkpoint, restart, menu, resume.
     #[allow(clippy::too_many_arguments)]
     fn settings_sheet(&mut self, ui: &Ui, r: Rect, wide: bool, game: &mut Game, muted: bool, now: f64, since: f64) {
-        let p = ui.ctx().layer_painter(LayerId::new(Order::Tooltip, Id::new("hud sheet")));
+        let full = ui.ctx().viewport_rect();
+        let mut p = ui.ctx().layer_painter(LayerId::new(Order::Tooltip, Id::new("hud sheet")));
+        p.set_clip_rect(full);
         let k = paint::ease_out(((now - since) as f32 / 0.25).min(1.0));
         let h = 427.0;
         let w = if wide { 420.0 } else { r.width() };
         let card = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.bottom() - h + (1.0 - k) * h), vec2(w, h));
-        let scrim = ui.interact(r, Id::new("hud sheet scrim"), Sense::click());
-        p.rect_filled(r, 0.0, fade(col::SCRIM, k));
+        // The scrim covers the whole screen and the card runs down past the safe area, under
+        // the home indicator. The scene above the card slides up to show the car (the app reads
+        // `focus`), under a light scrim, so a camera change shows on it.
+        let scrim = ui.interact(full, Id::new("hud sheet scrim"), Sense::click());
+        p.rect_filled(full, 0.0, fade(col::SCRIM, 0.4 * k));
+        self.focus = Some((k, ((full.top() + card.top()) / 2.0 - full.top()) / full.height()));
         let top = CornerRadius { nw: 24, ne: 24, sw: 0, se: 0 };
-        p.rect_filled(card, top, fade(col::PANEL, 0.97));
+        let sheet = card.with_max_y(card.bottom() + full.bottom() - r.bottom());
+        p.rect_filled(sheet, top, fade(col::PANEL, 0.97));
         p.hline(card.shrink2(vec2(20.0, 0.0)).x_range(), card.top(), Stroke::new(1.0, col::LINE));
 
         let pad = 18.0;
@@ -849,7 +867,7 @@ impl Hud {
         p.rect_filled(cta, 14.0, if resp.hovered() { Color32::from_rgb(255, 128, 64) } else { col::LIVERY });
         paint::stripes(&p.with_clip_rect(cta.shrink(0.5)), Rect::from_min_max(pos2(cta.right() - 70.0, cta.top()), cta.max), col::INK_STRIPE);
         paint::text(&p, cta.center(), Align2::CENTER_CENTER, "REPRENDRE", Font::label(18.0, 0.14).weight(800.0), col::LIVERY_INK);
-        let outside = scrim.clicked() && scrim.interact_pointer_pos().is_some_and(|q| !card.contains(q));
+        let outside = scrim.clicked() && scrim.interact_pointer_pos().is_some_and(|q| !sheet.contains(q));
         if resp.clicked() || outside {
             self.cues.push(Cue::SheetClose);
             close = true;

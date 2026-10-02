@@ -57,14 +57,6 @@ pub fn panel(ctx: &egui::Context, game: &mut Game, t: physics::Telemetry) {
                     }
                 }
             });
-            let mut textures = game.session.textures;
-            if ui
-                .checkbox(&mut textures, "Textures des surfaces (T)")
-                .on_hover_text("Décoché : l'ancien rendu procédural, pour comparer")
-                .changed()
-            {
-                game.session.toggle_textures();
-            }
             ui.separator();
             egui::Grid::new("profiles").striped(true).num_columns(5).show(ui, |ui| {
                 ui.label("");

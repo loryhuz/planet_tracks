@@ -28,8 +28,8 @@ meshkit.MATERIALS.update(
     {
         "paint_blue": dict(color=meshkit.srgb(18, 104, 206), roughness=0.3),
         "paint_snow": dict(color=meshkit.srgb(232, 240, 248), roughness=0.85),
-        "metal_chain": dict(color=meshkit.srgb(186, 190, 196), metallic=1.0, roughness=0.28),
-        "rubber_snow": dict(color=meshkit.srgb(140, 150, 162), roughness=0.9),
+        "metal_chain": dict(color=meshkit.srgb(132, 136, 142), metallic=1.0, roughness=0.32),
+        "rubber_snow": dict(color=meshkit.srgb(150, 160, 172), roughness=0.9),
         "glow_cyan": dict(color=meshkit.srgb(70, 225, 255), emission=4.0),
         # The headlights: white with a cyan tint (the game finds them as white glow at the front).
         "glow_white": dict(color=meshkit.srgb(205, 240, 255), emission=5.0),
@@ -37,6 +37,7 @@ meshkit.MATERIALS.update(
 )
 
 import skicar_body  # noqa: E402
+from skicar_body import face_to  # noqa: E402
 import skicar_livery  # noqa: E402
 from meshkit import (  # noqa: E402
     DOWN,
@@ -316,155 +317,208 @@ def ski_mesh():
     return m
 
 
-# --- Rear tyre: a studded winter tyre on a blue rim, wrapped in a ladder of snow chains.
+# --- Rear tyre: a round-shouldered studded winter tyre on a blue rim, a directional tread of
+# chevron blocks following its curve, and zigzag snow chains of oval links lying on it.
 HW = TYRE_W / 2
 RIM_R = 0.245
-TREAD_R = 0.430  # the tread's floor; its blocks stand 1.5 cm proud
-BLOCK_H = 0.015
-TYRE_PROFILE = [
-    # x, r from the inner bead to the middle of the tread
-    (-HW + 0.03, RIM_R),
-    (-HW + 0.006, 0.285),
-    (-HW, 0.33),
-    (-HW + 0.004, 0.37),
-    (-HW + 0.016, 0.398),
-    (-HW + 0.038, 0.420),
-    (-0.165, TREAD_R),
-    (-0.10, TREAD_R + 0.001),
-    (0.0, TREAD_R + 0.0015),
-]
+CROWN_R = 0.432  # the tread's floor in the middle; the blocks stand BLOCK_H proud of it
+BLOCK_H = 0.016
+CROWN_X = 0.12  # half-width of the crown
+SHOULDER = (HW - CROWN_X, 0.095)  # the shoulder's quarter ellipse: across, down
+TYRE_SEG = 64
 
 
-def profile_r(x):
-    """The tyre's outer radius (without its blocks) at axial x."""
-    ax = -abs(x)
-    pts = TYRE_PROFILE
-    for (x0, r0), (x1, r1) in zip(pts, pts[1:]):
-        if x0 <= ax <= x1:
-            return r0 + (r1 - r0) * (ax - x0) / (x1 - x0)
-    return pts[-1][1]
+def outline(x):
+    """Radius of the tread's floor at axial x (the crown, then the shoulder's quarter ellipse down
+    to the widest point), and its outward normal (dx, dr)."""
+    ax = abs(x)
+    if ax <= CROWN_X:
+        return CROWN_R - 0.004 * (ax / CROWN_X) ** 2, (0.0, 1.0)
+    sa, sr = SHOULDER
+    cr = CROWN_R - 0.004 - sr
+    u = min(0.999, (ax - CROWN_X) / sa)
+    r = cr + sr * math.sqrt(1 - u * u)
+    nx, nr = (ax - CROWN_X) / sa**2, (r - cr) / sr**2
+    k = math.hypot(nx, nr)
+    return r, (math.copysign(nx / k, x), nr / k)
 
 
-def full_profile():
-    left = TYRE_PROFILE
+def tyre_profile():
+    """(x, r) from the inner bead up the sidewall, over the shoulder and the crown, down to the
+    outer bead."""
+    sa, _ = SHOULDER
+    left = [(-HW + 0.036, RIM_R), (-HW + 0.026, 0.262), (-HW + 0.012, 0.287), (-HW + 0.003, 0.312)]
+    for k in range(9):
+        x = -(CROWN_X + sa * math.cos(math.pi / 2 * k / 8))
+        left.append((x, outline(x)[0]))
+    for k in range(1, 7):
+        x = -CROWN_X * (1 - k / 6)
+        left.append((x, outline(x)[0]))
     return left + [(-x, r) for x, r in reversed(left[:-1])]
 
 
 def tyre_mats(prof, i, j, seg):
+    """Black rubber; snow packed in the grooves between the blocks, in patches round the tyre."""
     x = abs((prof[i][0] + prof[i + 1][0]) / 2)
-    if x > 0.18:
+    if x > 0.2:
         return "rubber_tyre"
-    # Snow packed between the blocks in uneven patches round the tyre.
     a = 2 * math.pi * (j + 0.5) / seg
     v = math.sin(3 * a + 0.4) + 0.6 * math.sin(7 * a + 1.3) + 0.4 * math.sin(11 * a + x * 30)
-    return "rubber_snow" if v > 1.0 else "rubber_tyre"
+    return "rubber_snow" if v > 0.9 else "rubber_tyre"
 
 
-def block(m, x0, x1, a0, a1, mat="rubber_tyre"):
-    """A tread block between axial x0..x1 and angles a0..a1, standing on the tread's floor."""
-    def at(x, a, r):
-        return Vector((x, r * math.cos(a), r * math.sin(a)))
-
-    inset_x, inset_a = 0.004, 0.004 / TREAD_R
-    base = [at(x0, a0, profile_r(x0) - 0.002), at(x1, a0, profile_r(x1) - 0.002), at(x1, a1, profile_r(x1) - 0.002), at(x0, a1, profile_r(x0) - 0.002)]
-    top = [
-        at(x0 + inset_x, a0 + inset_a, profile_r(x0) + BLOCK_H),
-        at(x1 - inset_x, a0 + inset_a, profile_r(x1) + BLOCK_H),
-        at(x1 - inset_x, a1 - inset_a, profile_r(x1) + BLOCK_H),
-        at(x0 + inset_x, a1 - inset_a, profile_r(x0) + BLOCK_H),
-    ]
-    tb = [m.vert(p) for p in base]
-    tt = [m.vert(p) for p in top]
-    # Top: outward is the radius; (x across) x (angle forward) points out.
-    m.face([tt[0], tt[3], tt[2], tt[1]][::-1], mat)
-    for k in range(4):
-        n = (k + 1) % 4
-        m.face([tb[k], tb[n], tt[n], tt[k]], mat)
-    return top
+def surface_point(x, a, h):
+    """Point h above the tread's floor (along its normal) at axial x and angle a."""
+    r, (nx, nr) = outline(x)
+    rr = r + nr * h
+    return Vector((x + nx * h, rr * math.cos(a), rr * math.sin(a)))
 
 
-def stud(m, x, a, r):
-    d = Vector((0, math.cos(a), math.sin(a)))
-    c = Vector((x, 0, 0))
-    m.tube(c + d * (r - 0.004), c + d * (r + 0.0035), 0.0045, "metal_steel", seg=6)
+def outward(x, a):
+    _, (nx, nr) = outline(x)
+    return Vector((nx, nr * math.cos(a), nr * math.sin(a)))
 
 
-def chain_links(m, pts, normals, pitch=0.030, length=0.036):
-    """Links along a polyline (with the surface normal at each point), alternately flat and
-    upright, overlapping like a chain."""
-    seglen = [(b - a).length for a, b in zip(pts, pts[1:])]
-    total = sum(seglen)
-    n = max(1, int(total / pitch))
-    for k in range(n):
-        s = (k + 0.5) * total / n
+# The tread: rows of blocks across (x0, x1 on the +x half, mirrored; offset in pitches; studded),
+# a narrow groove down the middle, the middle rows staggered, the shoulder lugs running down over
+# the shoulder. The blocks lean back toward the shoulders: a chevron.
+TREAD_N = 34
+TREAD_ROWS = [(0.008, 0.062, 0.0, True), (0.074, 0.130, 0.5, True), (0.142, 0.212, 0.0, False)]
+LEAN = 0.5  # angle the blocks lean back by per metre out from the middle, over the radius
+
+
+def block(m, x0, x1, a0, a1):
+    """A tread block over x0..x1 (one side of the middle) and a0..a1 at its inner edge, leaning
+    back with |x|; its top follows the tyre's curve, 3 mm in from its foot."""
+    def ang(x, a):
+        return a - LEAN * abs(x) / CROWN_R
+
+    s = math.copysign(1.0, x0 + x1)
+    xs = [x0, (x0 + x1) / 2, x1]
+    as_ = [a0, a1]
+    ix, ia = 0.003 * s, 0.003 / CROWN_R
+    top = [[None] * 2 for _ in range(3)]
+    foot = [[None] * 2 for _ in range(3)]
+    for i, x in enumerate(xs):
+        for j, a in enumerate(as_):
+            xi = x + (ix if i == 0 else -ix if i == 2 else 0.0)
+            aj = a + (ia if j == 0 else -ia)
+            top[i][j] = surface_point(xi, ang(xi, aj), BLOCK_H)
+            foot[i][j] = surface_point(x, ang(x, a), -0.002)
+    centre = (top[1][0] + top[1][1]) / 2
+    for i in range(2):
+        q = [top[i][0], top[i + 1][0], top[i + 1][1], top[i][1]]
+        face_to(m, q, outward(xs[i] * 0.5 + xs[i + 1] * 0.5, (a0 + a1) / 2), "rubber_tyre", smooth=True)
+    border = [(0, 0), (1, 0), (2, 0), (2, 1), (1, 1), (0, 1)]
+    for (i0, j0), (i1, j1) in zip(border, border[1:] + border[:1]):
+        tp, tq, fp, fq = top[i0][j0], top[i1][j1], foot[i0][j0], foot[i1][j1]
+        face_to(m, [fp, fq, tq, tp], (tp + tq) / 2 - centre, "rubber_tyre")
+
+
+def stud(m, x, a):
+    """A carbide stud standing 3 mm out of a block's top."""
+    n = outward(x, a)
+    c = surface_point(x, a - LEAN * abs(x) / CROWN_R, BLOCK_H)
+    m.tube(c - n * 0.004, c + n * 0.003, 0.0042, "metal_steel", seg=4)
+
+
+def tread(m):
+    pitch = 2 * math.pi / TREAD_N
+    for x0, x1, off, studded in TREAD_ROWS:
+        for s in (1, -1):
+            for j in range(TREAD_N):
+                a0 = (j + off) * pitch
+                a1 = a0 + 0.62 * pitch
+                lo, hi = (x0, x1) if s > 0 else (-x1, -x0)
+                block(m, lo, hi, a0, a1)
+                if studded:
+                    stud(m, s * (x0 + x1) / 2, (a0 + a1) / 2)
+
+
+# Snow chains: a side chain round each shoulder, cross chains zigzagging between them (each from a
+# hook on one side to the next one, half a pitch on, on the other), as on ice-racing tyres. Real
+# links: oval rings of 5 mm wire, each turned a quarter from the last; the flat ones show their
+# hole, the upright ones are seen edge on.
+CHAIN_H = 0.020  # the chains' centre line over the tread's floor: resting on the blocks
+SIDE_X = 0.214
+HOOKS = 10
+LINK_L, LINK_W, LINK_WIRE = 0.046, 0.027, 0.0052
+LINK_PITCH = LINK_L - 4 * LINK_WIRE  # interlocked: one link's inside length
+
+
+def chain_point(x, a):
+    return surface_point(x, a, CHAIN_H), outward(x, a)
+
+
+def link(m, c, t, n, flat):
+    """An oval link centred on c along the unit tangent t, lying on the tyre (normal n) or
+    standing up from it."""
+    side = t.cross(n).normalized()
+    v = side if flat else t.cross(side).normalized()
+    if flat:
+        # A ring lying on the tyre, its hole showing: its rounded top and its outer edge.
+        def loop(inset, lift):
+            return [
+                c + t * (LINK_L / 2 - inset) * math.cos(th) + v * (LINK_W / 2 - inset) * math.sin(th) + n * lift
+                for th in (2 * math.pi * k / 6 for k in range(6))
+            ]
+
+        outer_lo, outer_hi = loop(0.0, -LINK_WIRE * 0.6), loop(LINK_WIRE * 0.35, LINK_WIRE * 0.9)
+        inner = loop(2 * LINK_WIRE, 0.0)
+        for k in range(6):
+            q = (k + 1) % 6
+            face_to(m, [outer_hi[k], outer_hi[q], inner[q], inner[k]], n, "metal_chain", smooth=True)
+            mid = (outer_lo[k] + outer_lo[q]) / 2 - c
+            face_to(m, [outer_lo[k], outer_lo[q], outer_hi[q], outer_hi[k]], mid, "metal_chain", smooth=True)
+    else:
+        # Edge on: a slim bar, its foot sunk through the flat links' holes.
+        m.box(c - n * 0.005, (LINK_WIRE * 0.9, LINK_W / 2 - 0.002, LINK_L / 2), "metal_chain", axes=(side, n, t))
+
+
+def chain_along(m, path):
+    """Links along a polyline of (point, normal), at the chain's pitch."""
+    pts = [p for p, _ in path]
+    lens = [(b - a).length for a, b in zip(pts, pts[1:])]
+    total = sum(lens)
+    count = max(1, int(total / LINK_PITCH))
+    for k in range(count):
+        s = (k + 0.5) * total / count
         acc = 0.0
-        for i, L in enumerate(seglen):
-            if acc + L >= s or i == len(seglen) - 1:
-                t = (s - acc) / L if L > 0 else 0
-                p = pts[i].lerp(pts[i + 1], t)
-                nn = normals[i].lerp(normals[i + 1], t).normalized()
-                tan = (pts[i + 1] - pts[i]).normalized()
+        for i, L in enumerate(lens):
+            if acc + L >= s or i == len(lens) - 1:
+                f = (s - acc) / L if L > 0 else 0.0
+                p = pts[i].lerp(pts[i + 1], f)
+                n = path[i][1].lerp(path[i + 1][1], f).normalized()
+                t = (pts[i + 1] - pts[i]).normalized()
                 break
             acc += L
-        side = tan.cross(nn).normalized()
-        nn = side.cross(tan).normalized()
-        if k % 2 == 0:
-            axes, half = (side, nn, tan), (0.0075, 0.0026, length / 2)
-        else:
-            axes, half = (side, nn, tan), (0.0026, 0.0068, length / 2)
-        m.box(p, half, "metal_chain", axes=axes)
-
-
-CHAIN_TREAD_R = 0.449
-CHAIN_CONTOUR = [(-0.222, 0.400), (-0.214, 0.424), (-0.198, 0.443), (-0.16, CHAIN_TREAD_R), (-0.08, CHAIN_TREAD_R), (0.0, CHAIN_TREAD_R)]
+        t = (t - n * t.dot(n)).normalized()
+        link(m, p, t, n, k % 2 == 0)
 
 
 def chains(m):
-    contour = CHAIN_CONTOUR + [(-x, r) for x, r in reversed(CHAIN_CONTOUR[:-1])]
-    cross = 14
-    for k in range(cross):
-        a = 2 * math.pi * (k + 0.25) / cross
-        d = Vector((0, math.cos(a), math.sin(a)))
-        pts = [Vector((x, 0, 0)) + d * r for x, r in contour]
-        normals = []
-        for i in range(len(contour)):
-            x0, r0 = contour[max(i - 1, 0)]
-            x1, r1 = contour[min(i + 1, len(contour) - 1)]
-            tx, tr = x1 - x0, r1 - r0
-            nx, nr = -tr, tx  # outward of a contour running -x to +x over the top
-            L = math.hypot(nx, nr)
-            normals.append(Vector((nx / L, 0, 0)) + d * (nr / L))
-        chain_links(m, pts, normals)
-    # Rings round the tyre: the side chains on the shoulders, two on the tread.
-    for x, r in ((-0.222, 0.400), (0.222, 0.400), (-0.085, CHAIN_TREAD_R), (0.085, CHAIN_TREAD_R)):
-        seg = 96
-        pts, normals = [], []
-        for q in range(seg + 1):
-            a = 2 * math.pi * q / seg
-            d = Vector((0, math.cos(a), math.sin(a)))
-            pts.append(Vector((x, 0, 0)) + d * r)
-            normals.append((d + Vector((math.copysign(0.8, x), 0, 0))).normalized() if abs(x) > 0.2 else d)
-        chain_links(m, pts, normals)
+    step = 2 * math.pi / HOOKS
+    for k in range(HOOKS):
+        a = k * step
+        # Left hook to right hook half a pitch on, then back to the next left hook.
+        for (xa, aa), (xb, ab) in (((-SIDE_X, a), (SIDE_X, a + step / 2)), ((SIDE_X, a + step / 2), (-SIDE_X, a + step))):
+            path = [chain_point(xa + (xb - xa) * u / 40, aa + (ab - aa) * u / 40) for u in range(41)]
+            chain_along(m, path)
+        # The hooks: a bigger ring where the cross chains meet each side chain.
+        for x, ah in ((-SIDE_X, a), (SIDE_X, a + step / 2)):
+            p, n = chain_point(x, ah)
+            t = Vector((0, -math.sin(ah), math.cos(ah)))
+            m.tube(p - t * 0.012, p + t * 0.012, 0.009, "metal_chain", seg=8)
+    for x in (-SIDE_X, SIDE_X):
+        path = [chain_point(x, 2 * math.pi * q / 160) for q in range(161)]
+        chain_along(m, path)
 
 
 def wheel_mesh():
     m = Mesh()
-    prof = full_profile()
-    seg = 64
-    m.lathe(prof, "rubber_tyre", seg=seg, mats=lambda i, j: tyre_mats(prof, i, j, seg))
-    # Blocks: a centre row, two middle rows staggered half a pitch, shoulder lugs; a stud in each
-    # block of the inner rows.
-    n = 28
-    pitch = 2 * math.pi / n
-    rows = [((-0.045, 0.045), 0.0, True), ((0.06, 0.145), 0.5, True), ((-0.145, -0.06), 0.5, True), ((0.155, 0.205), 0.0, False), ((-0.205, -0.155), 0.0, False)]
-    for (x0, x1), off, studded in rows:
-        for j in range(n):
-            a0 = (j + off) * pitch
-            a1 = a0 + 0.64 * pitch
-            block(m, x0, x1, a0, a1)
-            if studded:
-                xm = (x0 + x1) / 2
-                stud(m, xm, (a0 + a1) / 2, profile_r(xm) + BLOCK_H)
+    prof = tyre_profile()
+    m.lathe(prof, "rubber_tyre", seg=TYRE_SEG, mats=lambda i, j: tyre_mats(prof, i, j, TYRE_SEG))
+    tread(m)
     chains(m)
     # Rim: the blue barrel, its outer lip with a bolted ring, a black fourteen-spoke centre, the
     # hub, its chrome cap and lug nuts.
@@ -735,6 +789,7 @@ def stage_scene(scene, stage, mats):
         ("cam_front", (0.0, -8.0, 0.1), (0, 0, -0.2), 55),
         ("cam_rear", (-3.8, 5.6, 1.4), (0, 0, -0.3), 42),
         ("cam_chase", (0.0, 6.2, 1.6), (0, -1.0, -0.1), 45),
+        ("cam_wheel", (2.25, 0.35, 0.05), (0.9, 1.3, -0.33), 50),
     ]:
         cd = bpy.data.cameras.new(name)
         cd.lens = lens
@@ -787,7 +842,7 @@ def render(scene, cams, out_dir):
     # Back faces culled, as the game draws them: a face wound the wrong way shows as a hole.
     for m in bpy.data.materials:
         m.use_backface_culling = True
-    for label, cam in (("1_hero", "cam_hero"), ("2_side", "cam_side"), ("3_front", "cam_front"), ("4_rear", "cam_rear"), ("5_chase", "cam_chase")):
+    for label, cam in (("1_hero", "cam_hero"), ("2_side", "cam_side"), ("3_front", "cam_front"), ("4_rear", "cam_rear"), ("5_chase", "cam_chase"), ("6_wheel", "cam_wheel")):
         scene.camera = cams[cam]
         scene.render.filepath = os.path.join(out_dir, f"{label}.png")
         bpy.ops.render.render(write_still=True)

@@ -1,8 +1,10 @@
-//! The buggy from Blender (`assets/buggy.glb`, built by `tools/blender/build_buggy.py`): the body,
-//! and for each corner the parts of a double-wishbone suspension with their pivots. Every frame
-//! the corners are posed from the physics' suspension lengths: the arms swing around their
-//! hinges, the upright follows the lower ball joint and turns around its kingpin, the coilover
-//! shortens and lengthens between its mounts, and the tie rod follows the steering.
+//! The cars from Blender: Mars's buggy (`assets/buggy.glb`, built by `tools/blender/build_buggy.py`)
+//! and the ice planet's single-seater on skis (`assets/skicar.glb`, `tools/blender/build_skicar.py`).
+//! Each has a body and, for each corner, the parts of a double-wishbone suspension with their
+//! pivots (the ski car's front corners carry a ski instead of a wheel). Every frame the corners
+//! are posed from the physics' suspension lengths: the arms swing around their hinges, the upright
+//! follows the lower ball joint and turns around its kingpin, the coilover shortens and lengthens
+//! between its mounts, and the tie rod follows the steering.
 //!
 //! On top of the physics, [`Look`] adds what a massless raycast suspension lacks: a wheel that
 //! leaves the ground drops with some inertia (the physics puts it at full travel at once), the
@@ -22,6 +24,9 @@ pub const TYRE_WIDTH: f32 = 0.48;
 const GLB: &[u8] = include_bytes!("../assets/buggy.glb");
 /// The body's livery atlas, painted by tools/blender/buggy_livery.py.
 const LIVERY: &[u8] = include_bytes!("../assets/buggy_livery.png");
+const SKI_GLB: &[u8] = include_bytes!("../assets/skicar.glb");
+/// Its livery, painted by tools/blender/skicar_livery.py.
+const SKI_LIVERY: &[u8] = include_bytes!("../assets/skicar_livery.png");
 const CORNERS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 
 /// Rest geometry of one corner, car frame: what the solver needs.
@@ -63,11 +68,14 @@ pub struct Buggy {
     pub parts: Vec<CornerParts>,
     /// Wheel radius the model was built for, m.
     pub wheel_radius: f32,
+    /// Width of its tyres, m.
+    pub tyre_width: f32,
+    /// The front corners carry skis: their `wheel` part is the ski, which steers with the upright
+    /// but does not spin, its sole on the ground below the corner's centre.
+    pub skis: bool,
     /// Between the headlights (the white lights at the front), in the car frame: where the
     /// renderer's headlight beam starts by night.
     pub headlight: Vec3,
-    /// The livery texture (sRGB RGBA8), for kind::LIVERY vertices.
-    pub livery: Image,
 }
 
 pub struct Image {
@@ -247,10 +255,38 @@ impl Look {
 
 // --- Loading the .glb. ---
 
+/// Mars's buggy. Its livery is decoded apart (one livery texture is bound at a time: see
+/// [`livery`]).
 pub fn load() -> Buggy {
-    let mut buggy = parse(GLB).unwrap_or_else(|e| panic!("assets/buggy.glb: {e}"));
-    buggy.livery = decode_png(LIVERY).unwrap_or_else(|e| panic!("assets/buggy_livery.png: {e}"));
-    buggy
+    parse(GLB).unwrap_or_else(|e| panic!("assets/buggy.glb: {e}"))
+}
+
+/// The ice planet's car.
+pub fn load_skicar() -> Buggy {
+    let mut car = parse(SKI_GLB).unwrap_or_else(|e| panic!("assets/skicar.glb: {e}"));
+    car.skis = true;
+    car
+}
+
+/// A car's livery atlas, decoded: the ski car's or the buggy's.
+pub fn livery(skis: bool) -> Image {
+    let (bytes, name) = if skis { (SKI_LIVERY, "skicar_livery.png") } else { (LIVERY, "buggy_livery.png") };
+    decode_png(bytes).unwrap_or_else(|e| panic!("assets/{name}: {e}"))
+}
+
+/// Where the skis run, m from the centre line (closer together than the physics' contacts), and
+/// how wide they are (tools/blender/build_skicar.py).
+pub const SKI_X: f32 = 0.65;
+pub const SKI_WIDTH: f32 = 0.19;
+/// How far a ski tips on its pivot either way, radians.
+pub const SKI_PITCH_MAX: f32 = 0.35;
+/// The ski's pivot bolt above its sole, m (tools/blender/build_skicar.py).
+pub const SKI_PIVOT_H: f32 = 0.13;
+
+/// Pitch of a ski about its pivot bolt (radians, positive tips its nose down, as a rotation about
+/// +X) to lie on ground of normal `n`, given in the upright's frame; within its stops.
+pub fn ski_pitch(n: Vec3) -> f32 {
+    n.z.atan2(n.y.max(1e-3)).clamp(-SKI_PITCH_MAX, SKI_PITCH_MAX)
 }
 
 pub(crate) fn decode_png(bytes: &[u8]) -> Result<Image, String> {
@@ -443,11 +479,15 @@ fn parse(bytes: &[u8]) -> Result<Buggy, String> {
     let mut body = MeshData::default();
     let mut found: std::collections::BTreeMap<(String, String), (Option<usize>, Mat4)> = Default::default();
     let mut wheel_radius = 0.45;
+    let mut tyre_width = TYRE_WIDTH;
     for (i, node) in nodes.iter().enumerate() {
         let Some(m) = world[i] else { continue };
         let name = node["name"].as_str().unwrap_or("");
         if let Some(r) = node["extras"]["wheel_radius"].as_f64() {
             wheel_radius = r as f32;
+        }
+        if let Some(w) = node["extras"]["tyre_width"].as_f64() {
+            tyre_width = w as f32;
         }
         match name.rsplit_once('.') {
             Some((part, corner)) if CORNERS.contains(&corner) => {
@@ -497,7 +537,15 @@ fn parse(bytes: &[u8]) -> Result<Buggy, String> {
         });
     }
     let headlight = headlight(&body).ok_or("no headlights (white glow at the front)")?;
-    Ok(Buggy { body, rigs: rigs.try_into().map_err(|_| "corners")?, parts, wheel_radius, headlight, livery: Image { width: 1, height: 1, rgba: vec![255; 4] } })
+    Ok(Buggy {
+        body,
+        rigs: rigs.try_into().map_err(|_| "corners")?,
+        parts,
+        wheel_radius,
+        tyre_width,
+        skis: false,
+        headlight,
+    })
 }
 
 /// The middle of the headlights: the white lights (the red and amber ones are tail and roof
@@ -536,9 +584,46 @@ mod tests {
     }
 
     #[test]
+    fn the_ski_car_has_its_skis_closer_together_than_its_rear_wheels() {
+        let b = load_skicar();
+        assert!(b.skis && !load().skis);
+        assert!(b.body.indices.len() > 3000, "body: {} indices", b.body.indices.len());
+        assert!((b.wheel_radius - 0.45).abs() < 1e-3 && (b.tyre_width - 0.46).abs() < 1e-3);
+        // The rear wheels where the physics puts them, the skis at ±0.65 m under the nose's flanks.
+        for (rig, (x, sz)) in b.rigs.iter().zip([(SKI_X, 1.0), (-SKI_X, 1.0), (0.9, -1.0), (-0.9, -1.0)]) {
+            assert!(close(Vec3::new(rig.wheel.x, 0.0, rig.wheel.z), Vec3::new(x, 0.0, 1.3 * sz)), "{:?}", rig.wheel);
+        }
+        assert!(b.rigs[0].tie.is_some() && b.rigs[2].tie.is_none());
+        // Each ski's sole lies on the ground under its corner, long ahead of it, a little behind.
+        for parts in &b.parts[..2] {
+            let low = parts.wheel.vertices.iter().map(|v| v.pos[1]).fold(f32::MAX, f32::min);
+            assert!((low + b.wheel_radius).abs() < 0.01, "sole at {low}");
+            let (back, front) = parts.wheel.vertices.iter().fold((0.0f32, 0.0f32), |(a, c), v| (a.min(v.pos[2]), c.max(v.pos[2])));
+            assert!(front > 0.9 && back < -0.3, "ski from {back} to {front}");
+            let width = parts.wheel.vertices.iter().map(|v| v.pos[0].abs()).fold(0.0f32, f32::max) * 2.0;
+            assert!((width - SKI_WIDTH).abs() < 0.015, "ski {width} m wide");
+        }
+        assert!(b.headlight.x.abs() < 0.02 && b.headlight.z > 1.6 && b.headlight.y > b.rigs[0].wheel.y, "{:?}", b.headlight);
+    }
+
+    #[test]
+    fn a_ski_lies_on_the_ground_within_its_stops() {
+        assert_eq!(ski_pitch(Vec3::Y), 0.0);
+        // Climbing ahead (the normal leans back): the nose tips up, as far as the ground does.
+        let a = 0.2f32;
+        assert!((ski_pitch(Vec3::new(0.0, a.cos(), -a.sin())) + a).abs() < 1e-5);
+        assert_eq!(ski_pitch(Vec3::new(0.0, 0.5, 0.9)), SKI_PITCH_MAX);
+    }
+
+    #[test]
     fn at_rest_every_part_sits_at_its_origin() {
-        let b = load();
-        for (rig, parts) in b.rigs.iter().zip(&b.parts) {
+        for b in [load(), load_skicar()] {
+            at_rest(&b);
+        }
+    }
+
+    fn at_rest(b: &Buggy) {
+        for (i, (rig, parts)) in b.rigs.iter().zip(&b.parts).enumerate() {
             let pose = rig.pose(rig.wheel.y, 0.0, 0.0, 1.0);
             for (m, origin) in [
                 (pose.arm_lo, rig.pivot_lo),
@@ -555,6 +640,9 @@ mod tests {
                 assert!(m.abs_diff_eq(Mat4::from_translation(inner), 1e-4));
             }
             // Wheels are round and centred on their origin.
+            if b.skis && i < 2 {
+                continue;
+            }
             let r = parts.wheel.vertices.iter().map(|v| Vec2::new(v.pos[1], v.pos[2]).length()).fold(0.0, f32::max);
             assert!((r - b.wheel_radius).abs() < 0.01, "wheel radius {r}");
         }
@@ -562,7 +650,12 @@ mod tests {
 
     #[test]
     fn the_wheel_follows_the_suspension_and_the_coilover_stays_between_its_mounts() {
-        let b = load();
+        for b in [load(), load_skicar()] {
+            follows_the_suspension(&b);
+        }
+    }
+
+    fn follows_the_suspension(b: &Buggy) {
         for rig in &b.rigs {
             let mut last_len = f32::MAX;
             for k in 0..=10 {
@@ -597,16 +690,17 @@ mod tests {
 
     #[test]
     fn the_tie_rod_follows_the_steering() {
-        let b = load();
-        let rig = &b.rigs[0];
-        let (inner, outer) = rig.tie.unwrap();
-        for steer in [-0.6f32, -0.3, 0.0, 0.3, 0.6] {
-            let pose = rig.pose(rig.wheel.y + 0.1, steer, 0.0, 1.0);
-            let m = pose.tierod.unwrap();
-            assert!(close(m.transform_point3(Vec3::ZERO), inner));
-            let end = m.transform_point3(outer - inner);
-            let arm = pose.upright.transform_point3(outer - rig.wheel);
-            assert!(close(end, arm), "{end} vs {arm}");
+        for b in [load(), load_skicar()] {
+            let rig = &b.rigs[0];
+            let (inner, outer) = rig.tie.unwrap();
+            for steer in [-0.6f32, -0.3, 0.0, 0.3, 0.6] {
+                let pose = rig.pose(rig.wheel.y + 0.1, steer, 0.0, 1.0);
+                let m = pose.tierod.unwrap();
+                assert!(close(m.transform_point3(Vec3::ZERO), inner));
+                let end = m.transform_point3(outer - inner);
+                let arm = pose.upright.transform_point3(outer - rig.wheel);
+                assert!(close(end, arm), "{end} vs {arm}");
+            }
         }
     }
 

@@ -32,13 +32,17 @@ pub struct CornerMeshes {
     pub tierod: Option<MeshId>,
 }
 
-/// The buggy on the GPU, with the rest geometry its corners are posed from.
+/// A car model on the GPU, with the rest geometry its corners are posed from.
 pub struct CarMeshes {
     pub body: MeshId,
     pub corners: Vec<CornerMeshes>,
     pub rigs: [CornerRig; 4],
     /// Wheel radius the model was built for, m.
     pub wheel_radius: f32,
+    /// Width of its tyres, m.
+    pub tyre_width: f32,
+    /// Its front corners carry skis (see [`car_model::Buggy::skis`]).
+    pub skis: bool,
     /// Between the headlights, in the car frame (see [`car_model::Buggy::headlight`]).
     pub headlight: Vec3,
 }
@@ -261,7 +265,7 @@ impl Game {
         if frame.respawn {
             self.marks.break_strips();
         }
-        self.marks.update(&self.run.car.state);
+        self.marks.update(&self.run.car.state, &self.run.car.params);
         self.dust.update(&self.run.car.state, physics::DT);
         let impact = self.run.car.telemetry().impact;
         if impact > 2.0 && self.last_impact <= 2.0 {
@@ -451,7 +455,7 @@ fn car_items(
         let tyre = (look.touch[i] > 0.0).then(|| Tyre {
             ground: normal.extend(normal.dot(point) - sink),
             radius: params.wheel_radius,
-            half_width: 0.5 * car_model::TYRE_WIDTH * scale,
+            half_width: 0.5 * meshes.tyre_width * scale,
             pressed: w0.contact || w1.contact,
             shade: look.touch[i],
         });
@@ -459,11 +463,14 @@ fn car_items(
         let centre = into_body * (anchor - Vec3::Y * (look.travel[i] + look.squash[i]));
         let steer = w0.steer_display + (w1.steer_display - w0.steer_display) * alpha;
         let pose = rig.pose(centre.y, steer, angle_lerp(w0.spin, w1.spin, alpha), scale);
-        if params.front_skis && i < 2 {
-            // The ice planet's prototype: the front wheel flattened into a ski on the snow (its
-            // own model is still to come).
-            let ski = Mat4::from_translation(Vec3::new(0.0, -0.82 * meshes.wheel_radius, 0.0)) * Mat4::from_scale(Vec3::new(0.7, 0.16, 2.6));
-            push(parts.wheel, body * pose.wheel * ski, None);
+        if meshes.skis && i < 2 {
+            // The ski: carried by the upright without spinning, tipped on its pivot bolt to lie on
+            // the ground where it touches (the normal in the upright's frame), level in the air.
+            let to_upright = (rot * Quat::from_rotation_x(look.pitch) * Quat::from_rotation_y(steer)).inverse();
+            let lie = car_model::ski_pitch(to_upright * normal) * look.touch[i];
+            let pivot = Vec3::new(0.0, car_model::SKI_PIVOT_H - meshes.wheel_radius, 0.0);
+            let ski = Mat4::from_translation(pivot) * Mat4::from_rotation_x(lie) * Mat4::from_translation(-pivot);
+            push(parts.wheel, body * pose.upright * ski, None);
         } else {
             push(parts.wheel, body * pose.wheel, tyre);
         }

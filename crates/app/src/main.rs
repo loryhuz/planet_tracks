@@ -52,8 +52,23 @@ struct Graphics {
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
     track_mesh: gfx::MeshId,
+    /// Mars's buggy and the ice planet's car on skis; which one's livery is bound (one at a time).
     car: CarMeshes,
+    ski_car: CarMeshes,
+    ski_livery: bool,
     menu_gfx: menu_gfx::MenuRenderer,
+}
+
+impl Graphics {
+    /// The model of the car being driven (the ski car when its preset has skis), its livery bound.
+    fn car_for(&mut self, skis: bool) -> &CarMeshes {
+        if skis != self.ski_livery {
+            let livery = car_model::livery(skis);
+            self.scene.set_livery(&self.gpu, livery.width, livery.height, &livery.rgba);
+            self.ski_livery = skis;
+        }
+        if skis { &self.ski_car } else { &self.car }
+    }
 }
 
 /// Played on a touch screen (iPhone, iPad, Android): the menu shows no key hints and the race
@@ -192,10 +207,8 @@ fn wall_kind(color: [f32; 3]) -> u32 {
     }
 }
 
-/// Uploads the buggy's body and every corner's parts.
-fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu) -> CarMeshes {
-    let buggy = car_model::load();
-    scene.set_livery(gpu, buggy.livery.width, buggy.livery.height, &buggy.livery.rgba);
+/// Uploads a car's body and every corner's parts.
+fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu, buggy: &car_model::Buggy) -> CarMeshes {
     let device = &gpu.device;
     let mut up = |mesh: &MeshData| scene.upload(device, mesh);
     let body = up(&buggy.body);
@@ -213,7 +226,15 @@ fn upload_car(scene: &mut SceneRenderer, gpu: &Gpu) -> CarMeshes {
             tierod: p.tierod.as_ref().map(&mut up),
         })
         .collect();
-    CarMeshes { body, corners, rigs: buggy.rigs, wheel_radius: buggy.wheel_radius, headlight: buggy.headlight }
+    CarMeshes {
+        body,
+        corners,
+        rigs: buggy.rigs,
+        wheel_radius: buggy.wheel_radius,
+        tyre_width: buggy.tyre_width,
+        skis: buggy.skis,
+        headlight: buggy.headlight,
+    }
 }
 
 impl App {
@@ -453,7 +474,8 @@ impl App {
             cast_shadow: true,
             tyre: None,
         }];
-        items.extend(game.draw_items(alpha, &g.car));
+        let skis = game.run.car.params.front_skis;
+        items.extend(game.draw_items(alpha, g.car_for(skis)));
         if let Some(audio) = &self.audio {
             audio.set_scene(!self.menu.active, game.time_of_day() == track::map::TimeOfDay::Night);
             for cue in self.menu.take_cues().into_iter().chain(self.hud.take_cues()) {
@@ -487,7 +509,7 @@ impl App {
             (Some(sky), true) => g.menu_gfx.render(&g.gpu, &mut encoder, &target, sky, full.pixels_per_point),
             _ => {
                 let blur = if self.hud.paused() { 0.0 } else { game.camera.blur };
-                let headlights = Some(game.headlights(alpha, &g.car));
+                let headlights = Some(game.headlights(alpha, g.car_for(skis)));
                 g.scene.render(&g.gpu, &mut encoder, &target, &View { view, proj, eye, blur, headlights }, &items)
             }
         }
@@ -595,7 +617,11 @@ impl ApplicationHandler for App {
         let mut scene = SceneRenderer::new(&gpu);
         let track_mesh = scene.upload(&gpu.device, &track_render_data(&self.game.track));
         scene.set_track(&gpu, &self.game.track, track_mesh, self.game.time_of_day(), self.game.maps[self.game.map_index].planet);
-        let car = upload_car(&mut scene, &gpu);
+        let car = upload_car(&mut scene, &gpu, &car_model::load());
+        let ski_car = upload_car(&mut scene, &gpu, &car_model::load_skicar());
+        let ski_livery = self.game.run.car.params.front_skis;
+        let livery = car_model::livery(ski_livery);
+        scene.set_livery(&gpu, livery.width, livery.height, &livery.rgba);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             self.egui_ctx.clone(),
@@ -608,7 +634,7 @@ impl ApplicationHandler for App {
         let egui_renderer = egui_wgpu::Renderer::new(&gpu.device, gpu.config.format, Default::default());
         let menu_gfx = menu_gfx::MenuRenderer::new(&gpu);
         self.last_frame = Instant::now();
-        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car, menu_gfx });
+        self.gfx = Some(Graphics { window, gpu, scene, egui_state, egui_renderer, track_mesh, car, ski_car, ski_livery, menu_gfx });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

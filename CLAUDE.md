@@ -131,6 +131,16 @@ link the main checkout's `track` (missing a new block or surface).
   `crates/app/src/car_model.rs` reads. The body panels are in `tools/blender/buggy_body.py`, the
   livery (vector shapes, glass, grilles, seams) in `tools/blender/buggy_livery.py`, mesh helpers and
   materials in `tools/blender/meshkit.py`.
+- `tools/blender/build_skicar.py` — builds the ice planet's car, an open single-seater on skis
+  (`art/ice_car/skicar.blend`; the validated concepts in `art/ice_car/concepts/monoplace/`, the
+  generated plans in `art/ice_car/views/`) and exports `crates/app/assets/skicar.glb` and
+  `skicar_livery.png`: rerun `blender -b -P tools/blender/build_skicar.py` after changing it.
+  Same part names and rig as the buggy's; its front corners' `wheel` is the ski, which steers
+  without spinning and tips on its pivot to lie on the ground (`game.rs`). The skis are drawn
+  at ±0.65 m (`car_model::SKI_X`), closer together than the physics' contacts (its single
+  `track_width`, 1.8 m), and their marks follow them. Its body is `tools/blender/skicar_body.py`,
+  its livery `tools/blender/skicar_livery.py`. A preset with `front_skis` drives it, every other
+  the buggy; the bound livery texture follows the car.
 - Buggy plans: `art/buggy/v2/views/` holds the generated plans (`art/buggy/v2/3q_B_compact.jpg` is
   the validated look); `tools/blender/warp_refs.py` registers them at the physics' wheelbase and
   track into `art/buggy/v2/registered/` (scales in `tools/blender/blueprint.py`);

@@ -3,10 +3,10 @@
 
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
-use physics::{CarState, WheelState};
+use physics::{CarParams, CarState, WheelState};
 use track::Surface;
 
-use crate::car_model::TYRE_WIDTH;
+use crate::car_model::{SKI_WIDTH, SKI_X, TYRE_WIDTH};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
@@ -65,8 +65,10 @@ impl Marks {
         self.heads = [None; 4];
     }
 
-    /// Call once per physics tick with the car state after the tick.
-    pub fn update(&mut self, state: &CarState) {
+    /// Call once per physics tick with the car state after the tick. A car on skis leaves its
+    /// front marks where its skis are drawn (closer together than the physics' contacts), as
+    /// narrow as the skis.
+    pub fn update(&mut self, state: &CarState, params: &CarParams) {
         for (i, w) in state.wheels.iter().enumerate() {
             let (intensity, smear) = mark_of(w);
             let surface = w.surface.unwrap_or(Surface::Road);
@@ -75,9 +77,15 @@ impl Marks {
                 continue;
             }
             let n = w.contact_normal.normalize_or(Vec3::Y);
-            let point = w.contact_point + n * LIFT;
+            let ski = params.front_skis && i < 2;
+            let mut point = w.contact_point + n * LIFT;
+            if ski {
+                let side = if i == 0 { 1.0 } else { -1.0 };
+                point -= state.rotation * Vec3::X * (side * (params.track_width * 0.5 - SKI_X));
+            }
+            let width = if ski { SKI_WIDTH } else { TYRE_WIDTH };
             let Some(head) = self.heads[i] else {
-                self.heads[i] = Some(self.head_at(point, n, state, intensity, smear, None));
+                self.heads[i] = Some(self.head_at(point, n, state, intensity, smear, width, None));
                 continue;
             };
             let travel = point - head.point;
@@ -86,10 +94,10 @@ impl Marks {
             }
             if travel.length() > 4.0 {
                 // Teleport (respawn) or a jump: start a new strip.
-                self.heads[i] = Some(self.head_at(point, n, state, intensity, smear, None));
+                self.heads[i] = Some(self.head_at(point, n, state, intensity, smear, width, None));
                 continue;
             }
-            let next = self.head_at(point, n, state, intensity, smear, Some(travel));
+            let next = self.head_at(point, n, state, intensity, smear, width, Some(travel));
             let kind = surface as u32;
             let v = |p: Vec3, across: f32, alpha: f32, blur: f32| MarkVertex { pos: p.to_array(), across, alpha, blur, surface: kind };
             let quad = vec![
@@ -106,13 +114,14 @@ impl Marks {
         }
     }
 
-    fn head_at(&self, point: Vec3, n: Vec3, state: &CarState, intensity: f32, smear: f32, travel: Option<Vec3>) -> Head {
+    #[allow(clippy::too_many_arguments)]
+    fn head_at(&self, point: Vec3, n: Vec3, state: &CarState, intensity: f32, smear: f32, width: f32, travel: Option<Vec3>) -> Head {
         // Marks run along the direction the tyre moves; when it slides they get wider, as
         // the tyre's footprint is dragged sideways.
         let forward = state.rotation * Vec3::Z;
         let dir = travel.unwrap_or(forward).normalize_or(forward);
         let across = n.cross(dir).normalize_or(state.rotation * Vec3::X);
-        let half = TYRE_WIDTH * 0.45 * (1.0 + 1.2 * smear);
+        let half = width * 0.45 * (1.0 + 1.2 * smear);
         Head { left: point + across * half, right: point - across * half, point, alpha: intensity, blur: smear }
     }
 

@@ -4,6 +4,7 @@
 # Debug builds use cargo's dev profile (optimised, see the workspace's Cargo.toml), Release its
 # release profile.
 set -euo pipefail
+bin=${MARS_BIN:-mars-racer}
 
 case "${PLATFORM_NAME:?run from Xcode}" in
     iphoneos) triple=aarch64-apple-ios ;;
@@ -20,11 +21,12 @@ fi
 repo=$(git -C "$SRCROOT" rev-parse --show-toplevel)
 common=$(cd "$repo" && cd "$(git rev-parse --git-common-dir)" && pwd)
 target="${common:h}/target"
-# A worktree shares the app crate's fingerprint with every other checkout: remove it so cargo
-# builds this checkout's sources (see CLAUDE.md).
+# A worktree shares the app crate's fingerprint with every other checkout (and the track's and the
+# physics', which it may change too): remove them so cargo builds this checkout's sources (see
+# CLAUDE.md).
 forget() {
     if [[ "$(git -C "$repo" rev-parse --git-dir)" != "$(git -C "$repo" rev-parse --git-common-dir)" ]]; then
-        find "$target/$triple/$dir/.fingerprint" -maxdepth 1 -name 'app-*' -exec rm -rf {} + 2>/dev/null || true
+        find "$target/$triple/$dir/.fingerprint" -maxdepth 1 \( -name 'app-*' -o -name 'track-*' -o -name 'physics-*' \) -exec rm -rf {} + 2>/dev/null || true
     fi
 }
 
@@ -36,11 +38,13 @@ vars=(HOME="$HOME" USER="$USER" TERM=dumb
 # The Xcode this build runs in, when several are installed.
 [[ -n "${DEVELOPER_DIR:-}" ]] && vars+=(DEVELOPER_DIR="$DEVELOPER_DIR")
 forget
-env -i "${vars[@]}" cargo build --manifest-path "$repo/Cargo.toml" --bin mars-racer --target "$triple" "${profile[@]}"
+env -i "${vars[@]}" cargo build --manifest-path "$repo/Cargo.toml" --bin "$bin" --target "$triple" "${profile[@]}"
 forget
 
 mkdir -p "$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
-cp "$target/$triple/$dir/mars-racer" "$TARGET_BUILD_DIR/$EXECUTABLE_PATH"
+cp "$target/$triple/$dir/$bin" "$TARGET_BUILD_DIR/$EXECUTABLE_PATH"
+# The editor opens on its own screen: no menu, no film.
+[[ "$bin" == mars-racer ]] || exit 0
 
 # The menu's film: a generated file kept out of git (tools/video/menu_montage.sh, docs/release.md),
 # copied into the bundle where the game looks for it. A release cannot go without it.

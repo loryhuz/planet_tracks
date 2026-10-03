@@ -7,6 +7,11 @@ edition.workspace = true
 name = "mars-racer"
 path = "src/main.rs"
 
+# The track editor: opens on the editor, no menu (src/editor.rs).
+[[bin]]
+name = "mars-editor"
+path = "src/editor_main.rs"
+
 [dependencies]
 track.workspace = true
 physics.workspace = true

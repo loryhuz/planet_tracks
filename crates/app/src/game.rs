@@ -168,6 +168,20 @@ impl Game {
         self.restart();
     }
 
+    /// Races `map` alone (the track editor's draft): it replaces the maps and is built at once.
+    /// Only the editor's executable calls it.
+    #[allow(dead_code)]
+    pub fn race_map(&mut self, map: track::Map) {
+        self.run.tick = 0;
+        self.maps = vec![map];
+        self.map_index = 0;
+        self.track = self.maps[0].build();
+        self.world = World::new(&self.track.mesh);
+        self.track_changed = true;
+        self.session.use_car_for(self.maps[0].planet);
+        self.restart();
+    }
+
     /// Whether profile `i` is a car of the current map's planet: a map is always driven with its
     /// planet's car, whatever the shortcuts (digits, page keys, the pad's shoulder buttons, the
     /// debug panel's list) ask for.

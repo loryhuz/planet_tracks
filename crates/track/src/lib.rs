@@ -19,6 +19,7 @@ pub mod map;
 mod mesh;
 mod noise;
 pub mod scenery;
+pub mod sketch;
 pub mod stilts;
 pub mod terrain;
 

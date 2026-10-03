@@ -123,6 +123,20 @@ link the main checkout's `track` (missing a new block or surface).
   on its screenshot frames, so they open on one and need another shot 0.3 s later). Everything
   for debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, the
   settings' debug switch, or `MARS_DEBUG_PANEL=1`.
+- `crates/app/src/editor.rs` — the track editor, an executable of its own with no menu
+  (`cargo run --bin mars-editor`, root `editor_main.rs`; on iOS the Xcode scheme `TrackEditor`,
+  which builds it through `ios/build-rust.sh` with `MARS_BIN=mars-editor`): the draft seen from
+  above on the grid, drawn with a brush ("Route", "Terre") whose strokes `track::sketch` snaps to
+  blocks (straights, turns of one to three cells, S-bends for the diagonals) as they are drawn; a
+  stroke starting on the draft redraws it from there. "Sélection" paints over a stretch and offers
+  its surface, a level up or down (a slope at each end), a hump, a jump, whoops, banked or flat
+  turns, a checkpoint, or the draft cut off there. Pinch zooms, two fingers (or the trackpad's
+  scroll) move the view; Enter or "Jouer" races the draft (`Game::race_map`), Escape or the race
+  settings' "Menu" comes back. The draft is saved as a map after every change
+  (`tuning/draft.json`, on iOS the app's Documents, or `MARS_DRAFT=path`): copied into
+  `crates/track/maps/` and added to `BUILTIN_MAPS`, it is a circuit. Self-tests:
+  `MARS_EDITOR_DEMO=1` draws a draft, `MARS_EDITOR_PLAY=seconds` races it. What both executables
+  draw from the game's data (the track's GPU mesh, the cars) is `scene_data.rs`.
 - `crates/app/src/weather.rs` — the weather, render only (the wind never pushes the car): a
   `Climate` per planet that every map gets (Mars: a breeze blowing from the sandstorm, light sand
   drifting in the air, a gust every few seconds; the ice planet: light snow falling and swaying

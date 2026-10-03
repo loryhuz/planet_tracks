@@ -10,6 +10,7 @@
 		51B7DA91A78D66F4B16F869D /* PlanetTracks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlanetTracks.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		75A3A6241A910AB0C6367198 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		ED0DD5D3D1A917642559CA0D /* build-rust.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-rust.sh"; sourceTree = "<group>"; };
+		A638E0AE675F4E1CA45B0F44 /* TrackEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrackEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -26,6 +27,7 @@
 			isa = PBXGroup;
 			children = (
 				51B7DA91A78D66F4B16F869D /* PlanetTracks.app */,
+				A638E0AE675F4E1CA45B0F44 /* TrackEditor.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +50,21 @@
 			productReference = 51B7DA91A78D66F4B16F869D /* PlanetTracks.app */;
 			productType = "com.apple.product-type.application";
 		};
+		46DF6C98F9BA4B0C964C7D43 /* TrackEditor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5C95C31254C449C69780B8E9 /* Build configuration list for PBXNativeTarget "TrackEditor" */;
+			buildPhases = (
+				37225D0D118B43888059BC98 /* Build the track editor (cargo) */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TrackEditor;
+			productName = TrackEditor;
+			productReference = A638E0AE675F4E1CA45B0F44 /* TrackEditor.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -58,6 +75,9 @@
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					7EFC446B2B6B451531894DE9 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					46DF6C98F9BA4B0C964C7D43 = {
 						CreatedOnToolsVersion = 27.0;
 					};
 				};
@@ -76,6 +96,7 @@
 			projectRoot = "";
 			targets = (
 				7EFC446B2B6B451531894DE9 /* PlanetTracks */,
+				46DF6C98F9BA4B0C964C7D43 /* TrackEditor */,
 			);
 		};
 /* End PBXProject section */
@@ -92,6 +113,27 @@
 			inputPaths = (
 			);
 			name = "Build the game (cargo)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "exec \"$SRCROOT/build-rust.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		37225D0D118B43888059BC98 /* Build the track editor (cargo) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build the track editor (cargo)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
@@ -145,6 +187,7 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				MARS_DISPLAY_NAME = "Planet Tracks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks;
 				PRODUCT_NAME = PlanetTracks;
 			};
@@ -160,8 +203,43 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				MARS_DISPLAY_NAME = "Planet Tracks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks;
 				PRODUCT_NAME = PlanetTracks;
+			};
+			name = Release;
+		};
+		D8A6651EBF9845088BB80470 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5KVMHF799N;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				MARS_BIN = "mars-editor";
+				MARS_DISPLAY_NAME = "PT Éditeur";
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks.editor;
+				PRODUCT_NAME = TrackEditor;
+			};
+			name = Debug;
+		};
+		22E48CE5C61D4A9BAC5FC3FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5KVMHF799N;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				MARS_BIN = "mars-editor";
+				MARS_DISPLAY_NAME = "PT Éditeur";
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsracer.planettracks.editor;
+				PRODUCT_NAME = TrackEditor;
 			};
 			name = Release;
 		};
@@ -182,6 +260,15 @@
 			buildConfigurations = (
 				FCF14E43E6C5EE7B57D08A7F /* Debug */,
 				40DF23A8827542DDA91210F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5C95C31254C449C69780B8E9 /* Build configuration list for PBXNativeTarget "TrackEditor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D8A6651EBF9845088BB80470 /* Debug */,
+				22E48CE5C61D4A9BAC5FC3FD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

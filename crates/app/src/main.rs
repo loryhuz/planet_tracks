@@ -176,6 +176,8 @@ fn wall_kind(color: [f32; 3]) -> u32 {
         x if x == c::LIP => gfx::kind::BUMPER,
         x if x == c::SANDBAG => gfx::kind::SANDBAG,
         x if x == c::SLAB || x == c::SLEEVE => gfx::kind::TARP,
+        // A gutter's lip, top and sides: the ice of its walls, drawn as the deck.
+        x if x == c::GUTTER => track::Surface::Road as u32,
         x if x == c::BANNER => gfx::kind::BANNER,
         x if x == c::TUBE || x == c::COLLAR => gfx::kind::PLASTIC,
         x if x == c::STRAP => gfx::kind::STRAP,

@@ -38,6 +38,9 @@
 //! strapped); a plain road has bumpers where it leaves the ground and sandbags where it stays on
 //! it. `"booster"` paints arrows along a road (any block but the gates and the transitions, its
 //! edges as a plain road's): a car touching its deck ([`Surface::Booster`]) gets a boost.
+//! `"gutter"` makes a road a bobsleigh gutter ([`Edge::Gutter`], the ice planet's): a channel of
+//! ice in a U, a lip rolling over its walls (any block but the transitions, the gates included,
+//! their posts on the walls; at the ends of a run of gutters the walls grow from nothing).
 //!
 //! The start, the checkpoints and the finish are blocks ([`Gate`]): the route is found by
 //! following exits to entries from the start block to the finish block, and every checkpoint
@@ -168,7 +171,8 @@ pub struct BlockPlacement {
     pub level: i32,
     /// Entry heading, quarter turns to the left from north (+Z).
     pub rotation: u8,
-    /// Deck: `"road"` (default), `"sandbags"`, `"bumpers"`, `"booster"` or `"dirt"`.
+    /// Deck: `"road"` (default), `"sandbags"`, `"bumpers"`, `"booster"`, `"gutter"`, `"dirt"` or
+    /// `"snow"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
 }
@@ -238,8 +242,8 @@ fn split_number(s: &str) -> (&str, Option<u32>) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockError {
     UnknownId,
-    /// The variant is none of road, sandbags, bumpers, booster and dirt, or the block's deck is
-    /// fixed (transitions; no booster on a gate).
+    /// The variant is none of road, sandbags, bumpers, booster, gutter, dirt and snow, or the
+    /// block's deck is fixed (transitions; no booster or gutter on a gate).
     BadVariant,
 }
 
@@ -341,6 +345,7 @@ pub fn parse_block(id: &str, variant: Option<&str>) -> Result<Piece, BlockError>
         None | Some("road") => (Surface::Road, Edge::Auto, false),
         Some("sandbags") => (Surface::Road, Edge::Sandbags, false),
         Some("bumpers") => (Surface::Road, Edge::Bumpers, false),
+        Some("gutter") => (Surface::Road, Edge::Gutter, false),
         Some("dirt") | Some("snow") => (Surface::Dirt, Edge::Auto, false),
         // A gate's deck carries its line and word: no arrows on it.
         Some("booster") if gate.is_none() => (Surface::Road, Edge::Auto, true),
@@ -360,6 +365,7 @@ pub fn block_id(piece: &Piece) -> Option<(String, Option<String>)> {
         (_, _, true) => return None,
         (_, Edge::Sandbags, _) => Some("sandbags".to_string()),
         (_, Edge::Bumpers, _) => Some("bumpers".to_string()),
+        (_, Edge::Gutter, _) => Some("gutter".to_string()),
         (_, Edge::Auto, _) => None,
     };
     if let Some(g) = piece.gate {
@@ -721,6 +727,14 @@ impl Map {
         // Drawn, not collided with: the bumpers' rounded tops, the stilts' straps.
         let mut decor = MeshBuilder::default();
         let mut caps = Vec::new();
+        // The pieces joining each piece's entry, for the ends of runs of gutters.
+        let mut prev = vec![None; r.pieces.len()];
+        for (i, n) in r.next.iter().enumerate() {
+            if let Some(j) = *n {
+                prev[j] = Some(i);
+            }
+        }
+        let gutter = |j: Option<usize>| j.is_some_and(|j: usize| r.pieces[j].edge() == Edge::Gutter);
         for (i, (p, &(open_start, open_end))) in r.pieces.iter().zip(&r.open).enumerate() {
             let Some(range) = p.swept_range() else { continue };
             let (d0, d1) = p.deck_range();
@@ -730,7 +744,8 @@ impl Map {
             // A swept dirt piece sits in a corridor of its own instead of a flat pad: only its
             // deck is swept, the terrain comes up to its edges.
             let bedded = p.piece.deck == Surface::Dirt && !matches!(p.piece.kind, Kind::Transition { .. });
-            kit::sweep(&mut b, &mut decor, p, range, route_s[i], open_start, open_end, bedded);
+            let ramps = (!gutter(prev[i]), !gutter(r.next[i]));
+            kit::sweep(&mut b, &mut decor, p, range, route_s[i], open_start, open_end, bedded, ramps);
             if bedded {
                 continue;
             }

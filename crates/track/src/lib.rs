@@ -161,14 +161,16 @@ pub struct Track {
 
 /// The first playable map: « Jezero », loaded from `maps/jezero.json` (see [`demo`]).
 /// Maps shipped with the game, embedded so it needs no data path: (name, JSON).
-pub const BUILTIN_MAPS: [(&str, &str); 7] = [
+pub const BUILTIN_MAPS: [(&str, &str); 8] = [
     (demo::NAME, demo::JSON),
     ("Olympus", include_str!("../maps/olympus.json")),
     ("Ares Vallis", include_str!("../maps/ares.json")),
     ("Noctis", include_str!("../maps/noctis.json")),
     ("Marineris", include_str!("../maps/marineris.json")),
-    // The ice planet: its first circuit on its own blocks, and the prototype on Noctis's.
+    // The ice planet: its first circuit on its own blocks, its bobsleigh run, and the prototype
+    // on Noctis's.
     ("Sulcus", include_str!("../maps/sulcus.json")),
+    ("Canalis", include_str!("../maps/canalis.json")),
     ("Noctis Neige", include_str!("../maps/noctis_neige.json")),
 ];
 

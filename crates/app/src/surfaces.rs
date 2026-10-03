@@ -11,7 +11,7 @@ use crate::car_model::{Image, decode_png};
 use crate::gfx::Gpu;
 
 /// (name, colour PNG, relief PNG), in the order of the `L_*` layers of `scene.wgsl`.
-const LAYERS: [(&str, &[u8], &[u8]); 14] = [
+const LAYERS: [(&str, &[u8], &[u8]); 15] = [
     ("tarp", include_bytes!("../assets/textures/tarp_albedo.png"), include_bytes!("../assets/textures/tarp_normal.png")),
     ("dirt", include_bytes!("../assets/textures/dirt_albedo.png"), include_bytes!("../assets/textures/dirt_normal.png")),
     ("earth", include_bytes!("../assets/textures/earth_albedo.png"), include_bytes!("../assets/textures/earth_normal.png")),
@@ -29,6 +29,8 @@ const LAYERS: [(&str, &[u8], &[u8]); 14] = [
     // The booster arrow, from a Higgsfield picture by tools/textures/booster.py (coverage in the
     // alpha channel).
     ("booster", include_bytes!("../assets/textures/booster_albedo.png"), include_bytes!("../assets/textures/booster_normal.png")),
+    // The ice planet's ice, baked with the others by tools/textures/bake.py.
+    ("ice", include_bytes!("../assets/textures/ice_albedo.png"), include_bytes!("../assets/textures/ice_normal.png")),
 ];
 
 pub struct SurfaceTextures {

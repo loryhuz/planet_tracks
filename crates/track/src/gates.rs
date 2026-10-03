@@ -13,7 +13,7 @@
 use glam::Vec3;
 
 use crate::Surface;
-use crate::kit::{self, Frame, GATE_BEAM_BOTTOM, GATE_BEAM_HEIGHT, GATE_POST_HALF, color};
+use crate::kit::{self, Frame, GATE_BEAM_HEIGHT, GATE_POST_HALF, color};
 use crate::mesh::{MeshBuilder, add_box, add_hose, add_sandbag, add_tube};
 use crate::noise::{hash2, unit};
 
@@ -37,8 +37,9 @@ const SLEEVE_R: f32 = 0.62;
 /// `terrain(p)`).
 pub(crate) fn gate(b: &mut MeshBuilder, decor: &mut MeshBuilder, f: &Frame, ground: impl Fn(Vec3) -> f32, terrain: impl Fn(Vec3) -> f32) {
     let post_u = kit::gate_post_u(f);
+    let beam_bottom = kit::gate_beam_bottom(f);
     let deck_y = f.centre().y;
-    let top = deck_y + GATE_BEAM_BOTTOM + GATE_BEAM_HEIGHT;
+    let top = deck_y + beam_bottom + GATE_BEAM_HEIGHT;
     // The hulls: the posts and the beam.
     for side in [1.0, -1.0] {
         let base = f.horiz + f.left * (side * post_u);
@@ -47,12 +48,12 @@ pub(crate) fn gate(b: &mut MeshBuilder, decor: &mut MeshBuilder, f: &Frame, grou
         let centre = Vec3::new(base.x, foot + h, base.z);
         add_box(b, centre, Vec3::new(GATE_POST_HALF, h, GATE_POST_HALF), f.forward, Surface::Wall, color::HULL, false);
     }
-    let beam = f.horiz + Vec3::Y * (deck_y + GATE_BEAM_BOTTOM + 0.5 * GATE_BEAM_HEIGHT);
+    let beam = f.horiz + Vec3::Y * (deck_y + beam_bottom + 0.5 * GATE_BEAM_HEIGHT);
     let half = Vec3::new(post_u + GATE_POST_HALF, 0.5 * GATE_BEAM_HEIGHT, 0.6);
     add_box(b, beam, half, f.forward, Surface::Wall, color::HULL, true);
 
     // The arch's line: the middle of its tubes, at the height of the beam's middle.
-    let arch_y = deck_y + GATE_BEAM_BOTTOM + 0.5 * GATE_BEAM_HEIGHT;
+    let arch_y = deck_y + beam_bottom + 0.5 * GATE_BEAM_HEIGHT;
     let at = |u: f32, along: f32, y: f32| Vec3::new(f.horiz.x, y, f.horiz.z) + f.left * u + f.forward * along;
     let feet = [1.0f32, -1.0].map(|side| terrain(at(side * post_u, 0.0, 0.0)));
     let seed = hash2(0x6a7e, libm::floorf(f.horiz.x * 4.0) as i32, libm::floorf(f.horiz.z * 4.0) as i32);

@@ -107,8 +107,9 @@ AXLES = {
         rest=math.radians(-10.0),
         lo_h=0.33,
         up_h=0.58,
-        spread_lo=(0.42, 0.18),
-        spread_up=(0.36, 0.16),
+        # Long trailing legs reaching forward to the frame behind the pods.
+        spread_lo=(0.80, 0.18),
+        spread_up=(0.70, 0.16),
         # Coilover: its foot on the lower arm's long leg, its head under the deck ahead of the
         # axle (side and back views).
         damper_x=0.52,

@@ -161,6 +161,8 @@ def side(c, region):
     c.poly([(-0.30, 0.98), (-0.66, 0.98), (-0.62, 1.20), (-0.30, 1.20)], WHITE)
     c.poly([(-0.30, 0.84), (-1.40, 0.84), (-1.40, 0.90), (-0.30, 0.90)], GRAPHITE)
     number_07(c, -0.48, 1.005, 0.075, colour=GRAPHITE, shadow=None)
+    # The pods' rear intakes' honeycomb (livery_mesh faces).
+    bl.honeycomb_poly(c, [(-0.26, 0.76), (0.02, 0.76), (-0.02, 0.86), (-0.30, 0.86)])
     side_finish(c)
     flag_side(c)
 
@@ -188,6 +190,10 @@ def top(c):
         # Nose: white blades along its edges, a graphite chevron pointing forward.
         c.poly([(2.15, s * 0.0), (1.98, s * 0.06), (1.20, s * 0.34), (1.05, s * 0.40), (1.30, s * 0.24), (1.95, s * 0.02)], WHITE)
         c.poly([(1.62, s * 0.0), (1.47, s * 0.13), (1.40, s * 0.13), (1.53, s * 0.0)], GRAPHITE)
+        # The shoulders over the front suspension: a white facet along their outer edge, a
+        # graphite wedge behind it.
+        c.poly([(1.56, s * 0.34), (1.30, s * 0.52), (1.00, s * 0.60), (0.96, s * 0.55), (1.25, s * 0.47)], WHITE)
+        c.poly([(1.10, s * 0.50), (0.96, s * 0.53), (0.96, s * 0.42)], GRAPHITE)
         # Pods' tops: white angular panels, an ice-blue line along the shoulder.
         c.poly([(0.95, s * 0.47), (0.35, s * 0.56), (-0.10, s * 0.62), (-0.30, s * 0.55), (0.30, s * 0.47)], WHITE)
         c.poly([(1.05, s * 0.585), (-0.45, s * 0.585), (-0.45, s * 0.60), (1.05, s * 0.60)], ICE)
@@ -207,11 +213,12 @@ def front(c):
     """From the front (x, h)."""
     for s in (1, -1):
         c.poly([(s * 0.02, 0.30), (s * 0.08, 0.30), (s * 0.34, 0.86), (s * 0.26, 0.86)], WHITE)
-        # The pods' raked front faces: graphite, a white blade up their middle.
+        # The pods' raked front faces: graphite, a honeycomb intake under the shoulder, the
+        # planet's snowflake (the flag's) below it.
         c.poly([(s * 0.36, 0.25), (s * 0.70, 0.25), (s * 0.70, 0.97), (s * 0.36, 0.97)], GRAPHITE)
-        c.poly([(s * 0.42, 0.45), (s * 0.48, 0.45), (s * 0.56, 0.92), (s * 0.50, 0.92)], WHITE)
-        # The planet's snowflake, the flag's, low on each pod's front.
-        snowflake(c, s * 0.47, 0.36, 0.045, WHITE)
+        lo, hi = sorted((s * 0.41, s * 0.62))
+        bl.honeycomb(c, (lo, hi, 0.43, 0.64))
+        snowflake(c, s * 0.50, 0.355, 0.04, WHITE)
 
 
 def back(c):

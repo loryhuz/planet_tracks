@@ -20,7 +20,7 @@ import math
 
 from mathutils import Vector
 
-from meshkit import Mesh, P
+from meshkit import H, Mesh, P
 
 LIV = "livery"
 BLACK = "paint_black"
@@ -58,40 +58,44 @@ def face_to(m, pts, d, mat, smooth=False):
     return m.poly(pts, mat, smooth)
 
 
-# --- Nose: a narrow V hull from the tip back to the cockpit's front bulkhead, its top carrying the
-# windscreen. Per station: half-width at the side's widest, top at the centre, keel.
+# --- Nose: broad like a shield seen from the front (a wide, nearly flat top, its V sides running
+# down to the keel), narrowing in plan only toward its end, its tip blunt. Per station: half-width
+# at the shoulder's edge, top at the centre, keel.
 NOSE = [
     # z, w, top h, keel h
     (0.62, 0.47, 0.930, 0.40),
     (0.75, 0.47, 0.925, 0.40),
-    (0.85, 0.46, 0.915, 0.40),
-    (0.95, 0.44, 0.900, 0.40),
-    (1.05, 0.40, 0.880, 0.40),
-    (1.15, 0.355, 0.855, 0.40),
-    (1.25, 0.32, 0.830, 0.40),
-    (1.35, 0.29, 0.805, 0.395),
-    (1.45, 0.26, 0.770, 0.385),
-    (1.55, 0.225, 0.730, 0.370),
-    (1.65, 0.19, 0.675, 0.350),
-    (1.75, 0.155, 0.615, 0.335),
-    (1.85, 0.12, 0.545, 0.325),
-    (1.95, 0.085, 0.470, 0.315),
-    (2.05, 0.045, 0.390, 0.305),
-    (2.12, 0.015, 0.335, 0.300),
+    (0.85, 0.47, 0.915, 0.40),
+    (0.95, 0.465, 0.900, 0.40),
+    (1.05, 0.455, 0.882, 0.40),
+    (1.15, 0.44, 0.860, 0.40),
+    (1.25, 0.425, 0.835, 0.40),
+    (1.35, 0.405, 0.808, 0.395),
+    (1.45, 0.38, 0.775, 0.385),
+    (1.55, 0.35, 0.735, 0.372),
+    (1.65, 0.31, 0.685, 0.355),
+    (1.75, 0.265, 0.630, 0.340),
+    (1.85, 0.215, 0.565, 0.328),
+    (1.95, 0.17, 0.495, 0.318),
+    (2.03, 0.125, 0.440, 0.310),
+    (2.09, 0.085, 0.405, 0.305),
+    (2.12, 0.06, 0.385, 0.302),
 ]
 
 
 def nose_section(z):
-    """Left half of the nose at station z, from the top centre down the side to the keel."""
+    """Left half of the nose at station z, from the top centre over its shoulder (the widest) and
+    down its V side to the keel."""
     w, ht, hb = table_at(NOSE, z)
     d = ht - hb
     return [
-        P(0.0, ht + 0.006, z),
-        P(0.55 * w, ht, z),
-        P(0.88 * w, ht - 0.015 - 0.02 * w / 0.47, z),
-        P(w, hb + 0.72 * d, z),
-        P(0.78 * w, hb + 0.28 * d, z),
-        P(0.38 * w, hb + 0.03, z),
+        P(0.0, ht + 0.008, z),
+        P(0.45 * w, ht, z),
+        P(0.80 * w, ht - 0.022, z),
+        P(w, ht - 0.07 * d - 0.02, z),
+        P(0.90 * w, hb + 0.62 * d, z),
+        P(0.62 * w, hb + 0.30 * d, z),
+        P(0.26 * w, hb + 0.06 * d, z),
         P(0.0, hb, z),
     ]
 
@@ -99,22 +103,59 @@ def nose_section(z):
 def nose():
     m = Mesh()
     rows = [nose_section(r[0]) for r in NOSE]
-    ids = m.grid(rows, LIV, mats=lambda i, j: LIV if j <= 3 else BLACK)
+    ids = m.grid(rows, LIV, mats=lambda i, j: LIV if j <= 4 else BLACK)
     m.cap(ids[-1], LIV, flip=True)  # the blunt tip, facing forward
+    return m.both()
+
+
+# --- Shoulders: the pods carried forward over the front suspension, tapering into the nose's
+# sides (the front view's white and black facets, the shock absorbers' tops tucked under them).
+# Per station: the outer edge (x, h), the top, the underside's height.
+SHOULDER = [
+    # z, outer x, outer h, top h, under h
+    (0.96, 0.60, 0.80, 0.905, 0.68),
+    (1.10, 0.585, 0.78, 0.88, 0.68),
+    (1.22, 0.55, 0.755, 0.85, 0.675),
+    (1.34, 0.50, 0.725, 0.815, 0.665),
+    (1.46, 0.43, 0.695, 0.775, 0.655),
+    (1.56, 0.355, 0.67, 0.735, 0.65),
+]
+
+
+def shoulders():
+    m = Mesh()
+    rows = []
+    for z, xo, ho, ht, hu in SHOULDER:
+        sec = nose_section(z)
+        a, e = sec[2], sec[4]  # on the nose's top, and on its side below the shoulder
+        rows.append([
+            a + Vector((0, 0.003, 0)),
+            P((a.x + xo) / 2 + 0.02, ht, z),
+            P(xo - 0.015, ho + 0.035, z),
+            P(xo, ho, z),
+            P(xo - 0.05, hu, z),
+            Vector((e.x, H(hu) if H(hu) < e.y else e.y, z)),
+        ])
+    ids = m.grid(rows, LIV, mats=lambda i, j: LIV if j <= 2 else BLACK)
+    m.cap(ids[0], BLACK)
+    m.cap(ids[-1], LIV, flip=True)
     return m.both()
 
 
 # --- Side pods: from their raked front edge back to their raked rear edge, wrapping from the
 # cockpit's rim over the shoulder, down the side and in under the car.
 POD_LINES = [
-    # x, h: rim, deck, shoulder, upper side, widest, lower side, floor's edge, under the car
+    # x, h: rim, deck, shoulder, upper side, the character crease (the widest), below it, the
+    # lower side drawn in, the sill, the floor's edge, under the car
     (0.36, 0.945),
     (0.50, 0.935),
     (0.60, 0.905),
-    (0.645, 0.82),
-    (0.66, 0.62),
-    (0.635, 0.42),
-    (0.565, 0.31),
+    (0.650, 0.84),
+    (0.675, 0.72),
+    (0.655, 0.60),
+    (0.615, 0.45),
+    (0.575, 0.345),
+    (0.545, 0.31),
     (0.16, 0.31),
 ]
 POD_FRONT = ((0.80, 0.31), (1.03, 0.905))  # (z, h) ends of the raked front edge
@@ -143,7 +184,7 @@ POD_T = [0.0, 0.05, 0.13, 0.26, 0.40, 0.55, 0.70, 0.83, 0.93, 1.0]
 def pods():
     m = Mesh()
     rows = [[pod_point(j, t) for j in range(len(POD_LINES))] for t in POD_T]
-    ids = m.grid(rows, LIV, mats=lambda i, j: BLACK if j >= 6 else LIV)
+    ids = m.grid(rows, LIV, mats=lambda i, j: BLACK if j >= 7 else LIV)
     # The raked front face (graphite, facing the suspension) and the rear face.
     m.cap(ids[-1], LIV, flip=True)
     m.cap(ids[0], BLACK)
@@ -176,12 +217,12 @@ def cockpit():
 DECK = [
     # z, w, top h, lower edge h
     (-1.32, 0.30, 1.000, 0.78),
-    (-1.25, 0.32, 1.010, 0.80),
-    (-1.10, 0.35, 1.025, 0.84),
-    (-0.90, 0.36, 1.050, 0.86),
-    (-0.70, 0.43, 1.085, 0.86),
-    (-0.55, 0.47, 1.120, 0.87),
-    (-0.45, 0.47, 1.130, 0.88),
+    (-1.25, 0.32, 1.010, 0.78),
+    (-1.10, 0.36, 1.025, 0.79),
+    (-0.90, 0.40, 1.050, 0.80),
+    (-0.70, 0.45, 1.085, 0.80),
+    (-0.55, 0.48, 1.120, 0.82),
+    (-0.45, 0.48, 1.130, 0.86),
     (-0.33, 0.44, 1.130, 0.90),
 ]
 
@@ -407,37 +448,60 @@ def interior():
     return m
 
 
-# --- Chassis: the frames that carry the suspension where the body does not cover them.
+# --- Chassis: the space frame that carries the suspension where the body does not cover it, and
+# what it holds in the open: behind the pods the battery packs with their orange high-voltage
+# leads, the cooling lines; under the nose the steering rack and the anti-roll bar.
 def chassis():
     m = Mesh()
-    r = 0.022
+    r = 0.024
     left = [
-        # Rear subframe: lower and upper rails from the pods back to the tail, posts and
-        # diagonals, the cross tubes.
-        [P(0.20, 0.33, -0.30), P(0.18, 0.38, -0.90), P(0.17, 0.42, -1.18)],
-        [P(0.24, 0.86, -0.42), P(0.22, 0.80, -0.95), P(0.18, 0.76, -1.18)],
-        [P(0.18, 0.38, -0.90), P(0.22, 0.80, -0.95)],
-        [P(0.20, 0.33, -0.30), P(0.22, 0.80, -0.95)],
-        [P(0.17, 0.42, -1.18), P(0.18, 0.76, -1.18)],
-        # Front: the lower rails under the nose to its bracket, the pickup posts.
-        [P(0.16, 0.33, 0.80), P(0.13, 0.36, 1.60)],
-        [P(0.16, 0.36, 1.00), P(0.16, 0.66, 1.05)],
-        [P(0.16, 0.36, 1.45), P(0.16, 0.66, 1.40)],
+        # Rear frame, each side: lower and upper rails from the pods to the tail, the post behind
+        # the pod, the triangulation between them, the tail post.
+        [P(0.22, 0.33, -0.28), P(0.22, 0.35, -0.58), P(0.20, 0.40, -0.92), P(0.17, 0.42, -1.20)],
+        [P(0.31, 0.86, -0.42), P(0.30, 0.83, -0.62), P(0.26, 0.80, -0.95), P(0.20, 0.76, -1.20)],
+        [P(0.22, 0.35, -0.58), P(0.30, 0.83, -0.62)],
+        [P(0.22, 0.35, -0.58), P(0.26, 0.80, -0.95)],
+        [P(0.20, 0.40, -0.92), P(0.26, 0.80, -0.95)],
+        [P(0.20, 0.40, -0.92), P(0.20, 0.76, -1.20)],
+        [P(0.17, 0.42, -1.20), P(0.20, 0.76, -1.20)],
+        [P(0.22, 0.33, -0.28), P(0.31, 0.86, -0.42)],
+        # Front frame under the nose: the lower rails to the nose's bracket, the posts carrying
+        # the arms' pivots, a diagonal.
+        [P(0.17, 0.33, 0.80), P(0.15, 0.35, 1.20), P(0.13, 0.36, 1.62)],
+        [P(0.16, 0.35, 1.00), P(0.18, 0.66, 1.05)],
+        [P(0.15, 0.35, 1.45), P(0.17, 0.62, 1.40)],
+        [P(0.15, 0.35, 1.20), P(0.18, 0.66, 1.05)],
     ]
     for pts in left:
         m.polyline(pts, r, FRAME)
         m.polyline(mirror_x(pts), r, FRAME)
-    for x, h, z in ((0.18, 0.38, -0.90), (0.22, 0.80, -0.95), (0.13, 0.36, 1.60)):
+    for x, h, z in ((0.20, 0.40, -0.92), (0.26, 0.80, -0.95), (0.22, 0.35, -0.58), (0.13, 0.36, 1.62), (0.15, 0.35, 1.20)):
         m.tube(P(x, h, z), P(-x, h, z), r, FRAME, caps=False)
     # Front spine carrying the arms' pivots, and its skid plate.
     m.box(P(0, 0.52, 1.25), (0.15, 0.13, 0.30), "metal_graphite")
     m.box(P(0, 0.335, 1.25), (0.13, 0.01, 0.42), "metal_frame")
-    # The front coilovers' top mounts: brackets out of the nose's sides.
+    # Steering rack across under the nose, its bellows out to the tie rods.
+    m.box(P(0, 0.50, 1.45), (0.10, 0.03, 0.035), "metal_graphite")
+    for s_ in (1, -1):
+        m.tube(P(s_ * 0.10, 0.50, 1.45), P(s_ * 0.16, 0.50, 1.45), 0.028, "rubber_black", seg=10, r2=0.018)
+    # Anti-roll bar: a U across under the nose, its arms running back to the lower arms.
+    bar = [P(0.30, 0.37, 1.02), P(0.20, 0.37, 1.10), P(-0.20, 0.37, 1.10), P(-0.30, 0.37, 1.02)]
+    m.polyline(bar, 0.012, "paint_blue", seg=8)
     side = Mesh()
-    side.box(P(0.25, 0.70, 1.31), (0.04, 0.02, 0.04), "metal_frame")
-    # The rear ones', under the deck.
+    # The front coilovers' top mounts: brackets out of the nose's sides.
+    side.box(P(0.27, 0.70, 1.31), (0.04, 0.02, 0.04), "metal_frame")
+    # The rear ones', under the deck, braced to the frame.
     side.box(P(0.38, 0.92, -0.98), (0.05, 0.02, 0.04), "metal_frame")
-    side.polyline([P(0.38, 0.92, -0.98), P(0.22, 0.80, -0.95)], 0.018, FRAME, seg=8)
+    side.polyline([P(0.38, 0.92, -0.98), P(0.26, 0.80, -0.95)], 0.018, FRAME, seg=8)
+    side.polyline([P(0.38, 0.92, -0.98), P(0.30, 0.83, -0.62)], 0.016, FRAME, seg=8)
+    # Battery pack behind the pod: a finned graphite case on the frame, its orange high-voltage
+    # lead running back to the motor, a coolant line.
+    side.box(P(0.30, 0.56, -0.66), (0.07, 0.15, 0.13), "metal_graphite")
+    for k in range(6):
+        side.box(P(0.372, 0.56, -0.76 + k * 0.04), (0.006, 0.12, 0.008), "metal_steel")
+    side.box(P(0.30, 0.72, -0.66), (0.06, 0.012, 0.10), "metal_frame")
+    side.polyline([P(0.33, 0.44, -0.74), P(0.30, 0.42, -0.84), P(0.20, 0.46, -0.92), P(0.13, 0.55, -0.96)], 0.013, "paint_orange", joints=False, seg=8)
+    side.polyline([P(0.27, 0.70, -0.78), P(0.24, 0.74, -0.90), P(0.15, 0.76, -0.98)], 0.010, "rubber_black", joints=False, seg=6)
     m.add(side.both())
     return m
 
@@ -475,24 +539,60 @@ def lamps():
         strip.append((a.lerp(b, 0.30) + n * 0.002, a.lerp(b, 0.62) + n * 0.002))
     for (a0, b0), (a1, b1) in zip(strip, strip[1:]):
         face_to(side, [a0, b0, b1, a1], (1, 0.3, 0), "glow_white")
-    # Down the pods' raked front edge: a strip on the front face's outer border.
-    rake = Vector((0, 0.905 - 0.31, 1.03 - 0.80)).normalized()  # up the raked edge
-    n = Vector((0, -rake.z, rake.y))  # the front face's normal (forward, down)
-    for h0, h1 in ((0.42, 0.80),):
-        pts = []
-        for h in (h0, h1):
-            z = raked(POD_FRONT, h)
-            x = 0.60 * table_at(POD_WIDTH, z)[0]
-            pts.append(P(x, h, z) + n * 0.003)
-        a, b = pts
-        d = Vector((0.02, 0, 0))
-        face_to(side, [a - d, a + d, b + d, b - d], n, "glow_cyan")
+    # The eyes: cyan dashes slanting up the nose's V sides (between section points 3 and 4).
+    for k in range(4):
+        z0, z1 = 1.50 + k * 0.075, 1.555 + k * 0.075
+        quad = []
+        for z in (z0, z1):
+            sec = nose_section(z)
+            a, b = sec[3], sec[4]
+            n = Vector((a.y - b.y, b.x - a.x, 0)).normalized()
+            n = n if n.x > 0 else -n
+            quad.append((a.lerp(b, 0.25) + n * 0.003, a.lerp(b, 0.62) + n * 0.003))
+        (a0, b0), (a1, b1) = quad
+        face_to(side, [a0, b0, b1, a1], (1, -0.3, 0.3), "glow_cyan")
+    # LED dashes along the pods' raked front and rear edges, on their sides (the plans' stacks of
+    # short cyan bars).
+    for edge, back, hs in ((POD_FRONT, -0.07, (0.42, 0.48, 0.54, 0.60, 0.66)), (POD_REAR, 0.08, (0.50, 0.56, 0.62, 0.68, 0.74))):
+        for h in hs:
+            z = raked(edge, h) + back
+            x = pod_side_x(h, z) + 0.004
+            d = 0.012 if edge is POD_FRONT else -0.012
+            face_to(side, [P(x, h - 0.012, z - 0.03 + d), P(x, h - 0.012, z + 0.03 + d), P(x, h + 0.012, z + 0.03), P(x, h + 0.012, z - 0.03)], (1, 0, 0), "glow_cyan")
+    m.add(side.both())
+    return m
+
+
+def pod_side_x(h, z):
+    """Half-width of a pod's side at height h (between its lines) at station z."""
+    lines = POD_LINES[3:8]
+    for (x0, h0), (x1, h1) in zip(lines, lines[1:]):
+        if h1 <= h <= h0:
+            x = x0 + (x1 - x0) * (h0 - h) / (h0 - h1)
+            return x * table_at(POD_WIDTH, z)[0]
+    return POD_LINES[4][0] * table_at(POD_WIDTH, z)[0]
+
+
+def intakes():
+    """An air intake on each pod's rear, above the LEDs: a honeycomb grille (painted) set back
+    under a black lip."""
+    m = Mesh()
+    side = Mesh()
+    z0, z1, h0, h1 = -0.26, 0.02, 0.76, 0.86
+    xs = [pod_side_x(h, z) for h in (h0, h1) for z in (z0, z1)]
+    x = min(xs) - 0.012
+    face_to(side, [P(x, h0, z0), P(x, h0, z1), P(x, h1, z1 - 0.04), P(x, h1, z0 - 0.04)], (1, 0, 0), "livery_mesh")
+    # The lip above it and its sides, standing out of the panel.
+    lip = [P(x + 0.02, h1 + 0.012, z0 - 0.06), P(x + 0.02, h1 + 0.012, z1 - 0.02), P(x - 0.01, h1 + 0.012, z1 - 0.02), P(x - 0.01, h1 + 0.012, z0 - 0.06)]
+    side.prism(lip, 0.018, BLACK)
+    for z in (z0 - 0.005, z1 + 0.005):
+        side.box(P(x + 0.005, (h0 + h1) / 2, z), (0.012, (h1 - h0) / 2 + 0.01, 0.006), BLACK)
     m.add(side.both())
     return m
 
 
 # Panels whose creases get a chamfer (meshkit.to_object).
-PANELS = ("body_nose", "body_pods", "body_deck")
+PANELS = ("body_nose", "body_pods", "body_shoulders", "body_deck")
 
 
 def body_parts():
@@ -500,6 +600,7 @@ def body_parts():
     return {
         "body_nose": nose(),
         "body_pods": pods(),
+        "body_shoulders": shoulders(),
         "body_cockpit": cockpit(),
         "body_deck": deck(),
         "body_tail": tail(),
@@ -513,4 +614,5 @@ def body_parts():
         "body_chassis": chassis(),
         "body_drivetrain": drivetrain(),
         "body_lamps": lamps(),
+        "body_intakes": intakes(),
     }

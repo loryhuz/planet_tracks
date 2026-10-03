@@ -1,7 +1,9 @@
 //! Weather on the circuit (render only, not part of the deterministic simulation: the wind never
-//! pushes the car). The wind blows from the sandstorm toward the circuit and veers slowly; fine
-//! sand drifts on it through the air around the camera, and every few seconds a gust sweeps a
-//! low cloud of sand across the road, often just as the car gets there. weather.wgsl draws it.
+//! pushes the car). On Mars the wind blows from the sandstorm toward the circuit and veers
+//! slowly; fine sand drifts on it through the air around the camera, and every few seconds a gust
+//! sweeps a low cloud of sand across the road, often just as the car gets there. On the ice
+//! planet light snow falls on a wind that keeps changing direction, and now and then a thin,
+//! icy cloud of blown snow crosses the road. weather.wgsl draws it.
 //!
 //! It belongs to the planet, not to the block kit: a `Climate` per planet, and every map gets it
 //! as it is, since the gusts only need the track's route.
@@ -22,25 +24,67 @@ pub struct Climate {
     pub wind: f32,
     /// How far the wind veers each way around its mean direction, radians.
     pub veer: f32,
+    /// Seconds between two turns of the wind to a new direction (within `veer`): at least, at
+    /// most. None: it only veers slowly back and forth.
+    pub shift_every: Option<(f32, f32)>,
     /// Share of weather.wgsl's drifting grains shown (0 to 1).
     pub grains: f32,
+    /// The grains are snowflakes falling at this speed, m/s (white, bigger, swaying); 0: sand.
+    pub snow_fall: f32,
     /// Seconds between two gusts: at least, at most.
     pub gust_every: (f32, f32),
+    /// The gusts' height and strength, as shares of Mars's.
+    pub gust_height: f32,
+    pub gust_strength: f32,
 }
 
 impl Climate {
     /// Mars: a steady breeze from the storm, light sand in the air, a gust every few seconds.
-    pub const MARS: Self = Self { wind: 7.0, veer: 0.35, grains: 1.0, gust_every: (2.5, 6.5) };
+    pub const MARS: Self = Self {
+        wind: 7.0,
+        veer: 0.35,
+        shift_every: None,
+        grains: 1.0,
+        snow_fall: 0.0,
+        gust_every: (2.5, 6.5),
+        gust_height: 1.0,
+        gust_strength: 1.0,
+    };
+    /// The ice planet: light snow on a wind that turns every few seconds, often blowing at the
+    /// car, and now and then a low, thin cloud of blown snow.
+    pub const ICE: Self = Self {
+        wind: 4.0,
+        veer: 1.2,
+        shift_every: Some((4.0, 10.0)),
+        grains: 1.0,
+        snow_fall: 1.1,
+        gust_every: (4.0, 9.0),
+        gust_height: 0.6,
+        gust_strength: 0.45,
+    };
     /// Still air: nothing drawn.
-    pub const STILL: Self = Self { wind: 0.0, veer: 0.0, grains: 0.0, gust_every: (f32::INFINITY, f32::INFINITY) };
+    pub const STILL: Self = Self {
+        wind: 0.0,
+        veer: 0.0,
+        shift_every: None,
+        grains: 0.0,
+        snow_fall: 0.0,
+        gust_every: (f32::INFINITY, f32::INFINITY),
+        gust_height: 1.0,
+        gust_strength: 1.0,
+    };
 
-    /// `MARS_WEATHER=off` stills the air, `MARS_WEATHER=gusty` brings a gust every second or so
-    /// (checks); otherwise Mars.
-    pub fn from_env() -> Self {
+    /// The planet's weather; `MARS_WEATHER=off` stills the air, `MARS_WEATHER=gusty` brings a
+    /// gust every second or so (checks).
+    pub fn of(planet: track::Planet) -> Self {
+        let climate = match planet {
+            track::Planet::Mars => Self::MARS,
+            track::Planet::Ice => Self::ICE,
+        };
         match std::env::var("MARS_WEATHER").as_deref() {
             Ok("off") => Self::STILL,
-            Ok("gusty") => Self { gust_every: (0.6, 1.4), ..Self::MARS },
-            _ => Self::MARS,
+            Ok("gusty") => Self { gust_every: (0.6, 1.4), ..climate },
+            _ => climate,
         }
     }
 }
@@ -109,8 +153,10 @@ pub struct WeatherUniforms {
     pub wind: [f32; 4],
     /// The air's drift (x, z, metres, wrapped), share of the grains shown, veil over the view (0..1).
     pub drift: [f32; 4],
-    /// The camera's velocity (m/s).
+    /// The camera's velocity (m/s), and 1 when the grains are snow.
     pub eye_vel: [f32; 4],
+    /// How fast the snow falls, m/s (0: sand).
+    pub snow_fall: f32,
 }
 
 pub struct Weather {
@@ -118,10 +164,15 @@ pub struct Weather {
     route: Vec<Vec3>,
     /// Metres along the route at each of its points.
     along: Vec<f32>,
-    /// The storm's wind: unit direction (x, z) from the storm toward the circuit.
-    from_storm: Vec2,
+    /// The wind's mean direction (x, z, unit): from the storm toward the circuit on Mars.
+    prevailing: Vec2,
     /// The wind now, m/s (x, z).
     wind: Vec2,
+    /// Where the turning wind heads (radians from `prevailing`), where it is heading now, and
+    /// the seconds until its next turn.
+    shift_to: f32,
+    shift: f32,
+    next_shift: f32,
     drift: DVec2,
     gusts: Vec<Gust>,
     next_gust: f32,
@@ -132,7 +183,7 @@ pub struct Weather {
 }
 
 impl Weather {
-    pub fn new(climate: Climate, route: &[Vec3], from_storm: Vec2) -> Self {
+    pub fn new(climate: Climate, route: &[Vec3], prevailing: Vec2) -> Self {
         let mut along = Vec::with_capacity(route.len());
         let mut s = 0.0;
         for (i, p) in route.iter().enumerate() {
@@ -145,8 +196,11 @@ impl Weather {
             climate,
             route: route.to_vec(),
             along,
-            from_storm: from_storm.normalize_or(Vec2::Y),
+            prevailing: prevailing.normalize_or(Vec2::Y),
             wind: Vec2::ZERO,
+            shift_to: 0.0,
+            shift: 0.0,
+            next_shift: 3.0,
             drift: DVec2::ZERO,
             gusts: Vec::new(),
             // The first one soon after the start.
@@ -170,11 +224,27 @@ impl Weather {
         let dt = self.time.map_or(0.0, |t0| (time - t0).clamp(0.0, 0.1));
         self.time = Some(time);
 
-        // The wind veers and swells slowly around the storm's.
+        // The wind veers and swells slowly around its mean direction, or turns every few seconds
+        // to a new one, swinging round over a second or two and gusting as it does.
         let c = self.climate;
-        let veer = c.veer * (0.65 * (time * 0.051).sin() + 0.35 * (time * 0.137 + 1.3).sin());
-        let swell = 0.85 + 0.15 * (time * 0.23 + 0.4).sin();
-        self.wind = Vec2::from_angle(veer).rotate(self.from_storm) * c.wind * swell;
+        let (veer, swell) = match c.shift_every {
+            None => (
+                c.veer * (0.65 * (time * 0.051).sin() + 0.35 * (time * 0.137 + 1.3).sin()),
+                0.85 + 0.15 * (time * 0.23 + 0.4).sin(),
+            ),
+            Some((lo, hi)) => {
+                self.next_shift -= dt;
+                if self.next_shift <= 0.0 {
+                    self.next_shift = lo + (hi - lo) * self.rand();
+                    self.shift_to = (2.0 * self.rand() - 1.0) * c.veer;
+                }
+                let turning = self.shift_to - self.shift;
+                self.shift += turning * (1.0 - (-dt / 0.8).exp());
+                let wobble = 0.12 * (time * 0.9).sin();
+                (self.shift + wobble, 0.8 + 0.2 * (time * 0.31 + 0.4).sin() + 0.5 * turning.abs().min(1.0))
+            }
+        };
+        self.wind = Vec2::from_angle(veer).rotate(self.prevailing) * c.wind * swell;
         self.drift = (self.drift + self.wind.as_dvec2() * dt as f64).rem_euclid(DVec2::splat(DRIFT_PERIOD));
 
         // The camera's velocity, for the grains' streaks; a jump (respawn, another camera) is
@@ -227,8 +297,9 @@ impl Weather {
         let Some((point, road)) = self.route_at(self.along[near] + ahead) else { return };
         let side = Vec3::new(-road.z, 0.0, road.x).normalize_or_zero();
         let origin = point + side * (self.rand() - 0.5) * 6.0;
-        let wind = self.wind.normalize_or(self.from_storm);
+        let wind = self.wind.normalize_or(self.prevailing);
         let dir = Vec2::from_angle((self.rand() - 0.5) * 0.7).rotate(wind);
+        let c = self.climate;
         let gust = Gust {
             origin,
             dir,
@@ -238,8 +309,8 @@ impl Weather {
             life: cross + 2.2 + 1.5 * self.rand(),
             length: 16.0 + 12.0 * self.rand(),
             width: 8.0 + 6.0 * self.rand(),
-            height: 3.0 + 2.5 * self.rand(),
-            strength: 0.55 + 0.45 * self.rand(),
+            height: (3.0 + 2.5 * self.rand()) * c.gust_height,
+            strength: (0.55 + 0.45 * self.rand()) * c.gust_strength,
             seed: (self.rand() * 4096.0).floor(),
         };
         self.gusts.push(gust);
@@ -278,11 +349,13 @@ impl Weather {
 
     pub fn uniforms(&self) -> WeatherUniforms {
         let speed = self.wind.length();
-        let dir = self.wind.normalize_or(self.from_storm);
+        let dir = self.wind.normalize_or(self.prevailing);
+        let snow = if self.climate.snow_fall > 0.0 { 1.0 } else { 0.0 };
         WeatherUniforms {
             wind: [dir.x, dir.y, speed, self.time.unwrap_or(0.0)],
             drift: [self.drift.x as f32, self.drift.y as f32, self.climate.grains, self.veil()],
-            eye_vel: self.eye_vel.extend(0.0).to_array(),
+            eye_vel: self.eye_vel.extend(snow).to_array(),
+            snow_fall: self.climate.snow_fall,
         }
     }
 
@@ -329,6 +402,27 @@ mod tests {
         assert!(seen >= 3, "several gusts at once ({seen})");
         assert!(w.gusts.len() <= MAX_GUSTS);
         assert!((w.eye_vel.z - 30.0).abs() < 1.0, "camera velocity {:?}", w.eye_vel);
+    }
+
+    #[test]
+    fn the_ice_wind_turns_and_the_martian_one_only_veers() {
+        let heading = |climate: Climate| {
+            let mut w = Weather::new(climate, &straight(), Vec2::new(1.0, 0.0));
+            let mut angles = Vec::new();
+            for f in 0..60 * 60 {
+                w.update(f as f32 / 60.0, Vec3::new(0.0, 7.0, 0.0));
+                angles.push(w.wind.to_angle());
+            }
+            let (lo, hi) = angles.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &a| (lo.min(a), hi.max(a)));
+            // The biggest turn within any 3 s.
+            let turn = angles.windows(180).map(|w| (w[179] - w[0]).abs()).fold(0.0, f32::max);
+            (lo, hi, turn)
+        };
+        let (lo, hi, turn) = heading(Climate::ICE);
+        assert!(hi - lo > 1.0 && hi.abs().max(lo.abs()) < Climate::ICE.veer + 0.2, "ice wind spans {lo}..{hi}");
+        assert!(turn > 0.5, "the ice wind turns within seconds ({turn} rad in 3 s)");
+        let (lo, hi, turn) = heading(Climate::MARS);
+        assert!(hi.abs().max(lo.abs()) <= Climate::MARS.veer + 1e-3 && turn < 0.2, "Mars's wind only veers ({lo}..{hi}, {turn})");
     }
 
     #[test]

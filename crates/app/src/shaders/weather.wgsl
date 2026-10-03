@@ -1,6 +1,7 @@
 // Weather on the circuit (weather.rs). Fine sand drifts on the wind through a box of air that
 // follows the camera (the grains stay put in the world: the box wraps around them as the camera
-// moves), and gusts sweep low clouds of sand across the road. Grains are short streaks along
+// moves), or on the ice planet snowflakes fall and sway through it, and gusts sweep low clouds of
+// sand, or of blown snow, across the road. Grains are short streaks along
 // their motion relative to the camera, so they rush past at speed; the clouds are camera-facing
 // puffs of animated smoke that hug the road, carry their own stream of grains, and thin out close
 // to the camera: driving through one only veils the view for a moment (`fs_veil`).
@@ -24,9 +25,9 @@ struct Frame {
     wind: vec4<f32>,
     // xy: the air's drift (x, z, metres, wrapped), z: share of the grains shown, w: veil (0..1)
     drift: vec4<f32>,
-    // xyz: the camera's velocity (m/s)
+    // xyz: the camera's velocity (m/s), w: 1 when the air carries snow rather than sand
     eye_vel: vec4<f32>,
-    // xy: viewport (pixels), z: pixels per metre at a metre's depth
+    // xy: viewport (pixels), z: pixels per metre at a metre's depth, w: how fast the snow falls (m/s)
     viewport: vec4<f32>,
 };
 
@@ -55,14 +56,19 @@ const SHUTTER: f32 = 0.012;
 const MAX_STREAK: f32 = 40.0;
 // Narrowest streak drawn, pixels (thinner ones fade instead).
 const MIN_PX: f32 = 1.4;
-// Albedo of the airborne sand (linear).
+// Albedo of the airborne sand and snow (linear).
 const SAND: vec3<f32> = vec3<f32>(0.48, 0.28, 0.16);
+const SNOW: vec3<f32> = vec3<f32>(0.86, 0.9, 0.96);
 const DUST_AIR: vec3<f32> = vec3<f32>(0.37, 0.11, 0.04);
 // By night (frame.misc.w), as in scene.wgsl.
 const DUST_AIR_NIGHT: vec3<f32> = vec3<f32>(0.05, 0.028, 0.035);
 
 fn dust_air() -> vec3<f32> {
     return mix(DUST_AIR, DUST_AIR_NIGHT, frame.misc.w);
+}
+
+fn snowing() -> bool {
+    return frame.eye_vel.w > 0.5;
 }
 
 fn pcg(v: u32) -> u32 {
@@ -116,11 +122,11 @@ fn ambient() -> vec3<f32> {
     return mix(frame.ground_bounce.rgb, frame.sky_top.rgb, 0.6) * 0.5;
 }
 
-// Dust in the sun: lit, and glowing when the sun is behind it (`view` from the camera).
-fn sand_light(view: vec3<f32>, lit: f32, thin: f32) -> vec3<f32> {
+// Dust or snow in the sun: lit, and glowing when the sun is behind it (`view` from the camera).
+fn air_light(view: vec3<f32>, lit: f32, thin: f32) -> vec3<f32> {
     let toward = max(dot(view, frame.sun_dir.xyz), 0.0);
     let glow = toward * toward * toward * toward * toward * 1.4 * thin;
-    return SAND * (frame.sun_color.rgb * (lit + glow) + ambient());
+    return select(SAND, SNOW, snowing()) * (frame.sun_color.rgb * (lit + glow) + ambient());
 }
 
 // As scene.wgsl's distance fog, toward the storm's dusty air.
@@ -165,7 +171,7 @@ fn hidden_grain() -> GrainOut {
 
 // A grain of `size` metres at `pos` moving at `vel`: a streak from where it was a shutter ago
 // (relative to the camera) to where it is, at least MIN_PX wide.
-fn streak(pos: vec3<f32>, vel: vec3<f32>, size: f32, alpha_in: f32, c: u32) -> GrainOut {
+fn streak(pos: vec3<f32>, vel: vec3<f32>, size: f32, alpha_in: f32, lit: f32, c: u32) -> GrainOut {
     let head = frame.view_proj * vec4<f32>(pos, 1.0);
     var tail = frame.view_proj * vec4<f32>(pos - (vel - frame.eye_vel.xyz) * SHUTTER, 1.0);
     if alpha_in < 0.004 || head.w < 0.2 || tail.w < 0.2 {
@@ -196,7 +202,7 @@ fn streak(pos: vec3<f32>, vel: vec3<f32>, size: f32, alpha_in: f32, c: u32) -> G
     o.clip = vec4<f32>(at / half * zw.y, zw.x, zw.y);
     o.uv = k;
     let view = normalize(pos - frame.camera_pos.xyz);
-    o.color = to_srgb(tonemap(sand_light(view, 0.8, 1.0)));
+    o.color = to_srgb(tonemap(air_light(view, lit, 1.0)));
     o.alpha = alpha;
     return o;
 }
@@ -211,17 +217,21 @@ fn vs_grain(@builtin(vertex_index) vi: u32) -> GrainOut {
     let s = rand4(id * 2u + 2u);
     let t = frame.wind.w;
     let wind = vec3<f32>(frame.wind.x, 0.0, frame.wind.y);
-    // Each grain rides its own share of the wind and wanders in small loops.
+    let snow = snowing();
+    // Each grain rides its own share of the wind and wanders in small loops; snowflakes sway in
+    // wider, slower ones as they fall, each at its own pace.
     let share = 0.75 + 0.5 * s.x;
     let phase = s.y * 6.2832;
-    let f = vec3<f32>(0.7 + 0.6 * s.z, 1.1 + 0.8 * s.w, 0.9 + 0.5 * s.z);
-    let wander = vec3<f32>(sin(t * f.x + phase), 0.6 * sin(t * f.y + phase * 1.7), cos(t * f.z + phase * 0.6)) * 0.5;
-    let wander_vel = vec3<f32>(f.x * cos(t * f.x + phase), 0.6 * f.y * cos(t * f.y + phase * 1.7), -f.z * sin(t * f.z + phase * 0.6)) * 0.5;
+    let f = vec3<f32>(0.7 + 0.6 * s.z, 1.1 + 0.8 * s.w, 0.9 + 0.5 * s.z) * select(1.0, 0.7, snow);
+    let sway = select(0.5, 0.9, snow);
+    let wander = vec3<f32>(sin(t * f.x + phase), 0.6 * sin(t * f.y + phase * 1.7), cos(t * f.z + phase * 0.6)) * sway;
+    let wander_vel = vec3<f32>(f.x * cos(t * f.x + phase), 0.6 * f.y * cos(t * f.y + phase * 1.7), -f.z * sin(t * f.z + phase * 0.6)) * sway;
+    let fall = frame.viewport.w * (0.7 + 0.6 * s.z);
 
     // The grain's place in a lattice of boxes that the wind carries along; the one around the
     // camera is drawn.
     let origin = frame.camera_pos.xyz - vec3<f32>(BOX.x * 0.5, BOX_BELOW, BOX.z * 0.5);
-    let drifted = r.xyz * BOX + vec3<f32>(frame.drift.x, 0.0, frame.drift.y) * share + wander;
+    let drifted = r.xyz * BOX + vec3<f32>(frame.drift.x, -fall * t, frame.drift.y) * vec3<f32>(share, 1.0, share) + wander;
     let rel = drifted - origin;
     let inside = rel - floor(rel / BOX) * BOX;
     let pos = origin + inside;
@@ -231,9 +241,12 @@ fn vs_grain(@builtin(vertex_index) vi: u32) -> GrainOut {
     let edge = 1.0 - smoothstep(0.3 * BOX.x, 0.46 * BOX.x, length(off.xz));
     let ends = smoothstep(0.0, 1.5, inside.y) * (1.0 - smoothstep(BOX.y - 4.0, BOX.y, inside.y));
     let near = smoothstep(0.8, 2.5, length(off));
-    let alpha = (0.35 + 0.4 * r.w) * edge * ends * near;
-    let size = 0.02 + 0.035 * s.w * s.w;
-    return streak(pos, wind * frame.wind.z * share + wander_vel, size, alpha, vi % 6u);
+    let alpha = select(0.35, 0.5, snow) + 0.4 * r.w;
+    let size = select(0.02 + 0.035 * s.w * s.w, 0.03 + 0.035 * s.w, snow);
+    let vel = wind * frame.wind.z * share + wander_vel - vec3<f32>(0.0, fall, 0.0);
+    // A flake in its own shade shows grey against a bright sky, one catching the sun white.
+    let lit = select(0.8, 0.25 + 0.75 * r.y * r.y, snow);
+    return streak(pos, vel, size, alpha * edge * ends * near, lit, vi % 6u);
 }
 
 @fragment
@@ -305,7 +318,7 @@ fn vs_gust_grain(@builtin(vertex_index) vi: u32, g_in: GustIn) -> GrainOut {
     let ends = sin(3.14159 * u);
     let near = smoothstep(0.8, 2.5, distance(pos, frame.camera_pos.xyz));
     let alpha = g.presence * ends * near * (0.4 + 0.4 * s.y);
-    return streak(pos, vel, 0.025 + 0.03 * s.z, alpha, vi % 6u);
+    return streak(pos, vel, 0.025 + 0.03 * s.z, alpha, 0.8, vi % 6u);
 }
 
 struct PuffOut {
@@ -380,7 +393,7 @@ fn fs_puff(in: PuffOut) -> @location(0) vec4<f32> {
     // Lit from above, darker in its thick lower body and in the hollows between billows.
     let lit = mix(0.45, 0.95, top) * mix(0.6, 1.1, n);
     let to_point = in.world - frame.camera_pos.xyz;
-    let col = fogged(sand_light(normalize(to_point), lit, 0.4 * (1.0 - density)), to_point);
+    let col = fogged(air_light(normalize(to_point), lit, 0.4 * (1.0 - density)), to_point);
     return vec4<f32>(to_srgb(tonemap(col)) * a, a);
 }
 
@@ -410,6 +423,6 @@ fn fs_veil(in: VeilOut) -> @location(0) vec4<f32> {
     let a = clamp(frame.drift.w * (0.55 + 0.6 * n), 0.0, 1.0);
     let near = frame.inv_view_proj * vec4<f32>(in.ndc, 1.0, 1.0);
     let view = normalize(near.xyz / near.w - frame.camera_pos.xyz);
-    let col = to_srgb(tonemap(sand_light(view, 0.55, 0.5)));
+    let col = to_srgb(tonemap(air_light(view, 0.55, 0.5)));
     return vec4<f32>(col * a, a);
 }

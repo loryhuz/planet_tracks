@@ -49,6 +49,9 @@ struct Object {
     // that ground (x = 0: not a wheel).
     ground: vec4<f32>,
     tyre: vec4<f32>,
+    // A tyre that takes on what it runs on (the ice planet's): the coat's colour, and 1 + how
+    // much of the tread it covers (w = 0: not one).
+    coat: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -1328,6 +1331,28 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         base *= livery;
     }
 
+    // The ice planet's tyres (car_model::Look's coat): what they run on sticks to the tread, its
+    // studs and its chains (a frost on ice, snow on the snow), in patches round the wheel that
+    // turn with it, and dulls them; from afar the thin chains melt into the tyre instead of
+    // glinting.
+    var dull = 0.0;
+    if object.coat.w >= 1.0 && (k == 11u || k == 12u) {
+        let axle = object.model[0].xyz;
+        let s2 = dot(axle, axle);
+        let v = in.world - object.model[3].xyz;
+        let lx = dot(v, axle) / s2;
+        let ly = dot(v, object.model[1].xyz) / s2;
+        let lz = dot(v, object.model[2].xyz) / s2;
+        let tread = smoothstep(0.34, 0.42, length(vec2<f32>(ly, lz)));
+        let amount = object.coat.w - 1.0;
+        let patches = value_noise(vec2<f32>(ly * 11.0 + lx * 7.0, lz * 11.0 - lx * 5.0));
+        let stuck = tread * clamp(amount * (0.45 + 1.1 * patches), 0.0, 1.0);
+        let far = tread * smoothstep(5.0, 14.0, eye_dist) * select(0.0, 1.0, k == 12u);
+        base = mix(base, mix(vec3<f32>(0.03), object.coat.rgb, 0.8 * amount), far);
+        base = mix(base, object.coat.rgb, stuck);
+        dull = max(stuck, far);
+    }
+
     let l = frame.sun_dir.xyz;
     // Cloth stuffed with regolith (the sandbags) lets the light wrap round it: its shaded flanks
     // stay readable instead of going black under a hard terminator.
@@ -1378,7 +1403,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let v = to_eye / max(dist, 1e-3);
         let h = normalize(l + v);
         let paint = k == 10u || k == 16u;
-        let shine = select(1.0, wire, k == 15u);
+        let shine = select(1.0, wire, k == 15u) * (1.0 - 0.9 * dull);
         let spec = pow(max(dot(n, h), 0.0), select(40.0, 90.0, paint)) * sh * shine;
         col += frame.sun_color.rgb * spec * select(0.35, 0.5, paint);
         let fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);

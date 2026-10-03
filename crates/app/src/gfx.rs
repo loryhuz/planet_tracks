@@ -231,6 +231,9 @@ pub struct DrawItem {
     /// A wheel near the ground: its tyre flattens on it (scene.wgsl's `squash_tyre`) and shades
     /// it (`tyre_shade`).
     pub tyre: Option<Tyre>,
+    /// A tyre that takes on what it runs on (the ice planet's): the coat's linear colour and how
+    /// much of the tread it covers (see `car_model::Look::coat`).
+    pub coat: Option<Vec4>,
 }
 
 /// The ground under a wheel and the tyre's size: the vertex shader flattens the tyre's rubber
@@ -373,6 +376,8 @@ struct ObjectUniform {
     /// A tyre's ground plane, and its radius and half width (0: not a tyre); see [`Tyre`].
     ground: [f32; 4],
     tyre: [f32; 4],
+    /// A coated tyre: the coat's colour, and 1 + how much it covers (0: not one).
+    coat: [f32; 4],
 }
 
 /// The footprints of the opaque cars' tyres on the ground (see [`FrameUniform::contacts`]): under
@@ -1181,7 +1186,7 @@ impl SceneRenderer {
         self.far_light_view_proj = light_proj * light_view;
         self.far_lift = 0.5 * (max.x - min.x).max(max.y - min.y) / FAR_SHADOW_SIZE as f32;
 
-        let object = ObjectUniform { model: Mat4::IDENTITY.to_cols_array_2d(), tint: [1.0; 4], ground: [0.0; 4], tyre: [0.0; 4] };
+        let object = ObjectUniform { model: Mat4::IDENTITY.to_cols_array_2d(), tint: [1.0; 4], ground: [0.0; 4], tyre: [0.0; 4], coat: [0.0; 4] };
         gpu.queue.write_buffer(&self.object_buffer, 0, bytemuck::bytes_of(&object));
         let frame = [[[0.0f32; 4]; 4], [[0.0; 4]; 4], self.far_light_view_proj.to_cols_array_2d()];
         gpu.queue.write_buffer(&self.far_shadow_buffer, 0, bytemuck::bytes_of(&frame));
@@ -1355,7 +1360,8 @@ impl SceneRenderer {
         for (i, item) in items.iter().enumerate().take(MAX_OBJECTS as usize) {
             let (ground, tyre) =
                 item.tyre.map_or(([0.0; 4], [0.0; 4]), |t| (t.ground.to_array(), [t.radius, t.half_width, if t.pressed { 1.0 } else { 0.0 }, 0.0]));
-            let o = ObjectUniform { model: item.model.to_cols_array_2d(), tint: item.tint.to_array(), ground, tyre };
+            let coat = item.coat.map_or([0.0; 4], |c| [c.x, c.y, c.z, 1.0 + c.w.clamp(0.0, 1.0)]);
+            let o = ObjectUniform { model: item.model.to_cols_array_2d(), tint: item.tint.to_array(), ground, tyre, coat };
             let at = i * OBJECT_STRIDE as usize;
             objects[at..at + std::mem::size_of::<ObjectUniform>()].copy_from_slice(bytemuck::bytes_of(&o));
         }

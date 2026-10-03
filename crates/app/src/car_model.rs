@@ -13,9 +13,10 @@
 //! point: the renderer sinks it into the ground and the vertex shader flattens the rubber there).
 //! All are render-only and never feed back into the simulation.
 
-use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 use physics::{CarParams, CarState};
 use serde_json::Value;
+use track::Surface;
 
 use crate::gfx::{MeshData, Vertex, kind};
 
@@ -183,6 +184,15 @@ const SQUASH_MAX: f32 = 0.11;
 const SQUASH_TIME: f32 = 0.03;
 /// How fast the shade a tyre casts round it on the ground comes and goes with its contact (s).
 const TOUCH_TIME: f32 = 0.08;
+/// What the ice planet's tyres pick up from the ground they run on (linear colour, and how much
+/// of the tread it covers): a thin frost on ice, snow on the snow tracks, more in the powder; how
+/// fast a coat builds and wears off, and how fast its colour turns to another (s).
+const FROST: Vec4 = Vec4::new(0.14, 0.18, 0.24, 0.4);
+const SNOW_COAT: Vec4 = Vec4::new(0.50, 0.54, 0.60, 0.75);
+const POWDER_COAT: Vec4 = Vec4::new(0.55, 0.59, 0.65, 0.95);
+const COAT_BUILD: f32 = 0.6;
+const COAT_WEAR: f32 = 3.0;
+const COAT_TURN: f32 = 1.0;
 
 /// Render-side suspension state of one car, advanced every physics tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -199,6 +209,9 @@ pub struct Look {
     /// it now, 0..1, eased (the shade it casts round it).
     pub ground: [(Vec3, Vec3); 4],
     pub touch: [f32; 4],
+    /// What each tyre has picked up (the ice planet's: frost, snow), linear colour and how much
+    /// of the tread it covers, 0..1 (scene.wgsl draws it on the tread, its studs and chains).
+    pub coat: [Vec4; 4],
 }
 
 impl Look {
@@ -232,6 +245,20 @@ impl Look {
                     self.speed[i] = -self.speed[i].max(0.0) * DROOP_BOUNCE;
                 }
             }
+            // On the ice planet the tyre takes on the ground it rolls on, and keeps it in the air.
+            if params.front_skis && wheel.contact {
+                let target = match wheel.surface {
+                    Some(Surface::Road | Surface::Booster) => FROST,
+                    Some(Surface::Dirt) => SNOW_COAT,
+                    Some(Surface::Ground) => POWDER_COAT,
+                    _ => self.coat[i],
+                };
+                let coat = &mut self.coat[i];
+                let tau = if target.w > coat.w { COAT_BUILD } else { COAT_WEAR };
+                coat.w += (target.w - coat.w) * (1.0 - (-dt / tau).exp());
+                let colour = coat.truncate() + (target.truncate() - coat.truncate()) * (1.0 - (-dt / COAT_TURN).exp());
+                *coat = colour.extend(coat.w);
+            }
         }
         let grounded = state.wheels.iter().filter(|w| w.contact).count() >= 3;
         let along = (state.rotation.inverse() * state.acceleration).z;
@@ -247,6 +274,7 @@ impl Look {
             out.travel[i] = self.travel[i] + (next.travel[i] - self.travel[i]) * t;
             out.squash[i] = self.squash[i] + (next.squash[i] - self.squash[i]) * t;
             out.touch[i] = self.touch[i] + (next.touch[i] - self.touch[i]) * t;
+            out.coat[i] = self.coat[i].lerp(next.coat[i], t);
         }
         out.pitch = self.pitch + (next.pitch - self.pitch) * t;
         out
@@ -277,7 +305,7 @@ pub fn livery(skis: bool) -> Image {
 /// Where the skis run, m from the centre line (closer together than the physics' contacts), and
 /// how wide they are (tools/blender/build_skicar.py).
 pub const SKI_X: f32 = 0.65;
-pub const SKI_WIDTH: f32 = 0.19;
+pub const SKI_WIDTH: f32 = 0.22;
 /// How far a ski tips on its pivot either way, radians.
 pub const SKI_PITCH_MAX: f32 = 0.35;
 /// The ski's pivot bolt above its sole, m (tools/blender/build_skicar.py).
@@ -733,6 +761,34 @@ mod tests {
         }
         look.step(&state, &params, 0.01);
         assert_eq!(look.travel[0], 0.05);
+    }
+
+    #[test]
+    fn the_ice_planets_tyres_frost_on_ice_and_whiten_in_snow() {
+        let world = physics::World::new(&physics::testing::flat(50.0, track::Surface::Road));
+        let run = |params: &CarParams, surface: track::Surface, seconds: f32| {
+            let car = physics::Car::new(params.clone(), &world, track::Pose { position: Vec3::new(0.0, 0.5, 0.0), yaw: 0.0 });
+            let mut state = car.state.clone();
+            for w in &mut state.wheels {
+                w.contact = true;
+                w.surface = Some(surface);
+            }
+            let mut look = Look::new(&state);
+            for _ in 0..(seconds / 0.01) as usize {
+                look.step(&state, params, 0.01);
+            }
+            look.coat[2]
+        };
+        let neige = physics::car_for(track::Planet::Ice);
+        let frost = run(&neige, track::Surface::Road, 3.0);
+        let snow = run(&neige, track::Surface::Dirt, 3.0);
+        assert!((frost.w - FROST.w).abs() < 0.02 && (snow.w - SNOW_COAT.w).abs() < 0.02, "{frost} {snow}");
+        // Snow covers more than frost, and is whiter.
+        assert!(snow.w > frost.w && snow.x > frost.x);
+        // Half a second on ice already frosts a clean tyre a good part of the way.
+        assert!(run(&neige, track::Surface::Road, 0.5).w > 0.5 * FROST.w);
+        // Mars's tyres keep their own look.
+        assert_eq!(run(&physics::presets().remove(0), track::Surface::Dirt, 3.0), Vec4::ZERO);
     }
 
     #[test]

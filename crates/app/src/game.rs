@@ -436,8 +436,8 @@ fn car_items(
     let look = look_prev.lerp(look_cur, alpha);
     let body = Mat4::from_rotation_translation(rot, pos) * Mat4::from_rotation_x(look.pitch);
     let into_body = Quat::from_rotation_x(-look.pitch);
-    let mut push = |mesh, model, tyre| items.push(DrawItem { mesh, model, tint, cast_shadow: shadow, tyre });
-    push(meshes.body, body, None);
+    let mut push = |mesh, model, tyre, coat| items.push(DrawItem { mesh, model, tint, cast_shadow: shadow, tyre, coat });
+    push(meshes.body, body, None, None);
     let anchors = params.wheel_anchors();
     let scale = params.wheel_radius / meshes.wheel_radius.max(0.05);
     for (i, (rig, parts)) in meshes.rigs.iter().zip(&meshes.corners).enumerate() {
@@ -470,9 +470,10 @@ fn car_items(
             let lie = car_model::ski_pitch(to_upright * normal) * look.touch[i];
             let pivot = Vec3::new(0.0, car_model::SKI_PIVOT_H - meshes.wheel_radius, 0.0);
             let ski = Mat4::from_translation(pivot) * Mat4::from_rotation_x(lie) * Mat4::from_translation(-pivot);
-            push(parts.wheel, body * pose.upright * ski, None);
+            push(parts.wheel, body * pose.upright * ski, None, None);
         } else {
-            push(parts.wheel, body * pose.wheel, tyre);
+            // The ski car's tyres take on the ground they run on (frost, snow).
+            push(parts.wheel, body * pose.wheel, tyre, meshes.skis.then_some(look.coat[i]));
         }
         for (mesh, m) in [
             (parts.arm_lo, pose.arm_lo),
@@ -482,10 +483,10 @@ fn car_items(
             (parts.rod, pose.rod),
             (parts.spring, pose.spring),
         ] {
-            push(mesh, body * m, None);
+            push(mesh, body * m, None, None);
         }
         if let (Some(mesh), Some(m)) = (parts.tierod, pose.tierod) {
-            push(mesh, body * m, None);
+            push(mesh, body * m, None, None);
         }
     }
 }

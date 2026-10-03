@@ -29,7 +29,6 @@ meshkit.MATERIALS.update(
         "paint_blue": dict(color=meshkit.srgb(18, 104, 206), roughness=0.3),
         "paint_snow": dict(color=meshkit.srgb(232, 240, 248), roughness=0.85),
         "metal_chain": dict(color=meshkit.srgb(132, 136, 142), metallic=1.0, roughness=0.32),
-        "rubber_snow": dict(color=meshkit.srgb(150, 160, 172), roughness=0.9),
         "glow_cyan": dict(color=meshkit.srgb(70, 225, 255), emission=4.0),
         # The headlights: white with a cyan tint (the game finds them as white glow at the front).
         "glow_white": dict(color=meshkit.srgb(205, 240, 255), emission=5.0),
@@ -254,10 +253,11 @@ def upright_mesh(front):
     return m
 
 
-# --- The ski: a snowmobile's, 1.4 m long, its spindle a quarter from the tail; a steel keel under
-# it, a raised rib along its top, the tip curled up, snow caked on it, the saddle over its pivot.
-SKI_PATH = [(-0.37, 0.035), (-0.33, 0.012), (-0.25, 0.0), (0.78, 0.0), (0.86, 0.018), (0.93, 0.055), (0.985, 0.11), (1.02, 0.17), (1.04, 0.23), (1.05, 0.28)]  # z, y of the sole
-SKI_HALF = 0.095
+# --- The ski: long and low like the prototype's (a wheel flattened into a ski), 1.9 m, its pivot
+# 0.8 m from the tail; a steel keel under it, a raised rib along its top, both ends lifting gently
+# (the tip 12 cm, the tail 5), snow caked on it, the saddle over its pivot.
+SKI_PATH = [(-0.81, 0.048), (-0.77, 0.026), (-0.71, 0.009), (-0.62, 0.0), (0.80, 0.0), (0.89, 0.010), (0.97, 0.030), (1.03, 0.058), (1.08, 0.090), (1.10, 0.118)]  # z, y of the sole
+SKI_HALF = 0.11
 
 
 def ski_section(scale):
@@ -284,10 +284,10 @@ def ski_mesh():
         up = t.cross(Vector((1, 0, 0))).normalized()  # perpendicular to the path, upward
         z = p.z
         scale = 1.0
-        if z > 0.80:
-            scale = 1.0 - 0.35 * min(1.0, (z - 0.80) / 0.25)
-        if z < -0.25:
-            scale = 0.85
+        if z > 0.85:
+            scale = 1.0 - 0.2 * min(1.0, (z - 0.85) / 0.25)
+        if z < -0.62:
+            scale = 1.0 - 0.12 * min(1.0, (-0.62 - z) / 0.19)
         rows.append([p + Vector((x, 0, 0)) + up * y for x, y in ski_section(scale)])
 
     def mat(i, j):
@@ -295,7 +295,7 @@ def ski_mesh():
             return "metal_steel"
         # Snow caked over the top in irregular patches (deterministic), clear around the saddle.
         z = rows[i][0].z
-        if j in (1, 2) and z < 0.8 and abs(z) > 0.12:
+        if j in (1, 2) and -0.7 < z < 0.9 and abs(z) > 0.12:
             v = math.sin(i * 1.9 + j) + 0.7 * math.sin(i * 0.53 + 2.0 * j)
             if v > 0.25:
                 return "paint_snow"
@@ -310,7 +310,7 @@ def ski_mesh():
         m.box((s * 0.030, sole + 0.11, 0.0), (0.006, 0.035, 0.05), "metal_frame")
     m.box((0.0, sole + 0.10, 0.16), (0.03, 0.014, 0.05), "rubber_black")
     # Bolts along the top.
-    for z in (-0.20, 0.25, 0.45, 0.65):
+    for z in (-0.55, -0.20, 0.25, 0.50, 0.75):
         for s in (1, -1):
             c = Vector((s * 0.07, sole + 0.068, z))
             m.tube(c, c + Vector((0, 0.005, 0)), 0.006, "metal_chrome", seg=6)
@@ -358,13 +358,8 @@ def tyre_profile():
 
 
 def tyre_mats(prof, i, j, seg):
-    """Black rubber; snow packed in the grooves between the blocks, in patches round the tyre."""
-    x = abs((prof[i][0] + prof[i + 1][0]) / 2)
-    if x > 0.2:
-        return "rubber_tyre"
-    a = 2 * math.pi * (j + 0.5) / seg
-    v = math.sin(3 * a + 0.4) + 0.6 * math.sin(7 * a + 1.3) + 0.4 * math.sin(11 * a + x * 30)
-    return "rubber_snow" if v > 0.9 else "rubber_tyre"
+    """Black rubber: the game coats it with what it runs on (frost, snow; car_model::Look)."""
+    return "rubber_tyre"
 
 
 def surface_point(x, a, h):

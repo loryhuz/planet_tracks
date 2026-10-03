@@ -138,7 +138,9 @@ link the main checkout's `track` (missing a new block or surface).
   Same part names and rig as the buggy's; its front corners' `wheel` is the ski, which steers
   without spinning and tips on its pivot to lie on the ground (`game.rs`). The skis are drawn
   at ±0.65 m (`car_model::SKI_X`), closer together than the physics' contacts (its single
-  `track_width`, 1.8 m), and their marks follow them. Its body is `tools/blender/skicar_body.py`,
+  `track_width`, 1.8 m), and their marks follow them. Its rear tyres take on what they run on
+  (`Look::coat`: a frost on ice, snow on the snow tracks, kept in the air), drawn by scene.wgsl
+  on the tread, its studs and chains, which it dulls. Its body is `tools/blender/skicar_body.py`,
   its livery `tools/blender/skicar_livery.py`. A preset with `front_skis` drives it, every other
   the buggy; the bound livery texture follows the car.
 - Buggy plans: `art/buggy/v2/views/` holds the generated plans (`art/buggy/v2/3q_B_compact.jpg` is

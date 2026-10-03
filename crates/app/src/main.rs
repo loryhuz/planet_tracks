@@ -473,6 +473,7 @@ impl App {
             tint: glam::Vec4::ONE,
             cast_shadow: true,
             tyre: None,
+            coat: None,
         }];
         let skis = game.run.car.params.front_skis;
         items.extend(game.draw_items(alpha, g.car_for(skis)));

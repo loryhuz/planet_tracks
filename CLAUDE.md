@@ -41,8 +41,13 @@ link the main checkout's `track` (missing a new block or surface).
   drawn by the same `shapes` example): progressive turns for drifting (`curveN`, `curvebermN`),
   S-bends (`sbendN`), snakes (`snakeN`) and a 16 m snow track (variant `snow`); any turn can
   climb or descend as it turns (`curve3_left_down2`, `uberm2_right_up1`; `kit::climb_fits`
-  refuses those that would hump). `sulcus.chain` is its first circuit built from them, up and
-  down a mesa and a plateau. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
+  refuses those that would hump) and any road, gates included, can be a bobsleigh gutter (variant
+  `gutter`: a U of ice, a 10 m floor, walls rising gently and steepening, a lip rolling over
+  them, `kit::gutter_profile`). `sulcus.chain` is its first circuit built from them, up and down
+  a mesa and a plateau; `canalis.chain` its bobsleigh run, gutters down a mountain, its turns
+  made to be ridden on the outer wall (`cargo run -p physics --release --example gutter_lines --
+  Canalis` drives it on the middle, up the walls and steering short). On that planet every
+  road deck, gutter wall and raised slab is ice (`L_ICE` in `scene.wgsl`), no tarp. `cargo run -p physics --release --example lap -- Noctis [road dirt]` times the
   test autopilot over a map (with the two numbers it brakes for the bends). The menu's series:
   easy circuits stay short (30 s), the hard series' (`series()` in `crates/app/src/menu/catalog.rs`,
   Marineris first) run 45 s to a minute, a roller coaster on scaffolding with boosters. At
@@ -70,7 +75,10 @@ link the main checkout's `track` (missing a new block or surface).
   a drift: `cargo run -p physics --release --example skis` measures both), `presets()` Mars's
   alone, which the tests drive on the Mars maps. Per surface, `response` slows a slide (the drift
   car's ice), `slide_cost` makes it plough (snow), `sink` lets the wheels ride in snow over gentle
-  ruts (`WheelState::sink`, drawn buried) and `trail` keeps their tracks.
+  ruts (`WheelState::sink`, drawn buried) and `trail` keeps their tracks. The gutters' walls
+  (0 on Mars): `wall_stick` holds the car to a paved slope steeper than a bank, `wall_gravity_deg`
+  makes gravity pull fully on walls, `wall_climb_damp` soaks up the speed climbing them, and
+  `air_level` rights a car thrown off one.
 - `crates/app` — the macOS and iOS executable (`cargo run --bin mars-racer`): winit, wgpu (Metal), egui, gilrs.
 - `ios/` — the iOS app: `PlanetTracks.xcodeproj` (open it in Xcode and Run, on an iPhone or a
   simulator), whose only build phase, `ios/build-rust.sh`, builds `mars-racer` with cargo for

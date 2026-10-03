@@ -333,11 +333,16 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
     let mut drift_turn_mult = 0.0f32;
     let mut response = 0.0f32;
     let mut slide_cost = 0.0f32;
+    // Wheels on a paved surface (the walls of the gutters are; the banks of dirt are not).
+    let mut paved = 0.0f32;
     for i in 0..4 {
         let Some(c) = contacts[i] else { continue };
         let sg = p.surface(c.hit.surface);
         let ski = p.front_skis && i < 2;
         n_sum += c.hit.normal;
+        if matches!(c.hit.surface, Surface::Road | Surface::Booster | Surface::Wall) {
+            paved += 1.0;
+        }
         top_mult += sg.top_speed;
         yaw_mult += sg.yaw;
         drift_max += sg.drift_angle_deg;
@@ -375,6 +380,7 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
         rolling *= k;
         drag *= k;
         drag_quad *= k;
+        paved *= k;
         n_sum.normalize_or(up)
     } else {
         top_mult = 1.0;
@@ -398,13 +404,43 @@ pub(crate) fn step(p: &CarParams, s: &mut CarState, world: &World, input: Input)
 
     // Gravity: stronger in the air if wanted, weaker along slopes while on the wheels.
     let mut gravity = Vec3::new(0.0, -g, 0.0);
+    // How much the ground under the wheels is a wall (a gutter's), 0 to 1.
+    let mut on_wall = 0.0;
     if grounded {
         let tangential = gravity - n_avg * gravity.dot(n_avg);
-        gravity -= tangential * (1.0 - p.slope_gravity.max(0.0));
+        let mut keep = p.slope_gravity.max(0.0);
+        if p.wall_gravity_deg > 0.0 {
+            // On a paved wall (a gutter's) gravity pulls fully: climbing it costs speed and the
+            // car falls back, so its speed sets how high it rides.
+            let tilt = libm::acosf(n_avg.y.clamp(-1.0, 1.0)).to_degrees();
+            on_wall = smoothstep(p.wall_gravity_deg, p.wall_gravity_deg + 15.0, tilt) * paved;
+            keep += (1.0 - keep) * on_wall;
+        }
+        gravity -= tangential * (1.0 - keep);
     } else {
         gravity *= p.air_gravity.max(0.0);
     }
     let mut force = gravity * m;
+    if grounded && p.wall_stick > 0.0 && paved > 0.0 {
+        // A paved slope steeper than a bank (a gutter's walls; the berms bank 18° at most) holds
+        // the car to it with the square of its speed: the suspension's rebound never throws it
+        // off the wall it rides. Not near the top (the steepest), where a car climbing too high
+        // must fall back rather than be held up to the lip.
+        let tilt = libm::acosf(n_avg.y.clamp(-1.0, 1.0)).to_degrees();
+        let x = v0.length() / REF_SPEED_DOWNFORCE;
+        let band = smoothstep(19.0, 24.0, tilt) * (1.0 - smoothstep(55.0, 70.0, tilt));
+        force -= n_avg * (m * G * p.wall_stick * band * paved * x * x);
+    }
+    if on_wall > 0.0 {
+        // The wall soaks up the speed that climbs it: a car meeting it head on rides up and comes
+        // back down instead of being thrown over the top, while one running along it keeps its
+        // speed (and gets it back diving down).
+        let uphill = (Vec3::Y - n_avg * n_avg.y).normalize_or_zero();
+        let climb = v0.dot(uphill);
+        if climb > 0.0 {
+            force -= uphill * (climb * p.wall_climb_damp.max(0.0) * on_wall * m);
+        }
+    }
     let mut torque = Vec3::ZERO;
 
     let v_plane = v0 - n_avg * v0.dot(n_avg);

@@ -1,0 +1,53 @@
+# Canalis: the ice planet's bobsleigh run (docs/blocks-ice.md), gutters all the way, the gates
+# included: a channel of ice in a U, its walls rising gently from the floor and steepening, a lip
+# rolling over them. It comes down a mountain in steps, from 56 m to the plain, driven with the
+# ski car. Version 2: its turns are made to be taken on the outer wall. The start is slow, so a
+# tight turn there; past it every turn is a long progressive one (curve3, curve4) or an S over
+# three cells, wide enough to ride high on the wall at full speed (the wall turns the car that
+# would otherwise drift, the faster line), most of them dropping a level. No straight between
+# them: one turn flows into the next, swinging the car from one wall to the other.
+name Canalis
+planet ice
+seed 3313
+version 2
+start 0 0 7 0 gutter
+# Off the top, slow: a tight right dropping into the run.
+curve2_right_down1 gutter
+sbend3_left gutter
+# The long turns of the upper half.
+curve4_left_down1 gutter
+curve4_right gutter
+sbend3_right gutter
+curve3_right_down1 gutter
+checkpoint gutter
+# The lower half: a turn, a drop, and the turns keep dropping a level each.
+curve3_left_down1 gutter
+slope2_down1 gutter
+curve3_left gutter
+sbend3_right gutter
+curve3_right_down1 gutter
+curve3_right_down1 gutter
+checkpoint gutter
+# On the plain, an S to the finish.
+sbend3_left gutter
+finish gutter
+
+terrain hills 8.0
+terrain relief 12.0
+# The mountain the run comes down, in steps, one under each level of the run: the start's at
+# 56 m, then 48, 40, 32, 24, 16 and 8 m. Each reaches past where the run leaves it, so the run
+# drops into a cutting rather than off a cliff.
+landform mesa 16 64 42 56 100 0
+landform mesa -100 128 42 48 200 90
+landform mesa -240 270 42 40 200 0
+landform mesa -400 360 42 40 260 90
+landform mesa -528 210 42 32 130 0
+landform mesa -620 144 42 24 140 90
+landform mesa -785 290 42 16 220 0
+landform mesa -880 395 42 8 120 90
+# Rock framing the run.
+landform butte 70 230 26 40
+landform butte -120 270 26 34
+landform butte -420 220 24 30
+landform butte -680 300 26 26
+landform butte -900 230 22 20

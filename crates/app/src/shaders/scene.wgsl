@@ -253,6 +253,8 @@ const L_SIGNS: i32 = 12;
 // The booster arrow (tools/textures/booster.py): one chevron filling the layer, pointing up, the
 // paint's colour in RGB and its coverage in alpha.
 const L_BOOSTER: i32 = 13;
+// The ice planet's ice (tools/textures/bake.py), after them.
+const L_ICE: i32 = 14;
 const TILE_TARP: f32 = 1.6;
 const TILE_DIRT: f32 = 4.0;
 const TILE_EARTH: f32 = 2.5;
@@ -264,6 +266,7 @@ const TILE_CONCRETE: f32 = 2.8;
 const TILE_SANDBAG: f32 = 0.6;
 const TILE_WEBBING: f32 = 0.2;
 const TILE_STEEL: f32 = 0.22;
+const TILE_ICE: f32 = 10.0;
 
 // The relief (normal maps) fades out between these distances, metres; beyond, it is not read.
 const RELIEF_NEAR: f32 = 30.0;
@@ -291,7 +294,8 @@ const ROAD_DUST: vec3<f32> = vec3<f32>(0.36, 0.13, 0.055);
 const SNOW: vec3<f32> = vec3<f32>(0.56, 0.60, 0.66);
 const SNOW_BANK: vec3<f32> = vec3<f32>(0.50, 0.54, 0.61);
 const PACKED_SNOW: vec3<f32> = vec3<f32>(0.22, 0.25, 0.32);
-const ICE: vec3<f32> = vec3<f32>(0.13, 0.27, 0.42);
+// The ice texture's colour as the ice planet's decks and gutters show it.
+const ICE_TINT: vec3<f32> = vec3<f32>(0.66, 0.74, 0.80);
 const ICE_ROCK: vec3<f32> = vec3<f32>(0.16, 0.165, 0.18);
 
 // The tarp of the road decks (art/roads/brief.md): lengths of tarp DECK_STRIP m wide laid along
@@ -532,6 +536,23 @@ fn surf_triplanar(layer: i32, tile: f32, p: vec3<f32>, n: vec3<f32>, dpx: vec3<f
         height += t.height * w.y;
     }
     return Surf(colour, tilt * bump, height);
+}
+
+// The ice planet's ice, on its road decks, its gutters (their walls stand steep) and its raised
+// slabs: the ice texture projected along the axes, and again three times larger, turned, in broad
+// patches, so its cracks do not repeat in rows along a road.
+fn ice_surf(p: vec3<f32>, n: vec3<f32>, dpx: vec3<f32>, dpy: vec3<f32>, bump: f32) -> Surf {
+    // (Its cracks barely raised: polished ice.)
+    let near = surf_triplanar(L_ICE, TILE_ICE, p, n, dpx, dpy, 0.3 * bump);
+    let q = turn_y(p) + vec3<f32>(41.0, 0.0, -17.0);
+    let wide = surf_triplanar(L_ICE, TILE_ICE * 3.1, q, turn_y(n), turn_y(dpx), turn_y(dpy), 0.0);
+    let t = smoothstep(0.3, 0.7, value_noise(p.xz * 0.013 + vec2<f32>(4.1, 7.3)));
+    return Surf(mix(near.colour, wide.colour, 0.35 + 0.4 * t) * ICE_TINT, near.bump, near.height);
+}
+
+// `v` turned about the vertical by 37°.
+fn turn_y(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(0.8 * v.x - 0.6 * v.z, v.y, 0.6 * v.x + 0.8 * v.z);
 }
 
 // `b` laid over `a` with coverage `t`: where it starts to cover, the higher parts of either show
@@ -1014,9 +1035,17 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
     } else if k == 1u {
         base *= 0.9 + 0.14 * n_high;
     } else if terrain && k == 0u {
+        // On the ice planet a deck is ice, and its gutter's walls with it, nothing laid on it: no
+        // tarp, no markings, no dust; only the gates' lines and words and the booster arrows.
+        let ice = frame.fog.z > 0.5;
         // Laminated tarp over the deck panels: the lengths and their welds, a panel of another
         // make now and then, patches, stencilled lines, eyelets along the edges.
-        var a = surf_flat(L_TARP, TILE_TARP, xz, dpx, dpy, 0.6 * bump);
+        var a: Surf;
+        if ice {
+            a = ice_surf(in.world, n, dpx, dpy, bump);
+        } else {
+            a = surf_flat(L_TARP, TILE_TARP, xz, dpx, dpy, 0.6 * bump);
+        }
         let pn = deck_panel(in.uv);
         let h1 = hash2(pn.xy + vec2<f32>(0.37, 1.91));
         let h2 = hash2(pn.xy + vec2<f32>(5.3, 0.71));
@@ -1044,7 +1073,9 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let line = 1.0 - smoothstep(0.012, 0.012 + aa, edge);
         let band = 1.0 - smoothstep(0.06, 0.06 + aa, edge);
         tint *= mix(1.0, (1.0 + 0.05 * band) * (1.0 - 0.3 * line), fine);
-        a.colour *= tint;
+        if !ice {
+            a.colour *= tint;
+        }
         // A gate block's deck says what is painted on it (track's kit.rs gate_deck_colour), a
         // booster block's where its arrows go (booster_deck_colour), with the same flags.
         let gate_deck = in.color.r < 0.005;
@@ -1053,16 +1084,17 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         let code = select(u32(floor(in.color.b * 16.0)), u32(floor((in.color.r - 1.0) * 16.0)), boost_deck);
         // Stencilled marks: the kit's edge lines painted orange, black dashes inside them.
         let grain = clamp(lum(a.colour) / 0.45, 0.7, 1.3);
+        let u = abs(in.uv.y);
+        var fixings = 0.0;
+        if !ice {
         let paint = select(smoothstep(0.3, 0.5, lum(in.color)), select(0.0, 1.0, (code & 8u) != 0u), coded);
         a.colour = mix(a.colour, STENCIL_ORANGE * (0.8 + 0.2 * grain), paint);
-        let u = abs(in.uv.y);
         let dash = (smoothstep(KIT_HALF_WIDTH - 1.25 - aa, KIT_HALF_WIDTH - 1.25 + aa, u) - smoothstep(KIT_HALF_WIDTH - 0.95 - aa, KIT_HALF_WIDTH - 0.95 + aa, u))
             * smoothstep(0.5 + aa * 0.25, 0.5 - aa * 0.25, fract(in.uv.x / 4.0));
         a.colour = mix(a.colour, STENCIL_BLACK, 0.9 * dash);
         // The tarp's edges (the kit tells them apart by the blue of the vertex colour): strapped
         // down under bumpers, or pinned by stakes in front of a row of sandbags.
         let strapped = select(in.color.b - in.color.r > 0.02, (code & 4u) != 0u, coded);
-        var fixings = 0.0;
         if strapped {
             // Eyelets every 0.9 m, and every 4 m a strap across the edge to the bumper's own
             // strap (in the middle of a white length), its ratchet buckle on the tarp.
@@ -1091,6 +1123,7 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             let hole = 1.0 - smoothstep(0.03, 0.03 + aa, r);
             a.colour = mix(a.colour, mix(vec3<f32>(0.42, 0.36, 0.25), vec3<f32>(0.03), hole), ring);
             fixings = ring;
+        }
         }
         if gate_deck {
             // The gate's line across the deck (`y` metres along from it), checkered at the start
@@ -1141,13 +1174,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
             emit = arrow.rgb * (BOOST_GLOW * orange * worn * (0.15 + pow(phase, 8.0)));
         }
         // Rubber laid along the racing lines.
-        let rub = rubber(in.uv);
+        let rub = select(rubber(in.uv), 0.0, ice);
         a.colour = mix(a.colour, vec3<f32>(0.035, 0.033, 0.032), 0.55 * rub);
         // Martian dust: blown in from the edges, in drifting patches, caught in the welds and the
         // weave, and thicker toward a dirt track.
         let edge_dust = smoothstep(6.5, 10.0, u);
         let drift = smoothstep(0.4, 0.85, value_noise(xz * 0.06 + vec2<f32>(1.3, 8.2)) * (0.6 + 0.6 * n_high));
-        let dust = clamp((0.55 * edge_dust + 0.45 * drift + 0.5 * in.dirt + 0.12 * band) * (1.3 - a.height), 0.0, 1.0);
+        let dust = select(clamp((0.55 * edge_dust + 0.45 * drift + 0.5 * in.dirt + 0.12 * band) * (1.3 - a.height), 0.0, 1.0), 0.0, ice);
         a.colour = mix(a.colour, ROAD_DUST * (0.95 + 0.3 * n_high), 0.75 * dust);
         a.bump *= 1.0 - 0.6 * dust;
         // Earth carried onto the road where it meets a dirt track (`dirt` grows to 1 toward it,
@@ -1156,21 +1189,20 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         var cover = 0.0;
         if in.dirt > 0.01 {
             cover = spill_cover(in.dirt, xz, in.uv, rub);
-            if cover > 0.0 {
+            if cover > 0.0 && !ice {
                 a = over(a, driven_dirt(xz, in.uv, dpx, dpy, bump), cover);
             }
         }
         base = a.colour * mix(1.0, 0.94 + 0.12 * n_low, cover);
         let ng = n;
         n = normalize(n + a.bump);
-        n = rut_relief(n, ng, dpx, dpy, dwx, dwy, bump * (1.0 - cover));
         sheen = vec2<f32>(0.1 * (1.0 - dust) * (1.0 - cover) * (1.0 - rub) * (1.0 - fixings), 24.0);
-        if frame.fog.z > 0.5 {
-            // Bare ice, glossy, the deck's markings kept as shades of it; packed snow carried on
-            // where it meets a snow track.
-            let shade = clamp(lum(a.colour) / 0.4, 0.3, 1.6);
-            base = mix(ICE * shade, PACKED_SNOW, cover);
-            sheen = vec2<f32>(0.9 * (1.0 - cover), 80.0);
+        if ice {
+            // Bare ice, glossy; packed snow carried on where it meets a snow track.
+            base = mix(a.colour, PACKED_SNOW, cover);
+            sheen = vec2<f32>(0.6 * (1.0 - cover), 80.0);
+        } else {
+            n = rut_relief(n, ng, dpx, dpy, dwx, dwy, bump * (1.0 - cover));
         }
     } else if k == 20u {
         // Concrete: the sides of dirt mounds.
@@ -1224,6 +1256,13 @@ fn shade(in: VsOut, k: u32, terrain: bool) -> vec4<f32> {
         base = mix(c, ROAD_DUST * (0.9 + 0.2 * patches), 0.75 * dust);
         n = normalize(n + s.bump);
         sheen = vec2<f32>(0.06 * (1.0 - dust), 16.0);
+        if frame.fog.z > 0.5 && all(abs(in.color - KIT_SLAB) < vec3<f32>(0.002)) {
+            // The ice planet's raised slabs are ice, as their decks.
+            let i = ice_surf(in.world, normalize(in.normal), dpx, dpy, bump);
+            base = i.colour;
+            n = normalize(normalize(in.normal) + i.bump);
+            sheen = vec2<f32>(0.6, 60.0);
+        }
     } else if k == 24u {
         // Glossy plastic: the stilts' red tubes with grey clamps at both ends (`uv`: metres from
         // the tube's start, its length), the base plates, dust settled on top.

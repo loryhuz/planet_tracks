@@ -101,6 +101,17 @@ pub struct CarParams {
     pub air_gravity: f32,
     /// Share of the gravity felt along the ground on slopes, while on the wheels.
     pub slope_gravity: f32,
+    /// From this slope on (degrees, over 15° more), the gravity along the ground grows back to
+    /// full: on a wall the car is not helped up (0: never).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub wall_gravity_deg: f32,
+    /// On such a wall, the rate (1/s) at which the speed climbing it is soaked up.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub wall_climb_damp: f32,
+    /// On a paved slope steeper than a bank, a pull toward it, g at 200 km/h (with the square of
+    /// the speed): the car rides a gutter's walls without being thrown off them (0: none).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub wall_stick: f32,
 
     // --- Chassis
     /// kg. Forces are designed per kg, so the mass mainly weighs against collisions.
@@ -334,6 +345,9 @@ impl CarParams {
         t!("Monde", "Gravité (m/s²)", self.gravity, 1.0, 60.0);
         t!("Monde", "Gravité en l'air (×)", self.air_gravity, 0.2, 3.0);
         t!("Monde", "Gravité dans les pentes (×)", self.slope_gravity, 0.0, 1.5);
+        t!("Monde", "Gravité pleine sur les parois dès (°)", self.wall_gravity_deg, 0.0, 80.0);
+        t!("Monde", "Parois : montée amortie (/s)", self.wall_climb_damp, 0.0, 20.0);
+        t!("Monde", "Parois : collé à 200 km/h (g)", self.wall_stick, 0.0, 5.0);
 
         t!("Moteur", "Vitesse max (km/h)", self.top_speed_kmh, 60.0, 600.0);
         for (value, name) in self.accel_steps.iter_mut().zip(STEP_NAMES) {
@@ -570,6 +584,12 @@ pub fn neige() -> CarParams {
     p.name = "Neige".into();
     p.description = "Skis devant, propulsion à clous : la neige s'enfonce et la voiture y trace sa courbe, la glace tourne le nez avant la trajectoire, le frein fait pivoter l'arrière.".into();
     p.front_skis = true;
+    // The walls of the gutters: gravity pulls fully from 30° of slope on.
+    p.wall_gravity_deg = 30.0;
+    p.wall_climb_damp = 14.0;
+    p.wall_stick = 4.0;
+    // Thrown off a wall, the car rights itself in the air rather than landing on its roof.
+    p.air_level = 12.0;
     // A slower steering ramp than Mars's: on a keyboard the slides set off progressively.
     p.steer_rate = 6.0;
     p.steer_return = 8.0;
@@ -655,6 +675,9 @@ pub fn fidele() -> CarParams {
         gravity: 40.0,
         air_gravity: 1.0,
         slope_gravity: 0.45,
+        wall_gravity_deg: 0.0,
+        wall_climb_damp: 0.0,
+        wall_stick: 0.0,
 
         mass: 1000.0,
         inertia_pitch: 1.0,

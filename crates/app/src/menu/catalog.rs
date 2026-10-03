@@ -103,6 +103,9 @@ fn pace(name: &str) -> f32 {
         "noctis" | "noctis neige" => 0.87,
         // The ice planet's: the test driver laps it in 28.4 to 33 s, so its gold is 27.3 s.
         "sulcus" => 0.98,
+        // The bobsleigh run: the test driver comes down it in 28.6 s on the middle, 27.6 s up
+        // the outer walls; its gold is 27.6 s.
+        "canalis" => 1.125,
         "marineris" => 1.357,
         _ => 1.0,
     }

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use glam::{Vec2, Vec3};
 use track::Surface;
-use track::kit::{CELL, Connector, Edge, Gate, Heading, Kind, LEVEL, Layout, Placed};
+use track::kit::{BORDER_POINTS, CELL, Connector, Edge, GUTTER_ARC_POINTS, Gate, Heading, Kind, LEVEL, Layout, Placed, gutter_profile, gutter_scale};
 use track::map::parse_block;
 
 /// One tile: the pieces chained from `level`, heading north.
@@ -72,6 +72,7 @@ const ICE_ROWS: &[&[Tile]] = &[
         tile(&[("curve2_left_down1", Some("snow"))], 1),
     ],
     &[tile(&[("berm2_left_up1", Some("snow"))], 0), tile(&[("curveberm2_left_down1", Some("snow"))], 1), tile(&[("uberm2_left_up1", Some("snow"))], 0)],
+    &[tile(&[("straight3", Some("gutter"))], 0), tile(&[("curve3_left", Some("gutter"))], 0), tile(&[("curve2_left_down1", Some("gutter"))], 1)],
 ];
 
 /// Drawing the ice planet's sheet: ice for road decks, snow for dirt ones.
@@ -80,6 +81,8 @@ const ICE_DECK: [f32; 3] = [150.0, 196.0, 228.0];
 const SNOW_DECK: [f32; 3] = [196.0, 205.0, 218.0];
 const RIB_ICE: &str = "#4f7fa6";
 const RIB_SNOW: &str = "#7b8aa0";
+/// The lip and top of a gutter's walls.
+const GUTTER_LIP: [f32; 3] = [222.0, 229.0, 236.0];
 
 /// A deck's colour at height `y`.
 fn deck_colour(deck: Surface, y: f32) -> [f32; 3] {
@@ -318,6 +321,11 @@ fn edge_rise(p: &Placed) -> f32 {
 /// The tile's caption: sizes and heights, from the pieces themselves.
 fn spec(layout: &Layout) -> String {
     let p = &layout.pieces[0];
+    let shape = shape_spec(layout, p);
+    if p.edge() == Edge::Gutter { format!("gouttière · {shape}") } else { shape }
+}
+
+fn shape_spec(layout: &Layout, p: &Placed) -> String {
     match (p.piece.kind, p.piece.gate) {
         (Kind::Straight { .. }, Some(g)) => {
             let at = match g {
@@ -445,8 +453,11 @@ fn scene(cam: &Camera, layout: &Layout) -> Scene {
 
     let mut route_s = 0.0;
     let n = layout.pieces.len();
+    let gutter = |j: Option<usize>| j.and_then(|j| layout.pieces.get(j)).is_some_and(|p| p.edge() == Edge::Gutter);
     for (i, p) in layout.pieces.iter().enumerate() {
-        piece(cam, &mut sc, p, route_s);
+        // A run of gutters grows its walls from nothing at its ends.
+        let ramps = (!gutter(i.checked_sub(1)), !gutter(Some(i + 1)));
+        piece(cam, &mut sc, p, route_s, ramps);
         // Close the raised ends that face a gap or the end of the tile.
         let (s0, s1) = p.deck_range();
         if i == 0 || s0 > 0.0 {
@@ -528,10 +539,19 @@ fn end_cap(cam: &Camera, sc: &mut Scene, f: &track::kit::Frame) {
 
 /// One piece: the deck in four strips, its slab sides, the curtain down to the ground, its
 /// borders, centre line, entry arrow and gate.
-fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
-    let ss = p.samples();
+fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32, ramps: (bool, bool)) {
+    let edge = p.edge();
+    // A gutter's walls grow along its ends: a sample every 2 m.
+    let ss = if edge == Edge::Gutter {
+        let n = (p.length / 2.0).ceil().max(1.0) as usize;
+        (0..=n).map(|k| p.length * k as f32 / n as f32).collect()
+    } else {
+        p.samples()
+    };
     let n = ss.len();
-    let frames: Vec<_> = ss.iter().map(|&s| p.frame(s)).collect();
+    // A gutter's floor widens and its walls shrink at the ends of a run of gutters.
+    let frame = |s: f32| if edge == Edge::Gutter { p.frame(s).gutter_grown(gutter_scale(p, s, ramps)) } else { p.frame(s) };
+    let frames: Vec<_> = ss.iter().map(|&s| frame(s)).collect();
 
     // Shadow on the ground: the deck's footprint.
     let mut outline = Vec::new();
@@ -546,10 +566,9 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
     outline.extend(back);
     sc.ground(Prim::Poly(outline), format!("fill=\"{SHADOW}\" fill-opacity=\"0.10\""));
 
-    let edge = p.edge();
     for i in 0..n - 1 {
         let (fa, fb) = (&frames[i], &frames[i + 1]);
-        let mid = p.frame(0.5 * (ss[i] + ss[i + 1]));
+        let mid = frame(0.5 * (ss[i] + ss[i + 1]));
         let deck = mid.deck;
         let hw = mid.half_width;
         let us = [hw, 0.5 * hw, 0.0, -0.5 * hw, -hw];
@@ -569,6 +588,28 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
             let base = deck_colour(deck, c.y);
             strip_depth[j] = cam.depth(c);
             sc.solid(cam, quad, face(&rgb(base, k)), 0.0);
+        }
+
+        // A gutter's walls, from the deck's edges out, shaded by their normal: ice where they are
+        // driven, the lip and top lighter.
+        if edge == Edge::Gutter && deck != Surface::Dirt {
+            let prof = gutter_profile();
+            let (ka, kb) = (fa.border, fb.border);
+            for (side, foot) in [(1.0f32, 0usize), (-1.0, 4)] {
+                let wall = |f: &track::kit::Frame, base: Vec3, k: f32, q: [f32; 2]| base + f.lateral() * (side * q[0] * k) + f.up() * (q[1] * k);
+                for j in 0..BORDER_POINTS - 1 {
+                    let (q0, q1) = (prof[j].0, prof[j + 1].0);
+                    let quad = vec![wall(fa, pa[foot], ka, q0), wall(fb, pb[foot], kb, q0), wall(fb, pb[foot], kb, q1), wall(fa, pa[foot], ka, q1)];
+                    if quad[0].distance(quad[3]) < 0.02 && quad[1].distance(quad[2]) < 0.02 {
+                        continue;
+                    }
+                    let nrm = (quad[1] - quad[0]).cross(quad[3] - quad[0]).normalize_or_zero();
+                    let k = 0.72 + 0.28 * nrm.dot(cam.light).abs();
+                    let c = quad.iter().copied().sum::<Vec3>() / 4.0;
+                    let base = if j + 1 < GUTTER_ARC_POINTS { deck_colour(deck, c.y) } else { GUTTER_LIP };
+                    sc.solid(cam, quad, face(&rgb(base, k)), 0.0);
+                }
+            }
         }
 
         // Each edge: the slab's side, then a curtain to the ground with the stilts' marks.
@@ -596,6 +637,8 @@ fn piece(cam: &Camera, sc: &mut Scene, p: &Placed, route_s: f32) {
             // The border along the edge, on top of its strip.
             let style = if deck == Surface::Dirt {
                 Some(format!("stroke=\"{DIRT_EDGE}\" stroke-width=\"1.4\""))
+            } else if edge == Edge::Gutter {
+                None
             } else if mid.border > 0.5 {
                 Some(match edge {
                     Edge::Sandbags => format!("stroke=\"{SANDBAGS}\" stroke-width=\"4.5\" stroke-linecap=\"round\""),

@@ -82,6 +82,10 @@ MATERIALS = [
     material("galvanized", target=(0.52, 0.53, 0.55), pull=0.8, contrast=1.15, flatten=0.05, relief=0.03, bump=2.5),
     # Rusty steel: bare patches and flaking rust.
     material("rust", target=(0.20, 0.09, 0.045), pull=0.7, contrast=1.2, flatten=0.05, relief=0.04, bump=4.0),
+    # The ice planet's ice, on its road decks and its gutters: pale ice-cube blue, deeper patches,
+    # a few cracks and scratches, smooth. (Its layer comes after the gates' lettering and the
+    # booster arrow, drawn by other scripts: 14.)
+    material("ice", target=(0.33, 0.55, 0.74), pull=0.3, contrast=1.1, relief=0.02, bump=1.5),
 ]
 
 SOURCES = """
@@ -101,6 +105,8 @@ galvanized hot-dip galvanised steel, zinc spangle, hammer scuffs, Martian dust (
 rust      weathered steel, bare patches and flaking rust, pitting (GPT Image 2.5)
 webbing   safety-orange polyester ratchet-strap webbing, ribs along x, a little dust and wear
           (GPT Image 2.5; cropped and stretched vertically to 36 ribs, as for sandbag)
+ice       a flat surface of clear blue ice polished smooth, pale ice-cube blue, deeper patches,
+          fine white cracks and air bubbles, frost, scratches in one direction (Nano Banana)
 """
 
 

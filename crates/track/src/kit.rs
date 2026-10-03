@@ -114,6 +114,8 @@ const DIRT_GATE_POST_OUT: f32 = 4.0;
 pub const TRIGGER_HALF: Vec3 = Vec3::new(HALF_WIDTH + LIP_WIDTH + 0.5, 4.5, 2.0);
 /// The same on dirt, across the whole corridor floor at the gate.
 pub const DIRT_TRIGGER_HALF: Vec3 = Vec3::new(DIRT_HALF_WIDTH + 2.0, 4.5, 2.0);
+/// The same in a gutter, across its walls up to where they stand vertical.
+pub const GUTTER_TRIGGER_HALF: Vec3 = Vec3::new(GUTTER_FLOOR + GUTTER_REACH, 4.5, 2.0);
 /// Trigger centres sit this far above the deck.
 pub const TRIGGER_LIFT: f32 = 2.0;
 /// Below the terrain: only reached by leaving the terrain square.
@@ -175,6 +177,9 @@ pub mod color {
     pub const WALL: [f32; 3] = [0.32, 0.30, 0.29];
     /// The slab of a raised road: its sides, open ends and underside, wrapped in tarp.
     pub const SLAB: [f32; 3] = [0.62, 0.60, 0.56];
+    /// A gutter's lip and top, and its sides down to the ground: the ice of its walls (the
+    /// renderer draws them as the deck), though the car meets them as walls.
+    pub const GUTTER: [f32; 3] = [0.21, 0.21, 0.23];
     /// The plastic tubes of the stilts, signal red.
     pub const TUBE: [f32; 3] = [0.62, 0.035, 0.025];
     /// Collars and base plates of the stilts.
@@ -456,6 +461,60 @@ pub enum Edge {
     Sandbags,
     /// Red and white inflatable tubes along each side, the tarp strapped down.
     Bumpers,
+    /// A bobsleigh gutter (the ice planet, docs/blocks-ice.md): a channel of ice in a U, a flat
+    /// floor [`GUTTER_FLOOR`] m to each side of the centreline, then on each side a wall rising
+    /// gently from it and steepening, driven on up to 70° of slope ([`GUTTER_ARC_DEG`]), its lip
+    /// curling over the gutter ([`gutter_profile`]). At the ends of a run of gutters the walls
+    /// shrink to nothing over [`GUTTER_RAMP`] m and the floor widens to a road's deck, so a gutter
+    /// joins any road.
+    Gutter,
+}
+
+/// Half the width of a gutter's flat floor, metres.
+pub const GUTTER_FLOOR: f32 = 5.0;
+/// A gutter's wall is a quarter of an ellipse from the floor's edge: it reaches
+/// [`GUTTER_REACH`] m out and [`GUTTER_DEPTH`] m up where it stands vertical, so it rises gently
+/// from the floor (a radius of 13.5 m at its foot) and steepens toward the top (4 m). It is driven
+/// on up to [`GUTTER_ARC_DEG`]° of slope; past the vertical a lip of [`GUTTER_CURL`] m radius
+/// rolls over the gutter, a roof a car riding up the wall too fast hits and drops back from.
+pub const GUTTER_REACH: f32 = 9.0;
+pub const GUTTER_DEPTH: f32 = 6.0;
+pub const GUTTER_ARC_DEG: f32 = 70.0;
+pub const GUTTER_CURL: f32 = 1.4;
+/// Height of a gutter's top above its floor, metres.
+pub const GUTTER_HEIGHT: f32 = GUTTER_DEPTH + GUTTER_CURL + 0.4;
+/// Over this many metres at either end of a run of gutters, the walls grow from nothing.
+pub const GUTTER_RAMP: f32 = 24.0;
+/// The points of a gutter wall's profile that bound its driven curve (the rest is the lip).
+pub const GUTTER_ARC_POINTS: usize = 14;
+
+/// A gutter wall's profile from the floor's edge out: points (across, up), metres, and their
+/// normals (zero: given by the triangles). The ellipse of [`GUTTER_REACH`] by [`GUTTER_DEPTH`]
+/// rising from the floor to [`GUTTER_ARC_DEG`]° of slope (the driven wall, its first
+/// [`GUTTER_ARC_POINTS`] points, the slope growing by the same step from each to the next) and on
+/// to the vertical; then the lip, a circle of [`GUTTER_CURL`] rolling over the gutter to its tip
+/// (half way, then flat); then the top, back out over the wall, a little higher, 1 m past its
+/// back.
+pub fn gutter_profile() -> [([f32; 2], [f32; 2]); BORDER_POINTS] {
+    let mut out = [([0.0; 2], [0.0; 2]); BORDER_POINTS];
+    let (a, b) = (GUTTER_REACH, GUTTER_DEPTH);
+    let ellipse = |t: f32| {
+        let (sn, cs) = (libm::sinf(t), libm::cosf(t));
+        let n = Vec2::new(-b * sn, a * cs).normalize();
+        ([a * sn, b * (1.0 - cs)], [n.x, n.y])
+    };
+    for (i, q) in out.iter_mut().enumerate().take(GUTTER_ARC_POINTS) {
+        // The point where the wall's slope is the i-th step to the driven top.
+        let slope = (GUTTER_ARC_DEG * i as f32 / (GUTTER_ARC_POINTS - 1) as f32).to_radians();
+        *q = ellipse(libm::atanf(libm::tanf(slope) * a / b));
+    }
+    let c = GUTTER_CURL;
+    let h = core::f32::consts::FRAC_1_SQRT_2;
+    out[GUTTER_ARC_POINTS] = ([a, b], [-1.0, 0.0]);
+    out[GUTTER_ARC_POINTS + 1] = ([a - c + c * h, b + c * h], [-h, -h]);
+    out[GUTTER_ARC_POINTS + 2] = ([a - c, b + c], [0.0; 2]);
+    out[GUTTER_ARC_POINTS + 3] = ([a + 1.0, GUTTER_HEIGHT], [0.0; 2]);
+    out
 }
 
 /// A piece as the map designer picks it: a shape, a deck, the finish of a road's edges and
@@ -492,6 +551,7 @@ impl Piece {
     pub fn half_width(&self, deck: Surface) -> f32 {
         match deck {
             Surface::Dirt if self.narrow => SNOW_HALF_WIDTH,
+            Surface::Road if self.edge == Edge::Gutter => GUTTER_FLOOR,
             d => half_width(d),
         }
     }
@@ -645,6 +705,14 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// A gutter's frame where only `scale` of its walls stand (0..1, at the ends of a run of
+    /// gutters): its floor as much wider, up to a road's deck.
+    pub fn gutter_grown(mut self, scale: f32) -> Frame {
+        self.border *= scale;
+        self.half_width = HALF_WIDTH + (self.half_width - HALF_WIDTH) * scale;
+        self
+    }
+
     /// Unit vector across the (banked) deck, pointing left.
     pub fn lateral(&self) -> Vec3 {
         self.left * libm::cosf(self.bank) + Vec3::Y * libm::sinf(self.bank)
@@ -1066,7 +1134,11 @@ impl Placed {
     /// The trigger of this piece's gate.
     pub fn trigger(&self) -> Trigger {
         let f = self.frame(self.gate_s());
-        let half_extents = if f.deck == Surface::Dirt { DIRT_TRIGGER_HALF } else { TRIGGER_HALF };
+        let half_extents = match (f.deck, f.edge) {
+            (Surface::Dirt, _) => DIRT_TRIGGER_HALF,
+            (_, Edge::Gutter) => GUTTER_TRIGGER_HALF,
+            _ => TRIGGER_HALF,
+        };
         Trigger { center: f.centre() + Vec3::Y * TRIGGER_LIFT, half_extents, yaw: f.yaw }
     }
 
@@ -1121,7 +1193,10 @@ impl Placed {
             return false;
         }
         let (fa, fb, fm) = (self.frame(a), self.frame(b), self.frame(0.5 * (a + b)));
-        if fa.forward.dot(fb.forward) < libm::cosf(3f32.to_radians()) {
+        // A gutter's walls are driven at speed: a sample every 1.5° of turn, or each step
+        // between the planes of its walls would knock a car riding them.
+        let step = if self.piece.edge == Edge::Gutter { 1.5f32 } else { 3.0 };
+        if fa.forward.dot(fb.forward) < libm::cosf(step.to_radians()) {
             return true;
         }
         // An S or a snake can head the same way at both ends of a stretch and swerve between.
@@ -1163,7 +1238,7 @@ enum Role {
 }
 
 /// Points of a border's profile, from its inner foot out to its outer foot.
-const BORDER_POINTS: usize = 7;
+pub const BORDER_POINTS: usize = GUTTER_ARC_POINTS + 4;
 /// Index of the left deck edge among a section's points (after the left foot, border and verge).
 const LEFT_EDGE: usize = BORDER_POINTS + 1;
 /// Index of the right deck edge.
@@ -1227,16 +1302,24 @@ fn border_profile(edge: Option<Edge>, scale: f32) -> [([f32; 2], [f32; 2]); BORD
             // For a car, exactly the barrier the roads always had, [`LIP_WIDTH`] by
             // [`LIP_HEIGHT`] with sharp edges: a rounded edge is a step a wheel climbs, and a car
             // rubbing the barrier on a raised road would ride over it. It is not drawn: the
-            // renderer shows a round tube over it ([`border_visuals`]).
+            // renderer shows a round tube over it ([`border_visuals`]). (The last points repeat
+            // the outer foot: empty strips, swept as nothing.)
             let (w, h) = (LIP_WIDTH, LIP_HEIGHT);
-            out = [([0.0, 0.0], [0.0; 2]), ([0.0, h], [0.0; 2]), ([0.0, h], [0.0; 2]), ([0.5 * w, h], [0.0; 2]), ([w, h], [0.0; 2]), ([w, h], [0.0; 2]), ([w, 0.0], [0.0; 2])];
+            let box_ = [[0.0, 0.0], [0.0, h], [0.0, h], [0.5 * w, h], [w, h], [w, h], [w, 0.0]];
+            for (i, q) in out.iter_mut().enumerate() {
+                q.0 = box_[i.min(box_.len() - 1)];
+            }
         }
         Some(Edge::Sandbags) => {
             // The row of bags as a box, upright on the road side (a car slides along it rather
             // than climbing it); not drawn: the renderer shows the bags ([`border_visuals`]).
             let (w, h) = (BAG_WIDTH, BAG_HEIGHT);
-            out = [([0.0, 0.0], [0.0; 2]), ([0.0, h], [0.0; 2]), ([0.0, h], [0.0; 2]), ([0.5 * w, h], [0.0; 2]), ([w, h], [0.0; 2]), ([w, h], [0.0; 2]), ([w, 0.0], [0.0; 2])];
+            let box_ = [[0.0, 0.0], [0.0, h], [0.0, h], [0.5 * w, h], [w, h], [w, h], [w, 0.0]];
+            for (i, q) in out.iter_mut().enumerate() {
+                q.0 = box_[i.min(box_.len() - 1)];
+            }
         }
+        Some(Edge::Gutter) => out = gutter_profile(),
     }
     for q in out.iter_mut() {
         q.0 = [q.0[0] * scale, q.0[1] * scale];
@@ -1246,10 +1329,16 @@ fn border_profile(edge: Option<Edge>, scale: f32) -> [([f32; 2], [f32; 2]); BORD
 
 /// Width of the verge between the deck edge and its border ([`Role::Verge`]), skirt width, and
 /// height of the skirt's foot above the terrain (the underside of a raised slab, 0 where the side
-/// comes down to the ground) for a deck edge `e` metres above the terrain.
-fn side_params(deck: Surface, e: f32) -> (f32, f32, f32) {
-    match deck {
-        Surface::Dirt => (LIP_WIDTH, SHOULDER_WIDTH.max(1.2 * e), 0.0),
+/// comes down to the ground) for a deck edge `e` metres above the terrain. A gutter's wall rises
+/// from the deck edge itself (no verge), and its outer side comes down to the ground like a bank.
+fn side_params(deck: Surface, edge: Option<Edge>, e: f32) -> (f32, f32, f32) {
+    match (deck, edge) {
+        (Surface::Dirt, _) => (LIP_WIDTH, SHOULDER_WIDTH.max(1.2 * e), 0.0),
+        (_, Some(Edge::Gutter)) => (
+            0.0,
+            SHOULDER_WIDTH.max(1.2 * GUTTER_HEIGHT) * (1.0 - smoothstep(0.3, 1.5, e)),
+            (e - SLAB_DEPTH).max(0.0) * smoothstep(1.0, 2.5, e),
+        ),
         _ => (
             LIP_WIDTH * (1.0 - smoothstep(0.3, 1.2, e)),
             SHOULDER_WIDTH * (1.0 - smoothstep(0.3, 1.5, e)),
@@ -1283,8 +1372,8 @@ impl Section {
             around[i] = around[i - 1] + libm::hypotf(b[0] - a[0], b[1] - a[1]);
         }
         let width = around[BORDER_POINTS - 1];
-        let (verge_l, skirt_l, gap_l) = side_params(f.deck, el.y - TERRAIN_Y);
-        let (verge_r, skirt_r, gap_r) = side_params(f.deck, er.y - TERRAIN_Y);
+        let (verge_l, skirt_l, gap_l) = side_params(f.deck, edge, el.y - TERRAIN_Y);
+        let (verge_r, skirt_r, gap_r) = side_params(f.deck, edge, er.y - TERRAIN_Y);
         let at = |edge: Vec3, out: Vec3, verge: f32, q: [f32; 2]| edge + out * (verge + q[0]) + up * q[1];
         let facing = |out: Vec3, n: [f32; 2]| if n == [0.0, 0.0] { Vec3::ZERO } else { (out * n[0] + up * n[1]).normalize() };
         let last = BORDER_POINTS - 1;
@@ -1333,9 +1422,23 @@ impl Section {
 /// of its line (its road deck carries them, see [`gate_deck_colour`]); `boost`, the distance
 /// along the route at the entry of a booster block and its length (likewise, see
 /// [`booster_deck_colour`]).
-fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, boost: Option<(f32, f32)>, normal: Vec3) -> (Surface, [f32; 3], u8) {
+/// `gutter_wall`: for a strip of a gutter's wall, whether it is its driven curve (or its lip).
+#[allow(clippy::too_many_arguments)]
+fn classify(
+    role: Role,
+    deck: Surface,
+    edge: Edge,
+    gate: Option<(Gate, f32)>,
+    boost: Option<(f32, f32)>,
+    normal: Vec3,
+    gutter_wall: Option<bool>,
+) -> (Surface, [f32; 3], u8) {
     let worked = if deck == Surface::Dirt { 1 } else { 0 };
-    let side = if deck == Surface::Dirt { color::WALL } else { color::SLAB };
+    let side = match (deck, edge) {
+        (Surface::Dirt, _) => color::WALL,
+        (_, Edge::Gutter) => color::GUTTER,
+        _ => color::SLAB,
+    };
     let strapped = edge == Edge::Bumpers;
     match role {
         Role::Skirt => {
@@ -1350,6 +1453,9 @@ fn classify(role: Role, deck: Surface, edge: Edge, gate: Option<(Gate, f32)>, bo
             Surface::Dirt => (Surface::Ground, color::GROUND, worked),
             _ => (Surface::Ground, if strapped { color::VERGE_STRAPPED } else { color::VERGE }, 0),
         },
+        // A gutter's wall is ice to drive on, its lip a wall.
+        Role::Border if gutter_wall == Some(true) => (Surface::Road, color::ROAD, 0),
+        Role::Border if gutter_wall == Some(false) => (Surface::Wall, color::GUTTER, 0),
         Role::Border => (Surface::Wall, color::HULL, 0),
         Role::Line | Role::Deck if deck == Surface::Dirt => (Surface::Dirt, color::DIRT, 2),
         Role::Line | Role::Deck if gate.is_some() => {
@@ -1402,11 +1508,23 @@ pub(crate) fn sweep(
     open_start: bool,
     open_end: bool,
     deck_only: bool,
+    gutter_ramps: (bool, bool),
 ) {
     let ss = p.samples_in(range.0, range.1);
-    let secs: Vec<Section> = ss.iter().map(|&s| Section::new(&p.frame(s))).collect();
-    let decks: Vec<Surface> = ss.windows(2).map(|w| p.frame(0.5 * (w[0] + w[1])).deck).collect();
     let edge = p.edge();
+    // At the ends of a run of gutters the walls grow from nothing (sampled densely there).
+    let ss = if edge == Edge::Gutter { gutter_samples(p, ss, gutter_ramps) } else { ss };
+    let secs: Vec<Section> = ss
+        .iter()
+        .map(|&s| {
+            let mut f = p.frame(s);
+            if edge == Edge::Gutter {
+                f = f.gutter_grown(gutter_scale(p, s, gutter_ramps));
+            }
+            Section::new(&f)
+        })
+        .collect();
+    let decks: Vec<Surface> = ss.windows(2).map(|w| p.frame(0.5 * (w[0] + w[1])).deck).collect();
     let gate = p.piece.gate.map(|g| (g, route_s + p.gate_s()));
     let boost = p.piece.boost.then(|| {
         let (d0, d1) = p.deck_range();
@@ -1430,7 +1548,8 @@ pub(crate) fn sweep(
                 current = None;
                 continue;
             }
-            let class = classify(role, decks[k], edge, gate, boost, normal);
+            let gutter_wall = (edge == Edge::Gutter && role == Role::Border).then(|| gutter_curve(j));
+            let class = classify(role, decks[k], edge, gate, boost, normal, gutter_wall);
             // A border's own normals where they agree with the strip (shaded round), the
             // triangles' elsewhere (its crease against the deck).
             let round = role == Role::Border
@@ -1479,6 +1598,45 @@ pub(crate) fn sweep(
     }
 }
 
+/// Whether border strip `j` of a section lies on a gutter wall's driven curve (rather than its lip).
+fn gutter_curve(j: usize) -> bool {
+    // Left: points 1.. run from the profile's last point in; right: from its first point out.
+    let segment = if j < LEFT_EDGE { BORDER_POINTS - 1 - j } else { j - (RIGHT_EDGE + 1) };
+    segment + 1 < GUTTER_ARC_POINTS
+}
+
+/// How much of a gutter's walls stand at `s` along `p`: they grow from nothing over
+/// [`GUTTER_RAMP`] m at an end that does not join another gutter (`ramp_start`, `ramp_end`).
+pub fn gutter_scale(p: &Placed, s: f32, (ramp_start, ramp_end): (bool, bool)) -> f32 {
+    let (d0, d1) = p.deck_range();
+    let ramp = GUTTER_RAMP.min(0.5 * (d1 - d0));
+    let a = if ramp_start { smoothstep(0.0, ramp, s - d0) } else { 1.0 };
+    let b = if ramp_end { smoothstep(0.0, ramp, d1 - s) } else { 1.0 };
+    a * b
+}
+
+/// `ss` with a sample every 2 m over a gutter's ramps, so its walls grow smoothly.
+fn gutter_samples(p: &Placed, mut ss: Vec<f32>, (ramp_start, ramp_end): (bool, bool)) -> Vec<f32> {
+    let (d0, d1) = p.deck_range();
+    let ramp = GUTTER_RAMP.min(0.5 * (d1 - d0));
+    let (lo, hi) = (ss[0], ss[ss.len() - 1]);
+    let mut extra = Vec::new();
+    let mut s = 0.0;
+    while s <= ramp {
+        if ramp_start {
+            extra.push(d0 + s);
+        }
+        if ramp_end {
+            extra.push(d1 - s);
+        }
+        s += 2.0;
+    }
+    ss.extend(extra.into_iter().filter(|&s| s > lo && s < hi));
+    ss.sort_by(f32::total_cmp);
+    ss.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+    ss
+}
+
 /// What the eye sees of a road's borders along a swept part (`range` of piece `p`, its sections
 /// `secs` at `ss`, `route_s` at the piece's entry), into `decor` (the car meets their plain hulls,
 /// see [`border_profile`]): the deck's tarp carried on under the border; on a road with bumpers, a
@@ -1490,7 +1648,8 @@ fn border_visuals(decor: &mut MeshBuilder, p: &Placed, range: (f32, f32), secs: 
         let mut floor: Option<[u32; 2]> = None;
         let mut tube: Option<Vec<u32>> = None;
         for (k, sec) in secs.iter().enumerate() {
-            let Some(edge) = sec.edge.filter(|_| sec.border > 0.02) else {
+            // A gutter's wall is its own visual.
+            let Some(edge) = sec.edge.filter(|&e| sec.border > 0.02 && e != Edge::Gutter) else {
                 (floor, tube) = (None, None);
                 continue;
             };
@@ -1691,11 +1850,21 @@ pub(crate) fn footprint(p: &Placed, range: (f32, f32)) -> Vec<(Vec2, f32, f32)> 
         .collect()
 }
 
-/// How far from the centreline the posts of a gate stand, at the gate's frame.
+/// How far from the centreline the posts of a gate stand, at the gate's frame: in a gutter, on
+/// the tops of its walls.
 pub(crate) fn gate_post_u(f: &Frame) -> f32 {
-    match f.deck {
-        Surface::Dirt => f.half_width + DIRT_GATE_POST_OUT,
+    match (f.deck, f.edge) {
+        (Surface::Dirt, _) => f.half_width + DIRT_GATE_POST_OUT,
+        (_, Edge::Gutter) => GUTTER_FLOOR + GUTTER_REACH + 0.4,
         _ => GATE_POST_U,
+    }
+}
+
+/// Height of a gate's beam over the deck at the gate's frame: in a gutter, over its walls.
+pub(crate) fn gate_beam_bottom(f: &Frame) -> f32 {
+    match f.edge {
+        Edge::Gutter => GATE_BEAM_BOTTOM.max(GUTTER_HEIGHT + 1.0),
+        _ => GATE_BEAM_BOTTOM,
     }
 }
 
@@ -1862,7 +2031,9 @@ impl Layout {
         for (i, p) in self.pieces.iter().enumerate() {
             let open_start = i == 0 || p.deck_range().0 > 0.0;
             let open_end = i + 1 == n || self.pieces[i + 1].deck_range().0 > 0.0;
-            sweep(&mut b, &mut decor, p, p.deck_range(), route_s, open_start, open_end, false);
+            let gutter = |j: Option<usize>| j.is_some_and(|j| self.pieces[j].edge() == Edge::Gutter);
+            let ramps = (!gutter(i.checked_sub(1)), !gutter((i + 1 < n).then_some(i + 1)));
+            sweep(&mut b, &mut decor, p, p.deck_range(), route_s, open_start, open_end, false, ramps);
             crate::stilts::stilts(&mut b, &mut decor, p, p.deck_range(), route_s, |_| TERRAIN_Y);
             if p.piece.gate.is_some() {
                 crate::gates::gate(&mut b, &mut decor, &p.frame(p.gate_s()), |_| TERRAIN_Y, |_| TERRAIN_Y);

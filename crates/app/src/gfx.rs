@@ -12,7 +12,7 @@ use winit::window::Window;
 use crate::marks::{CAPACITY as MARKS_CAPACITY, MarkVertex};
 use crate::particles::{CAPACITY as DUST_CAPACITY, ParticleVertex};
 use crate::surfaces::SurfaceTextures;
-use crate::weather::{Climate, GustInstance, MAX_GUSTS, Weather};
+use crate::weather::{Climate, GustInstance, MAX_GUSTS, NOISE_SIDE, Weather};
 use track::map::TimeOfDay;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -347,11 +347,12 @@ struct FrameUniform {
     storm_a: [f32; 4],
     storm_b: [f32; 4],
     far_light_view_proj: [[f32; 4]; 4],
-    /// The weather (weather.rs): wind, drift of the air, camera velocity.
+    /// The weather (weather.rs): wind, drift of the air, camera velocity (w: 1 when the air
+    /// carries snow).
     wind: [f32; 4],
     drift: [f32; 4],
     eye_vel: [f32; 4],
-    /// Viewport in pixels, and pixels per metre at a metre's depth.
+    /// Viewport in pixels, pixels per metre at a metre's depth, and how fast the snow falls.
     viewport: [f32; 4],
     /// Tyres on the ground, three vectors each: the middle of the footprint and the shade's
     /// strength (0: none); the axle and the footprint's half width; the heading and its half
@@ -430,9 +431,9 @@ pub struct SceneRenderer {
     storm: Option<StormSite>,
     /// The planet of the track: its sky and its materials (scene.wgsl's `frame.misc.w`).
     planet: track::Planet,
-    /// Wind, drifting sand and gusts over the current track.
+    /// Wind, drifting sand or falling snow, and gusts over the current track, since when.
     weather: Option<Weather>,
-    climate: Climate,
+    weather_since: Instant,
     grain_pipeline: wgpu::RenderPipeline,
     gust_grain_pipeline: wgpu::RenderPipeline,
     puff_pipeline: wgpu::RenderPipeline,
@@ -460,6 +461,8 @@ pub struct SceneRenderer {
     livery_sampler: wgpu::Sampler,
     livery_view: wgpu::TextureView,
     surfaces: SurfaceTextures,
+    noise_view: wgpu::TextureView,
+    noise_sampler: wgpu::Sampler,
     object_buffer: wgpu::Buffer,
     object_group: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
@@ -605,6 +608,23 @@ impl SceneRenderer {
                     },
                     count: None,
                 },
+                // The lattice of the weather's smoke noise, and its sampler (repeating).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let shadow_frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -646,6 +666,15 @@ impl SceneRenderer {
         });
         let livery_view = create_livery(gpu, 1, 1, &[255, 255, 255, 255]);
         let surfaces = crate::surfaces::load(gpu);
+        let noise_view = create_noise(gpu);
+        let noise_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("noise sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let frame_group = create_frame_group(
             device,
             &frame_layout,
@@ -655,6 +684,7 @@ impl SceneRenderer {
             &livery_view,
             &livery_sampler,
             &surfaces,
+            (&noise_view, &noise_sampler),
         );
         let shadow_frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow frame group"),
@@ -1036,7 +1066,7 @@ impl SceneRenderer {
             storm: None,
             planet: track::Planet::Mars,
             weather: None,
-            climate: Climate::from_env(),
+            weather_since: Instant::now(),
             grain_pipeline,
             gust_grain_pipeline,
             puff_pipeline,
@@ -1060,6 +1090,8 @@ impl SceneRenderer {
             livery_sampler,
             livery_view,
             surfaces,
+            noise_view,
+            noise_sampler,
             object_buffer,
             object_group,
             shadow_view,
@@ -1080,15 +1112,18 @@ impl SceneRenderer {
 
     /// Sets the scene up for a new track on `planet`, drawn with `mesh` and raced at `time`:
     /// lights it, bakes its far shadows, places the sandstorm and starts its approach over
-    /// (kilometres beyond the route, ahead of the start), and starts the weather over, the wind
-    /// blowing from the storm. The ice planet's prototype has neither: still, clear air.
+    /// (kilometres beyond the route, ahead of the start), and starts the planet's weather over,
+    /// the wind blowing from the storm. The ice planet has no storm: its wind starts out blowing
+    /// at the car on the start line.
     pub fn set_track(&mut self, gpu: &Gpu, track: &track::Track, mesh: MeshId, time: TimeOfDay, planet: track::Planet) {
         self.lighting = Lighting::of(self.time_override.unwrap_or(time), planet);
         self.track_mesh = Some(mesh);
         self.bake_shadows(gpu, track, mesh);
         self.planet = planet;
+        self.weather_since = Instant::now();
+        let forward = Vec2::new(track.start.forward().x, track.start.forward().z);
         if !planet.is_mars() {
-            self.weather = None;
+            self.weather = Some(Weather::new(Climate::of(planet), &track.route, -forward));
             self.storm = None;
             return;
         }
@@ -1098,10 +1133,9 @@ impl SceneRenderer {
         let mid = if lo.x <= hi.x { 0.5 * (lo + hi) } else { Vec2::new(track.start.position.x, track.start.position.z) };
         let reach = track.route.iter().map(|p| Vec2::new(p.x, p.z).distance(mid)).fold(0.0, f32::max);
         let sun = Vec2::new(self.lighting.sun_dir.x, self.lighting.sun_dir.z);
-        let forward = Vec2::new(track.start.forward().x, track.start.forward().z);
         let away = if forward.perp_dot(sun) > 0.0 { -STORM_SUN_OFFSET } else { STORM_SUN_OFFSET };
         let dir = Vec2::from_angle(away.to_radians()).rotate(forward);
-        self.weather = Some(Weather::new(self.climate, &track.route, -dir));
+        self.weather = Some(Weather::new(Climate::of(planet), &track.route, -dir));
         self.storm = Some(StormSite {
             centre: Vec3::new(mid.x, track.start.position.y, mid.y),
             dir,
@@ -1206,6 +1240,7 @@ impl SceneRenderer {
             &self.livery_view,
             &self.livery_sampler,
             &self.surfaces,
+            (&self.noise_view, &self.noise_sampler),
         );
     }
 
@@ -1306,16 +1341,17 @@ impl SceneRenderer {
             let front = s.reach + STORM_STOP + (STORM_START - STORM_STOP) * left;
             frame.storm_a = [s.centre.x, s.centre.z, s.dir.x, s.dir.y];
             frame.storm_b = [front, t, s.centre.y, 1.0 - left];
-            if let Some(w) = &mut self.weather {
-                w.update(since, view.eye);
-                let u = w.uniforms();
-                (frame.wind, frame.drift, frame.eye_vel) = (u.wind, u.drift, u.eye_vel);
-                let gusts = w.instances();
-                if !gusts.is_empty() {
-                    gpu.queue.write_buffer(&self.gust_buffer, 0, bytemuck::cast_slice(&gusts));
-                }
-                self.gust_count = gusts.len() as u32;
+        }
+        if let Some(w) = &mut self.weather {
+            w.update(self.clock.unwrap_or_else(|| self.weather_since.elapsed().as_secs_f32()), view.eye);
+            let u = w.uniforms();
+            (frame.wind, frame.drift, frame.eye_vel) = (u.wind, u.drift, u.eye_vel);
+            frame.viewport[3] = u.snow_fall;
+            let gusts = w.instances();
+            if !gusts.is_empty() {
+                gpu.queue.write_buffer(&self.gust_buffer, 0, bytemuck::cast_slice(&gusts));
             }
+            self.gust_count = gusts.len() as u32;
         }
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
 
@@ -1561,6 +1597,7 @@ fn create_frame_group(
     livery_view: &wgpu::TextureView,
     livery_sampler: &wgpu::Sampler,
     surfaces: &SurfaceTextures,
+    (noise_view, noise_sampler): (&wgpu::TextureView, &wgpu::Sampler),
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("frame group"),
@@ -1576,8 +1613,31 @@ fn create_frame_group(
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&surfaces.sampler) },
             wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(far_shadow_view) },
             wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(lamp_shadow_view) },
+            wgpu::BindGroupEntry { binding: 10, resource: wgpu::BindingResource::TextureView(noise_view) },
+            wgpu::BindGroupEntry { binding: 11, resource: wgpu::BindingResource::Sampler(noise_sampler) },
         ],
     })
+}
+
+/// The lattice of weather.wgsl's value noise (weather.rs), read at its full size only.
+fn create_noise(gpu: &Gpu) -> wgpu::TextureView {
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("noise lattice"),
+        size: wgpu::Extent3d { width: NOISE_SIDE, height: NOISE_SIDE, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        &crate::weather::noise_lattice(),
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(NOISE_SIDE), rows_per_image: Some(NOISE_SIDE) },
+        wgpu::Extent3d { width: NOISE_SIDE, height: NOISE_SIDE, depth_or_array_layers: 1 },
+    );
+    texture.create_view(&Default::default())
 }
 
 /// An sRGB texture with its whole mip chain (each level averaged from the one above, in linear).

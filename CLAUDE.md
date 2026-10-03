@@ -124,11 +124,13 @@ link the main checkout's `track` (missing a new block or surface).
   for debugging (FPS, profile, telemetry, tuning panel in `ui.rs`) shows only with Tab, the
   settings' debug switch, or `MARS_DEBUG_PANEL=1`.
 - `crates/app/src/weather.rs` — the weather, render only (the wind never pushes the car): a
-  `Climate` per planet (Mars: a breeze blowing from the sandstorm, light sand drifting in the
-  air, a gust every few seconds) that every map gets, the gusts being placed on the track's route
+  `Climate` per planet that every map gets (Mars: a breeze blowing from the sandstorm, light sand
+  drifting in the air, a gust every few seconds; the ice planet: light snow falling and swaying
+  on a wind that turns to a new direction every few seconds, starting out blowing at the car,
+  and now and then a thin, icy cloud of blown snow), the gusts being placed on the track's route
   ahead of the car, often to cross the road as it gets there. Drawn by `shaders/weather.wgsl`:
-  grains as short streaks in a box of air that follows the camera, gust clouds as puffs of
-  animated smoke that thin out near the camera, a light veil when the camera is inside one.
+  grains (or snowflakes) as short streaks in a box of air that follows the camera, gust clouds as
+  puffs of animated smoke that thin out near the camera, a light veil when the camera is inside one.
   `MARS_WEATHER=off|gusty` stills the air or brings a gust every second (checks); a hidden
   screenshot run needs `MARS_BENCH` for the weather to advance between its shots.
 - `tools/blender/build_buggy.py` — builds the buggy "B" (`art/buggy/buggy.blend`, rigged

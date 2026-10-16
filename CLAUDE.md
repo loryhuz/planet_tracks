@@ -95,6 +95,16 @@ link the main checkout's `track` (missing a new block or surface).
   unless a painter's clip rect is set to `viewport_rect()`; `MARS_SAFE_AREA=59,0,34,0` gives a
   macOS self-test an iPhone's insets. Self-test variables reach the app as
   `SIMCTL_CHILD_MARS_MAP=Jezero xcrun simctl launch booted com.marsracer.planettracks`.
+- `tools/mac/bundle.sh` — packages the macOS apps, on the Desktop by default: `Planet Tracks.app`
+  and `PT Éditeur.app` (the track editor, `mars-editor`, on the `editor` branch until it is
+  merged: `--editor-src` a checkout of it), release builds into the main checkout's `target/`
+  (with the fingerprint clean-up below, whatever the checkout), with their `Info.plist`, an icon
+  (`art/icons/`, cut from the menu's film by `/usr/bin/python3 tools/mac/icon.py`) and an ad hoc
+  signature. `tools/mac/bundle.sh --force --editor-src .claude/worktrees/editor` refreshes both
+  after a change (`--game` or `--editor` alone, `--out DIR`; it refuses to replace an app
+  without `--force`). An app built from a checkout keeps that checkout's `tuning/` (the session,
+  the editor's draft) and, without `--release`, plays the menu's film from its source tree;
+  `--release` puts the films in the game's bundle (`docs/release.md`).
 - `crates/app/src/menu/` — the game's menu, "Planet Tracks" (title with the tagline, one planet at
   a time, then the planet's circuits as tiles; no Solo/Multi choice, multiplayer will get one
   entry before the planets), in a wide layout (1280 × 720 design space) and a tall phone one

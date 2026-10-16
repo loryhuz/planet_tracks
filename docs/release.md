@@ -21,7 +21,7 @@ can therefore ship without them and still look like it works, so before every re
 
    | Platform | Files | Where |
    |---|---|---|
-   | macOS (`Planet Tracks.app`) | `menu-wide.mp4`, `menu-tall.mp4` | `Contents/Resources/video/` |
+   | macOS (`Planet Tracks.app`) | `menu-wide.mp4`, `menu-tall.mp4` | `Contents/Resources/video/`: `tools/mac/bundle.sh --release` copies them there (below) |
    | iOS | `menu-tall.mp4` | the bundle's `video/` folder: `ios/build-rust.sh` copies it there (a Release build fails without it) |
    | Android | none yet | no decoder: the menu shows the night sky |
 
@@ -33,4 +33,32 @@ can therefore ship without them and still look like it works, so before every re
    hidden by the last place `video::find` looks, the source tree's `crates/app/assets/video/`.
    Run the packaged app with that folder moved aside (or on another machine): the title screen
    must show the film, and a missing clip prints `menu film menu-wide.mp4 not found` on the
-   standard error.
+   standard error. On macOS, building the package from a worktree (`--src`) does the same
+   without moving anything: a worktree has no films, the script takes them from the main
+   checkout, and the binary only looks in its own source tree. Then, hidden and muted:
+
+       cd / && MARS_NO_AUDIO=1 MARS_MENU=title MARS_SHOTS=/tmp/check MARS_SHOT_TIMES=5 \
+           MARS_BENCH=0,8 MARS_EXIT_AFTER=8.5 "DIR/Planet Tracks.app/Contents/MacOS/mars-racer"
+
+   (`MARS_BENCH` alone counts as a race self-test and skips the menu: `MARS_MENU=title` keeps it.)
+
+## Package the macOS app
+
+    tools/mac/bundle.sh --game --release --out DIR
+
+builds `mars-racer` with the release profile and makes `DIR/Planet Tracks.app`: the binary in
+`Contents/MacOS/`, an `Info.plist` (`com.marsracer.planettracks.mac`, the workspace's version,
+the commit count as the build number), `AppIcon.icns` from `art/icons/game.png`, the films in
+`Contents/Resources/video/`, and an ad hoc signature. Without `--release` the films stay out:
+that is the Desktop app of the machine that builds it, which plays them from its source tree.
+
+It is not yet a package for other Macs:
+
+- **The signature is ad hoc.** Another Mac's Gatekeeper refuses it once downloaded: it needs a
+  Developer ID Application signature with the hardened runtime, notarized (`xcrun notarytool`)
+  and stapled.
+- **The session is saved in the source tree** (`session::path`: `tuning/session.json` beside
+  the sources the binary was built from). Elsewhere that folder does not exist and the records
+  are not kept: on macOS it belongs in `~/Library/Application Support/`.
+- **It is arm64 only** (cargo's host target): an Intel Mac needs `x86_64-apple-darwin` too,
+  joined with `lipo`.

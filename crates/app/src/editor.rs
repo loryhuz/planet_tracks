@@ -4,22 +4,28 @@
 //! ([`track::sketch`]): starting on the draft it redraws it from there, elsewhere it begins a new
 //! one. The "Sélection" tool paints over a stretch of the draft (or taps a block) and offers the
 //! changes a stretch can take: its surface, its height, a hump, whoops, a jump, banked turns, a
-//! checkpoint, or the draft cut off there. "Jouer" (or Enter) races it.
+//! checkpoint, or the draft cut off there; the heights along the route show over the plan while a
+//! stretch is selected. "Jouer" (or Enter) races it.
 //!
-//! Pinch (trackpad or two fingers) zooms, two fingers (or the trackpad's scroll, or the right
-//! mouse button) move the view. The draft is saved as a map file after every change
-//! (`tuning/draft.json`, on iOS the app's Documents folder, or `MARS_DRAFT=path`): copied into
-//! `crates/track/maps/` and added to `BUILTIN_MAPS`, it becomes a circuit of the game.
+//! The plan is drawn by [`crate::editor_view`]: decks take their height's colour as they rise.
+//! Leaning the phone to the side glances at the relief: the view tilts in perspective, heights
+//! stretched, and lays flat again as the phone comes back; the round "3D" button (or T) keeps it
+//! tilted, to draw in 3D (the only way on a computer). Pinch (trackpad or two fingers) zooms, two fingers (or the
+//! trackpad's scroll, or the right mouse button) move the view, and in 3D turning two fingers
+//! (or the trackpad's rotation) turns it. Tilted, a stroke is drawn on the deck it starts on (or
+//! the ground), and a selection is picked on what the screen shows. The draft is saved as a map
+//! file after every change (`tuning/draft.json`, on iOS the app's Documents folder, or
+//! `MARS_DRAFT=path`): copied into `crates/track/maps/` and added to `BUILTIN_MAPS`, it becomes
+//! a circuit of the game.
 
 use std::path::PathBuf;
 
-use egui::epaint::{Mesh, PathStroke};
 use egui::{Align2, Color32, Id, Order, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2};
-use glam::Vec2 as W;
-use track::Surface;
-use track::kit::{CELL, Gate, Kind, LEVEL};
+use glam::{Vec2 as W, Vec3};
+use track::kit::CELL;
 use track::sketch::{Deck, Draft, Edit};
 
+use crate::editor_view::{self as view, BOOST, CHECKPOINT, CLASH, Camera, SELECTED};
 use crate::menu::Layout;
 use crate::menu::paint::{self, Font, Icon, col, fade};
 
@@ -35,37 +41,10 @@ enum Tool {
     Select,
 }
 
-/// One row of a block's deck, across it, in world (x, z).
-struct Row {
-    left: W,
-    right: W,
-    centre: W,
-    forward: W,
-    height: f32,
-    dirt: bool,
-}
-
-/// A block of the draft as drawn.
-struct Block {
-    rows: Vec<Row>,
-    boost: bool,
-    /// A gate line across the deck.
-    gate: Option<(Gate, W, W)>,
-    /// Where its height label goes and what it says (slopes, ramps).
-    label: Option<(W, String)>,
-    top: f32,
-}
-
-/// The ground under the plan, the decks, lines and marks.
-const GROUND: Color32 = Color32::from_rgb(38, 22, 17);
-const ROAD_DECK: Color32 = Color32::from_rgb(70, 70, 78);
-const DIRT_DECK: Color32 = Color32::from_rgb(168, 92, 52);
+/// The tool bar's swatches: the road, the dirt.
+const ROAD_SWATCH: Color32 = Color32::from_rgb(70, 70, 78);
+const DIRT_SWATCH: Color32 = Color32::from_rgb(168, 92, 52);
 const EDGE_LINE: Color32 = Color32::from_rgb(236, 232, 226);
-const BOOST: Color32 = Color32::from_rgb(255, 136, 30);
-const START: Color32 = Color32::from_rgb(61, 220, 132);
-const CHECKPOINT: Color32 = Color32::from_rgb(85, 200, 255);
-const SELECTED: Color32 = Color32::from_rgb(255, 212, 63);
-const CLASH: Color32 = Color32::from_rgb(255, 64, 48);
 
 /// The changes a selection offers, as laid out in its panel: a short label for the phone's
 /// narrow buttons, a long one for the computer's.
@@ -88,23 +67,36 @@ pub struct Editor {
     pub draft: Draft,
     undo: Vec<Draft>,
     tool: Tool,
-    /// The world point (x, z) at the middle of the screen, and points per metre.
-    centre: W,
-    scale: f32,
+    cam: Camera,
+    /// The 3D view asked for (the camera eases toward it).
+    tilted: bool,
+    /// The phone's lean to the side (radians) and the attitude it is measured from, which
+    /// follows slowly how the phone is held; and how far the view glances in 3D (0..1), to which
+    /// side.
+    lean: Option<f32>,
+    lean_neutral: Option<f32>,
+    glance: f32,
+    glance_side: f32,
+    /// When the last frame was drawn (egui's clock, seconds).
+    last_time: f64,
     framed: bool,
-    /// The stroke being drawn, world points, and whether it is still on.
+    /// The stroke being drawn (world points on the plane at `stroke_height`), and whether it is
+    /// still on.
     stroke: Vec<W>,
+    stroke_height: f32,
     drawing: bool,
+    /// Where a selection stroke last was on the screen.
+    last_pick: Option<Pos2>,
     /// The draft as the stroke being drawn would leave it, and the stroke length it was made at.
     preview: Option<Draft>,
     preview_at: usize,
-    /// What the selection was painted with: it is found again on the draft after each change.
+    /// Points on the selected blocks: the selection is found again on the draft after each change.
     selection_stroke: Vec<W>,
     selection: Option<(usize, usize)>,
     toast: Option<(String, f64)>,
     requests: Vec<Request>,
     /// The drawn blocks of what is shown, and what they were made from.
-    blocks: Vec<Block>,
+    blocks: Vec<view::Block>,
     clashes: Vec<usize>,
     shown: u64,
     generation: u64,
@@ -134,11 +126,18 @@ impl Editor {
             draft,
             undo: Vec::new(),
             tool: Tool::Brush(Deck::Road),
-            centre: W::new(0.0, 4.0 * CELL),
-            scale: 1.0,
+            cam: Camera::new(),
+            tilted: std::env::var("MARS_EDITOR_3D").is_ok(),
+            lean: None,
+            lean_neutral: None,
+            glance: 0.0,
+            glance_side: 1.0,
+            last_time: 0.0,
             framed: false,
             stroke: Vec::new(),
+            stroke_height: 0.0,
             drawing: false,
+            last_pick: None,
             preview: None,
             preview_at: 0,
             selection_stroke: Vec::new(),
@@ -151,6 +150,9 @@ impl Editor {
             generation: 0,
             save_path,
         };
+        if editor.tilted {
+            (editor.cam.tilt, editor.cam.relief, editor.cam.yaw) = (view::TILT_3D, view::RELIEF_3D, 0.35);
+        }
         if std::env::var("MARS_EDITOR_DEMO").is_ok() {
             editor.demo();
         }
@@ -181,6 +183,47 @@ impl Editor {
     pub fn deselect(&mut self) {
         self.selection = None;
         self.selection_stroke.clear();
+    }
+
+    /// Tilts the view to see the relief, or lays it flat again (the "3D" button, or T).
+    pub fn toggle_3d(&mut self) {
+        self.tilted = !self.tilted;
+    }
+
+    /// The phone's lean to the side this frame (radians, positive to the right; `None` without
+    /// motion sensors).
+    pub fn sense(&mut self, roll: Option<f32>, now: f64) {
+        // Said once, the first time the phone's lean is known.
+        if self.lean.is_none() && roll.is_some() && self.toast.is_none() {
+            self.say("Penche le téléphone sur le côté pour voir le relief en 3D", now.max(1.5));
+        }
+        self.lean = roll;
+    }
+
+    /// The glance in 3D: leaning the phone to the side tilts the view and turns it a little that
+    /// way, laid flat again as the phone comes back. Nothing moves while a finger is on the
+    /// screen (a stroke stays under it), and a lean held still fades as the attitude it is
+    /// measured from catches up with the phone.
+    fn follow_lean(&mut self, dt: f32, touching: bool) {
+        let Some(roll) = self.lean else {
+            self.glance = 0.0;
+            return;
+        };
+        let neutral = self.lean_neutral.get_or_insert(roll);
+        if touching {
+            return;
+        }
+        // How the phone is held is followed within a few seconds; a deliberate lean, slowly.
+        let lean = roll - *neutral;
+        let follow = if lean.abs() < 0.1 { 3.0 } else { 25.0 };
+        *neutral += lean * (1.0 - (-dt / follow).exp());
+        // Fully tilted from 6° to 15°, well before iOS would turn the screen to landscape.
+        let t = ((lean.abs() - 0.1) / 0.16).clamp(0.0, 1.0);
+        let goal = t * t * (3.0 - 2.0 * t);
+        self.glance += (goal - self.glance) * (1.0 - (-dt * 8.0).exp());
+        if goal > 0.0 {
+            self.glance_side = lean.signum();
+        }
     }
 
     fn say(&mut self, s: &str, now: f64) {
@@ -236,77 +279,91 @@ impl Editor {
 
     // ------------------------------------------------------------------------------ the view
 
-    fn to_screen(&self, rect: Rect, p: W) -> Pos2 {
-        let c = rect.center();
-        // Seen from above with north (+Z) up, +X (west) is on the left.
-        pos2(c.x - (p.x - self.centre.x) * self.scale, c.y - (p.y - self.centre.y) * self.scale)
-    }
-
-    fn to_world(&self, rect: Rect, q: Pos2) -> W {
-        let c = rect.center();
-        W::new(self.centre.x - (q.x - c.x) / self.scale, self.centre.y - (q.y - c.y) / self.scale)
-    }
-
-    /// Zooms by `factor` about the screen point `at`.
-    fn zoom(&mut self, rect: Rect, at: Pos2, factor: f32) {
-        let w = self.to_world(rect, at);
-        self.scale = (self.scale * factor).clamp(0.08, 6.0);
-        let c = rect.center();
-        self.centre = W::new(w.x + (at.x - c.x) / self.scale, w.y + (at.y - c.y) / self.scale);
-    }
-
-    /// Moves the view with a drag of `d` points (the plan follows the fingers).
-    fn pan(&mut self, d: egui::Vec2) {
-        self.centre += W::new(d.x, d.y) / self.scale;
-    }
-
-    /// Shows the whole draft (or a 16 × 12 cell field) in `canvas`, part of the screen `full`.
-    fn frame_view(&mut self, full: Rect, canvas: Rect) {
-        let placed = self.draft.layout().pieces;
-        let (mut lo, mut hi) = (W::splat(f32::MAX), W::splat(f32::MIN));
-        for p in &placed {
-            for (x, z) in p.cells() {
-                lo = lo.min(W::new(x as f32, z as f32) * CELL);
-                hi = hi.max(W::new(x as f32 + 1.0, z as f32 + 1.0) * CELL);
-            }
+    /// Shows the whole draft (or a 16 × 12 cell field) in `canvas`.
+    fn frame_view(&mut self, canvas: Rect) {
+        let mut points: Vec<Vec3> = self.blocks.iter().flat_map(|b| &b.rows).flat_map(|r| [r.left, r.right]).collect();
+        if points.is_empty() {
+            points = vec![Vec3::new(-8.0 * CELL, 0.0, -2.0 * CELL), Vec3::new(8.0 * CELL, 0.0, 10.0 * CELL)];
         }
-        if placed.is_empty() {
-            (lo, hi) = (W::new(-8.0, -2.0) * CELL, W::new(8.0, 10.0) * CELL);
+        // Clear of the text along the top.
+        let area = Rect::from_min_max(canvas.min + vec2(0.0, 70.0), canvas.max);
+        self.cam.fit(&points, area);
+    }
+
+    /// Eases the camera toward the view asked for: tilted with its relief (locked by the button,
+    /// or as far as the phone leans), or flat with north up.
+    fn ease(&mut self, dt: f32) {
+        let amount = if self.tilted { 1.0 } else { self.glance };
+        let (tilt, relief) = (view::TILT_3D * amount, view::RELIEF_3D * amount);
+        let k = 1.0 - (-dt * 9.0).exp();
+        let c = &mut self.cam;
+        let at = c.origin;
+        let goal_yaw = if self.tilted {
+            c.yaw
+        } else {
+            // Glancing, the view turns a little toward the side the phone leans to.
+            (c.yaw / std::f32::consts::TAU).round() * std::f32::consts::TAU + self.glance_side * self.glance * 0.5
+        };
+        if (c.tilt - tilt).abs() + (c.relief - relief).abs() + (c.yaw - goal_yaw).abs() < 1e-3 {
+            (c.tilt, c.relief, c.yaw) = (tilt, relief, goal_yaw);
+            return;
         }
-        let size = (hi - lo) + W::splat(2.0 * CELL);
-        self.scale = (canvas.width() / size.x).min(canvas.height() / size.y).clamp(0.08, 6.0);
-        let off = canvas.center() - full.center();
-        self.centre = (lo + hi) * 0.5 + W::new(off.x, off.y) / self.scale;
+        // About the middle of the screen, which stays where it is.
+        let before = c.unproject(at, 0.0);
+        c.tilt += (tilt - c.tilt) * k;
+        c.relief += (relief - c.relief) * k;
+        c.yaw += (goal_yaw - c.yaw) * k;
+        let after = c.unproject(at, 0.0);
+        c.target += before - after;
     }
 
     // ---------------------------------------------------------------------------- the frame
 
     pub fn ui(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        // The time since the last frame, from the clock (frames come faster than 60 a second on a
+        // 120 Hz screen, and in self-tests).
         let now = ctx.input(|i| i.time);
+        let dt = (now - self.last_time).clamp(0.0, 0.1) as f32;
+        self.last_time = now;
         let full = ctx.viewport_rect();
         let safe = ctx.content_rect();
         let tall = matches!(Layout::for_size(full.width(), full.height()), Layout::Tall);
         // The canvas: the part of the screen the bars leave.
         let bar_h = if tall { 76.0 } else { 80.0 };
         let canvas = Rect::from_min_max(full.min, pos2(full.max.x, safe.max.y - bar_h));
+        self.refresh();
         if !self.framed {
-            self.frame_view(full, canvas);
+            self.frame_view(canvas);
             self.framed = true;
         }
+        // Kept at the middle of the canvas as the window changes.
+        let shift = canvas.center() - self.cam.origin;
+        if shift.length() > 0.5 {
+            self.cam.origin = canvas.center();
+            self.cam.pan(-shift);
+        }
+        // `MARS_EDITOR_ROLL=degrees`: a phone leaning that much from a second on (self-tests).
+        if let Some(r) = std::env::var("MARS_EDITOR_ROLL").ok().and_then(|s| s.parse::<f32>().ok()) {
+            self.lean = Some(if now > 1.0 { r.to_radians() } else { 0.0 });
+        }
+        let touching = ctx.input(|i| i.any_touches() || i.pointer.any_down());
+        self.follow_lean(dt, touching);
+        self.ease(dt);
 
-        self.gestures(ui, full, canvas, now);
+        self.gestures(ui, canvas, now);
+        self.refresh();
         let mut painter = ui.painter().clone();
         painter.set_clip_rect(full);
-        painter.rect_filled(full, 0.0, GROUND);
-        self.paint_grid(&painter, full);
-        self.refresh();
-        self.paint_blocks(&painter, full);
-        if self.drawing && self.stroke.len() > 1 {
-            let pts: Vec<Pos2> = self.stroke.iter().map(|&p| self.to_screen(full, p)).collect();
-            painter.add(Shape::line(pts, PathStroke::new(3.0, fade(Color32::WHITE, 0.75))));
+        let marks = view::Marks { selection: self.selection.filter(|_| self.preview.is_none()), clashes: &self.clashes };
+        view::paint(&painter, &self.cam, &self.blocks, marks, full);
+        if self.drawing && matches!(self.tool, Tool::Brush(_)) {
+            view::paint_stroke(&painter, &self.cam, &self.stroke, self.stroke_height);
         }
-        self.paint_info(&painter, safe, tall);
+        let button = Rect::from_min_size(pos2(safe.max.x - 16.0 - 56.0, safe.min.y + 12.0), vec2(56.0, 56.0));
+        let below = self.paint_info(&painter, safe, tall, button);
+        self.paint_profile(&ctx, safe, tall, below);
+        self.relief_button(ui, &ctx, full, button);
         self.bars(ui, full, safe, tall, now);
         if let Some((s, t)) = &self.toast {
             // Long enough to be read: longer messages stay longer.
@@ -336,60 +393,77 @@ impl Editor {
         ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Strokes, taps, pinches and pans on the canvas.
-    fn gestures(&mut self, ui: &mut Ui, full: Rect, canvas: Rect, now: f64) {
+    /// Strokes, taps, pinches, turns and pans on the canvas.
+    fn gestures(&mut self, ui: &mut Ui, canvas: Rect, now: f64) {
         let resp = ui.interact(canvas, Id::new("editor-canvas"), Sense::click_and_drag());
-        let (multi, zoom, scroll, hover, origin) =
-            ui.input(|i| (i.multi_touch(), i.zoom_delta(), i.smooth_scroll_delta(), i.pointer.hover_pos(), i.pointer.press_origin()));
-        // Two fingers: the view moves and zooms; a stroke begun with the first finger is dropped.
+        let (multi, zoom, turn, scroll, hover, origin) = ui.input(|i| {
+            (i.multi_touch(), i.zoom_delta(), i.rotation_delta(), i.smooth_scroll_delta(), i.pointer.hover_pos(), i.pointer.press_origin())
+        });
+        // Two fingers: the view moves, zooms and (tilted) turns; a stroke begun with the first
+        // finger is dropped.
         if let Some(touch) = multi {
             if self.drawing {
                 self.drawing = false;
                 self.stroke.clear();
                 self.preview = None;
             }
-            self.pan(touch.translation_delta);
+            self.cam.pan(touch.translation_delta);
             if (zoom - 1.0).abs() > 1e-4 {
-                self.zoom(full, touch.center_pos, zoom);
+                self.cam.zoom(touch.center_pos, zoom);
+            }
+            if self.tilted && touch.rotation_delta.abs() > 1e-5 {
+                self.cam.rotate(touch.center_pos, -touch.rotation_delta);
             }
             return;
         }
+        let at = hover.filter(|h| canvas.contains(*h)).unwrap_or(canvas.center());
         if (zoom - 1.0).abs() > 1e-4 {
-            let at = hover.filter(|h| canvas.contains(*h)).unwrap_or(canvas.center());
-            self.zoom(full, at, zoom);
+            self.cam.zoom(at, zoom);
         } else if scroll != egui::Vec2::ZERO && hover.is_some_and(|h| canvas.contains(h)) {
-            self.pan(scroll);
+            self.cam.pan(scroll);
+        }
+        if self.tilted && turn.abs() > 1e-5 {
+            self.cam.rotate(at, -turn);
         }
         if resp.dragged_by(PointerButton::Secondary) || resp.dragged_by(PointerButton::Middle) {
-            self.pan(resp.drag_delta());
+            self.cam.pan(resp.drag_delta());
         }
         if resp.drag_started_by(PointerButton::Primary) {
             self.drawing = true;
             self.stroke.clear();
             self.preview = None;
             self.preview_at = 0;
-            if let Some(o) = origin {
-                self.stroke.push(self.to_world(full, o));
+            let o = origin.or(resp.interact_pointer_pos()).unwrap_or(canvas.center());
+            match self.tool {
+                Tool::Brush(_) => {
+                    // Drawn on the deck it starts on (a raised road too), or else on the ground.
+                    self.stroke_height = view::pick(&self.cam, &self.blocks, o).map_or(0.0, |(_, p)| p.y);
+                    self.stroke.push(self.cam.unproject(o, self.stroke_height));
+                }
+                Tool::Select => {
+                    self.selection = None;
+                    self.selection_stroke.clear();
+                    self.last_pick = None;
+                    self.pick_along(o);
+                }
             }
         }
         if self.drawing && resp.dragged_by(PointerButton::Primary) {
             if let Some(p) = resp.interact_pointer_pos() {
-                let w = self.to_world(full, p);
-                if self.stroke.last().is_none_or(|l| l.distance(w) > 1.5) {
-                    self.stroke.push(w);
-                }
-            }
-            // The blocks follow the stroke as it is drawn.
-            if self.stroke.len() >= self.preview_at + 3 {
-                self.preview_at = self.stroke.len();
                 match self.tool {
                     Tool::Brush(deck) => {
-                        let mut d = self.draft.clone();
-                        self.preview = d.draw(&self.stroke, deck).then_some(d);
+                        let w = self.cam.unproject(p, self.stroke_height);
+                        if self.stroke.last().is_none_or(|l| l.distance(w) > 1.5) {
+                            self.stroke.push(w);
+                        }
+                        // The blocks follow the stroke as it is drawn.
+                        if self.stroke.len() >= self.preview_at + 3 {
+                            self.preview_at = self.stroke.len();
+                            let mut d = self.draft.clone();
+                            self.preview = d.draw(&self.stroke, deck).then_some(d);
+                        }
                     }
-                    Tool::Select => {
-                        self.selection = self.draft.touched(&self.stroke);
-                    }
+                    Tool::Select => self.pick_along(p),
                 }
             }
         }
@@ -397,29 +471,37 @@ impl Editor {
             self.drawing = false;
             let stroke = std::mem::take(&mut self.stroke);
             self.preview = None;
-            match self.tool {
-                Tool::Brush(deck) => {
-                    let mut d = self.draft.clone();
-                    if d.draw(&stroke, deck) {
-                        self.commit(d);
-                    } else {
-                        self.say("Trait trop court ou trop tordu", now);
-                    }
-                }
-                Tool::Select => {
-                    self.selection = self.draft.touched(&stroke);
-                    self.selection_stroke = if self.selection.is_some() { stroke } else { Vec::new() };
+            if let Tool::Brush(deck) = self.tool {
+                let mut d = self.draft.clone();
+                if d.draw(&stroke, deck) {
+                    self.commit(d);
+                } else {
+                    self.say("Trait trop court ou trop tordu", now);
                 }
             }
         }
         if resp.clicked() && self.tool == Tool::Select {
             if let Some(p) = resp.interact_pointer_pos() {
-                let w = self.to_world(full, p);
-                let tap = vec![w, w + W::new(0.5, 0.0)];
-                self.selection = self.draft.touched(&tap);
-                self.selection_stroke = if self.selection.is_some() { tap } else { Vec::new() };
+                self.selection = None;
+                self.selection_stroke.clear();
+                self.last_pick = None;
+                self.pick_along(p);
             }
         }
+    }
+
+    /// Adds to the selection the blocks shown under the pointer since its last position.
+    fn pick_along(&mut self, p: Pos2) {
+        let from = self.last_pick.unwrap_or(p);
+        let steps = (from.distance(p) / 8.0).ceil().max(1.0) as usize;
+        for k in 1..=steps {
+            let q = from.lerp(p, k as f32 / steps as f32);
+            if let Some((i, at)) = view::pick(&self.cam, &self.blocks, q) {
+                self.selection = Some(self.selection.map_or((i, i), |(a, b)| (a.min(i), b.max(i))));
+                self.selection_stroke.push(W::new(at.x, at.z));
+            }
+        }
+        self.last_pick = Some(p);
     }
 
     /// The drawn blocks of the draft shown (the preview while a stroke is drawn).
@@ -431,145 +513,16 @@ impl Editor {
         self.shown = key;
         let draft = self.preview.as_ref().unwrap_or(&self.draft);
         self.clashes = draft.overlaps();
-        self.blocks = draft.layout().pieces.iter().map(block_geometry).collect();
+        self.blocks = view::blocks(&draft.layout().pieces);
     }
 
-    fn paint_grid(&self, p: &egui::Painter, rect: Rect) {
-        let cell = CELL * self.scale;
-        let a = self.to_world(rect, rect.min);
-        let b = self.to_world(rect, rect.max);
-        let (lo, hi) = (a.min(b), a.max(b));
-        for major in [false, true] {
-            let every = if major { 4 } else { 1 };
-            if cell * (every as f32) < 6.0 {
-                continue;
-            }
-            let colour = if major { fade(Color32::WHITE, 0.09) } else { fade(Color32::WHITE, 0.035) };
-            let stroke = Stroke::new(if major { 1.0 } else { 1.0 }, colour);
-            let (x0, x1) = ((lo.x / CELL).floor() as i32, (hi.x / CELL).ceil() as i32);
-            for i in x0..=x1 {
-                if i.rem_euclid(every) == 0 && (major || i.rem_euclid(4) != 0) {
-                    let x = self.to_screen(rect, W::new(i as f32 * CELL, 0.0)).x;
-                    p.line_segment([pos2(x, rect.min.y), pos2(x, rect.max.y)], stroke);
-                }
-            }
-            let (z0, z1) = ((lo.y / CELL).floor() as i32, (hi.y / CELL).ceil() as i32);
-            for k in z0..=z1 {
-                if k.rem_euclid(every) == 0 && (major || k.rem_euclid(4) != 0) {
-                    let y = self.to_screen(rect, W::new(0.0, k as f32 * CELL)).y;
-                    p.line_segment([pos2(rect.min.x, y), pos2(rect.max.x, y)], stroke);
-                }
-            }
-        }
-    }
-
-    fn paint_blocks(&self, p: &egui::Painter, rect: Rect) {
-        let s = |w: W| self.to_screen(rect, w);
-        // Lower blocks first: a bridge is drawn over the road it crosses.
-        let mut order: Vec<usize> = (0..self.blocks.len()).collect();
-        order.sort_by(|&a, &b| self.blocks[a].top.total_cmp(&self.blocks[b].top));
-        let selected = |i: usize| self.selection.is_some_and(|(a, b)| (a..=b).contains(&i)) && self.preview.is_none();
-        for &i in &order {
-            let block = &self.blocks[i];
-            // Its shadow, cast down and to the right by its height.
-            let mut shadow = Mesh::default();
-            for w in block.rows.windows(2) {
-                let lift = |r: &Row| vec2(1.0, 1.0) * (r.height * self.scale * 0.45).min(18.0);
-                if w[0].height < 0.5 && w[1].height < 0.5 {
-                    continue;
-                }
-                quad(&mut shadow, [s(w[0].left) + lift(&w[0]), s(w[0].right) + lift(&w[0]), s(w[1].right) + lift(&w[1]), s(w[1].left) + lift(&w[1])], fade(Color32::BLACK, 0.4));
-            }
-            p.add(Shape::mesh(shadow));
-            // The deck, lighter the higher it is.
-            let mut deck = Mesh::default();
-            for w in block.rows.windows(2) {
-                let colour = |r: &Row| {
-                    let base = if r.dirt { DIRT_DECK } else { ROAD_DECK };
-                    paint::lerp_colour(base, Color32::WHITE, (r.height / 48.0).clamp(0.0, 1.0) * 0.35)
-                };
-                let (c0, c1) = (colour(&w[0]), colour(&w[1]));
-                let base = deck.vertices.len() as u32;
-                for (pos, c) in [(s(w[0].left), c0), (s(w[0].right), c0), (s(w[1].right), c1), (s(w[1].left), c1)] {
-                    deck.colored_vertex(pos, c);
-                }
-                deck.add_triangle(base, base + 1, base + 2);
-                deck.add_triangle(base, base + 2, base + 3);
-            }
-            p.add(Shape::mesh(deck));
-            // Edge lines on the road.
-            let road_rows: Vec<&Row> = block.rows.iter().filter(|r| !r.dirt).collect();
-            if road_rows.len() > 1 && self.scale > 0.25 {
-                for side in [true, false] {
-                    let pts: Vec<Pos2> = road_rows.iter().map(|r| s(if side { r.left } else { r.right })).collect();
-                    p.add(Shape::line(pts, PathStroke::new(1.0, fade(EDGE_LINE, 0.55))));
-                }
-            }
-            // Arrows: the way the track goes, and the boosters.
-            let every = if block.boost { 3 } else { 8 };
-            for (k, r) in block.rows.iter().enumerate() {
-                if k % every != every / 2 || self.scale < 0.2 {
-                    continue;
-                }
-                let l = W::new(r.forward.y, -r.forward.x) * -1.0;
-                let size = if block.boost { 6.0 } else { 3.5 };
-                let pts = [s(r.centre - r.forward * size + l * size * 1.2), s(r.centre + r.forward * size * 0.6), s(r.centre - r.forward * size - l * size * 1.2)];
-                let colour = if block.boost { BOOST } else { fade(Color32::WHITE, 0.25) };
-                p.add(Shape::line(pts.to_vec(), PathStroke::new(if block.boost { 2.5 } else { 1.5 }, colour)));
-            }
-            if selected(i) || self.clashes.contains(&i) {
-                let colour = if self.clashes.contains(&i) { CLASH } else { SELECTED };
-                let mut over = Mesh::default();
-                for w in block.rows.windows(2) {
-                    quad(&mut over, [s(w[0].left), s(w[0].right), s(w[1].right), s(w[1].left)], fade(colour, 0.3));
-                }
-                p.add(Shape::mesh(over));
-                for side in [true, false] {
-                    let pts: Vec<Pos2> = block.rows.iter().map(|r| s(if side { r.left } else { r.right })).collect();
-                    p.add(Shape::line(pts, PathStroke::new(2.0, colour)));
-                }
-            }
-            if let Some((gate, a, b)) = block.gate {
-                let (a, b) = (s(a), s(b));
-                match gate {
-                    Gate::Finish => {
-                        // A chequered line.
-                        let n = 8;
-                        let across = b - a;
-                        let normal = vec2(-across.y, across.x).normalized() * 3.0;
-                        for k in 0..n {
-                            let t0 = k as f32 / n as f32;
-                            let t1 = (k + 1) as f32 / n as f32;
-                            for (row, off) in [(0, -normal), (1, normal * 0.0)] {
-                                let c = if (k + row) % 2 == 0 { Color32::WHITE } else { Color32::BLACK };
-                                let q0 = a + across * t0 + off;
-                                let q1 = a + across * t1 + off;
-                                let mut m = Mesh::default();
-                                quad(&mut m, [q0, q1, q1 + normal, q0 + normal], c);
-                                p.add(Shape::mesh(m));
-                            }
-                        }
-                    }
-                    g => {
-                        let colour = if g == Gate::Start { START } else { CHECKPOINT };
-                        p.line_segment([a, b], Stroke::new(4.0, colour));
-                    }
-                }
-            }
-        }
-        // Heights on the slopes, once the plan is close enough to read them.
-        if self.scale > 0.45 {
-            for block in &self.blocks {
-                if let Some((at, s_)) = &block.label {
-                    paint::text(p, s(*at), Align2::CENTER_CENTER, s_, Font::data(10.0), fade(col::TEXT, 0.9));
-                }
-            }
-        }
-    }
-
-    fn paint_info(&self, p: &egui::Painter, safe: Rect, tall: bool) {
+    /// The editor's name, the draft's figures, the selection, a warning, the heights' legend.
+    /// Returns where the text ends.
+    fn paint_info(&self, p: &egui::Painter, safe: Rect, tall: bool, button: Rect) -> f32 {
         let x = safe.min.x + 18.0;
         let y = safe.min.y + 16.0;
+        // On a phone the lines stop short of the round button.
+        let width = if tall { button.min.x - x - 10.0 } else { 520.0 };
         paint::text(p, pos2(x, y), Align2::LEFT_TOP, "ÉDITEUR", Font::label(13.0, 0.18), col::LIVERY);
         let layout = self.draft.layout();
         let info = if self.draft.is_empty() {
@@ -578,20 +531,70 @@ impl Editor {
             let m = layout.length();
             format!("{} blocs · {:.1} km · ~{:.0} s", self.draft.pieces.len(), m / 1000.0, m / (200.0 / 3.6))
         };
-        paint::text(p, pos2(x, y + 20.0), Align2::LEFT_TOP, &info, Font::body(14.0), col::DUST_2);
-        let mut line = y + 40.0;
+        let mut line = y + 20.0;
+        line = paint::para(p, pos2(x, line), width, &info, Font::body(14.0), 1.3, col::DUST_2).max.y + 2.0;
         // What the selection holds: what its options can work with.
         if let Some(range) = self.selection.filter(|_| self.tool == Tool::Select && self.preview.is_none()) {
             let s = format!("Sélection : {}", self.draft.describe(range));
-            paint::text(p, pos2(x, line), Align2::LEFT_TOP, &s, Font::body(13.0), SELECTED);
-            line += 19.0;
+            line = paint::para(p, pos2(x, line), width, &s, Font::body(13.0), 1.3, SELECTED).max.y + 2.0;
         }
         if !self.clashes.is_empty() {
-            paint::text(p, pos2(x, line), Align2::LEFT_TOP, "Le tracé se croise : surélève une partie", Font::body(13.0), CLASH);
+            line = paint::para(p, pos2(x, line), width, "Le tracé se croise : surélève une partie", Font::body(13.0), 1.3, CLASH).max.y + 2.0;
         }
-        if !tall {
-            let hints = "Entrée : jouer   ·   Pincer : zoom   ·   Deux doigts : déplacer   ·   ⌘Z : annuler";
-            paint::text(p, pos2(safe.max.x - 18.0, y + 2.0), Align2::RIGHT_TOP, hints, Font::body(12.5), col::DUST_3);
+        // The heights' colours, once the draft leaves the ground.
+        let top = self.blocks.iter().flat_map(|b| &b.rows).map(|r| r.centre.y).fold(0.0, f32::max);
+        if top > 0.5 {
+            view::paint_legend(p, pos2(x + 14.0, line + 6.0), ((top - 1.0) / 8.0).ceil().max(1.0) * 8.0);
+            line += 20.0;
+        }
+        // Under the selection's options there is no room for them.
+        if !tall && !(self.tool == Tool::Select && self.selection.is_some()) {
+            let hints = if self.tilted {
+                "Entrée : jouer   ·   Pincer : zoom   ·   Deux doigts : déplacer   ·   Tourner deux doigts : pivoter   ·   ⌘Z : annuler"
+            } else {
+                "Entrée : jouer   ·   Pincer : zoom   ·   Deux doigts : déplacer   ·   3D ou T : relief   ·   ⌘Z : annuler"
+            };
+            paint::text(p, pos2(x, safe.max.y - 80.0 - 14.0), Align2::LEFT_BOTTOM, hints, Font::body(12.5), col::DUST_3);
+        }
+        line
+    }
+
+    /// The heights along the route, while a stretch is selected: under the text on a phone, at
+    /// the top in the middle on a computer.
+    fn paint_profile(&self, ctx: &egui::Context, safe: Rect, tall: bool, below: f32) {
+        if self.tool != Tool::Select || self.selection.is_none() || self.drawing || self.blocks.is_empty() {
+            return;
+        }
+        let rect = if tall {
+            Rect::from_min_size(pos2(safe.min.x + 12.0, below + 8.0), vec2(safe.width() - 24.0, 84.0))
+        } else {
+            Rect::from_center_size(pos2(safe.center().x, safe.min.y + 14.0 + 48.0), vec2(560.0, 96.0))
+        };
+        let mut p = ctx.layer_painter(egui::LayerId::new(Order::Middle, Id::new("editor-profile")));
+        p.set_clip_rect(ctx.viewport_rect());
+        view::paint_profile(&p, rect, &self.blocks, self.selection);
+    }
+
+    /// The round button that tilts the view or lays it flat.
+    fn relief_button(&mut self, ui: &mut Ui, ctx: &egui::Context, full: Rect, r: Rect) {
+        let resp = ui.interact(r, Id::new("editor-3d"), Sense::click());
+        let mut p = ctx.layer_painter(egui::LayerId::new(Order::Foreground, Id::new("editor-3d-button")));
+        p.set_clip_rect(full);
+        let fill = if self.tilted {
+            col::LIVERY
+        } else if resp.hovered() {
+            col::PANEL_2
+        } else {
+            col::GLASS_DARK
+        };
+        p.circle_filled(r.center(), r.width() / 2.0, fill);
+        if !self.tilted {
+            p.circle_stroke(r.center(), r.width() / 2.0 - 0.5, Stroke::new(1.0, col::LINE));
+        }
+        let ink = if self.tilted { col::LIVERY_INK } else { col::TEXT };
+        paint::text(&p, r.center(), Align2::CENTER_CENTER, if self.tilted { "2D" } else { "3D" }, Font::display(19.0), ink);
+        if resp.clicked() {
+            self.toggle_3d();
         }
     }
 
@@ -640,7 +643,7 @@ impl Editor {
                 let icon = pos2(r.center().x, r.min.y + 20.0);
                 match k {
                     0 | 1 => {
-                        let c = if k == 0 { ROAD_DECK } else { DIRT_DECK };
+                        let c = if k == 0 { ROAD_SWATCH } else { DIRT_SWATCH };
                         let sw = Rect::from_center_size(icon, vec2(30.0, 11.0));
                         p.rect_filled(sw, 3.0, c);
                         if k == 0 {
@@ -677,47 +680,43 @@ impl Editor {
         // The selection's options, over the bar.
         if self.tool == Tool::Select && self.selection.is_some() && !self.drawing {
             let gap = 8.0;
-            {
-                let (cols, bw) = if tall { (4, (safe.width() - 24.0 - gap * 3.0) / 4.0) } else { (6, 128.0) };
-                let rows = OPTIONS.len().div_ceil(cols);
-                let bh = 56.0;
-                let pw = cols as f32 * bw + (cols - 1) as f32 * gap + 24.0;
-                let ph = rows as f32 * bh + (rows - 1) as f32 * gap + 24.0;
-                let panel = Rect::from_min_size(pos2(safe.center().x - pw / 2.0, bar.min.y - ph - 10.0), vec2(pw, ph));
-                let clicked = {
-                let mut p = ctx.layer_painter(egui::LayerId::new(Order::Foreground, Id::new("editor-options")));
-                p.set_clip_rect(full);
-                let _ = ui.interact(panel, Id::new("editor-options-back"), Sense::click_and_drag());
-                paint::panel(&p, panel, 14.0, col::GLASS_DARK, Some((1.0, col::LINE)));
-                let mut clicked = None;
-                for (n, (short, long, edit)) in OPTIONS.iter().enumerate() {
-                    let label = if tall { short } else { long };
-                    let (row, colm) = (n / cols, n % cols);
-                    let r = Rect::from_min_size(panel.min + vec2(12.0 + colm as f32 * (bw + gap), 12.0 + row as f32 * (bh + gap)), vec2(bw, bh));
-                    let resp = ui.interact(r, Id::new(("option", n)), Sense::click());
-                    let fill = if resp.hovered() { col::PANEL_2 } else { col::PANEL };
-                    paint::panel(&p, r, 9.0, fill, Some((1.0, col::LINE)));
-                    let swatch = match edit {
-                        Edit::Surface(Deck::Road) => Some(ROAD_DECK),
-                        Edit::Surface(Deck::Dirt) => Some(DIRT_DECK),
-                        Edit::Surface(Deck::Booster) => Some(BOOST),
-                        Edit::Checkpoint => Some(CHECKPOINT),
-                        Edit::Cut => Some(CLASH),
-                        _ => None,
-                    };
-                    if let Some(c) = swatch {
-                        p.rect_filled(Rect::from_min_size(r.min + vec2(8.0, r.height() / 2.0 - 3.0), vec2(6.0, 6.0)), 2.0, c);
-                    }
-                    paint::text(&p, r.center() + vec2(if swatch.is_some() { 5.0 } else { 0.0 }, 0.0), Align2::CENTER_CENTER, label, Font::label(if tall { 13.0 } else { 14.0 }, 0.02), col::TEXT);
-                    if resp.clicked() {
-                        clicked = Some(*edit);
-                    }
-                }
-                clicked
+            let (cols, bw) = if tall { (4, (safe.width() - 24.0 - gap * 3.0) / 4.0) } else { (6, 128.0) };
+            let rows = OPTIONS.len().div_ceil(cols);
+            let bh = 56.0;
+            let pw = cols as f32 * bw + (cols - 1) as f32 * gap + 24.0;
+            let ph = rows as f32 * bh + (rows - 1) as f32 * gap + 24.0;
+            let panel = Rect::from_min_size(pos2(safe.center().x - pw / 2.0, bar.min.y - ph - 10.0), vec2(pw, ph));
+            let mut p = ctx.layer_painter(egui::LayerId::new(Order::Foreground, Id::new("editor-options")));
+            p.set_clip_rect(full);
+            let _ = ui.interact(panel, Id::new("editor-options-back"), Sense::click_and_drag());
+            paint::panel(&p, panel, 14.0, col::GLASS_DARK, Some((1.0, col::LINE)));
+            let mut clicked = None;
+            for (n, (short, long, edit)) in OPTIONS.iter().enumerate() {
+                let label = if tall { short } else { long };
+                let (row, colm) = (n / cols, n % cols);
+                let r = Rect::from_min_size(panel.min + vec2(12.0 + colm as f32 * (bw + gap), 12.0 + row as f32 * (bh + gap)), vec2(bw, bh));
+                let resp = ui.interact(r, Id::new(("option", n)), Sense::click());
+                let fill = if resp.hovered() { col::PANEL_2 } else { col::PANEL };
+                paint::panel(&p, r, 9.0, fill, Some((1.0, col::LINE)));
+                let swatch = match edit {
+                    Edit::Surface(Deck::Road) => Some(ROAD_SWATCH),
+                    Edit::Surface(Deck::Dirt) => Some(DIRT_SWATCH),
+                    Edit::Surface(Deck::Booster) => Some(BOOST),
+                    Edit::Checkpoint => Some(CHECKPOINT),
+                    Edit::Cut => Some(CLASH),
+                    _ => None,
                 };
-                if let Some(edit) = clicked {
-                    self.apply(edit, now);
+                if let Some(c) = swatch {
+                    p.rect_filled(Rect::from_min_size(r.min + vec2(8.0, r.height() / 2.0 - 3.0), vec2(6.0, 6.0)), 2.0, c);
                 }
+                let font = Font::label(if tall { 13.0 } else { 14.0 }, 0.02);
+                paint::text(&p, r.center() + vec2(if swatch.is_some() { 5.0 } else { 0.0 }, 0.0), Align2::CENTER_CENTER, label, font, col::TEXT);
+                if resp.clicked() {
+                    clicked = Some(*edit);
+                }
+            }
+            if let Some(edit) = clicked {
+                self.apply(edit, now);
             }
         }
     }
@@ -727,11 +726,12 @@ impl Editor {
     fn demo(&mut self) {
         let c = |x: f32, z: f32| W::new((x + 0.5) * CELL, (z + 0.5) * CELL);
         let arc = |centre: W, r: f32, a0: f32, a1: f32| -> Vec<W> {
-            (0..=24).map(|i| {
-                let a = a0 + (a1 - a0) * i as f32 / 24.0;
-                centre + W::new(a.cos(), a.sin()) * r
-            })
-            .collect()
+            (0..=24)
+                .map(|i| {
+                    let a = a0 + (a1 - a0) * i as f32 / 24.0;
+                    centre + W::new(a.cos(), a.sin()) * r
+                })
+                .collect()
         };
         let pi = std::f32::consts::PI;
         let mut d = Draft::new("Brouillon");
@@ -760,53 +760,6 @@ impl Editor {
         self.save_path = None;
         self.changed();
     }
-}
-
-/// A quadrilateral of one colour.
-fn quad(m: &mut Mesh, q: [Pos2; 4], c: Color32) {
-    let base = m.vertices.len() as u32;
-    for pos in q {
-        m.colored_vertex(pos, c);
-    }
-    m.add_triangle(base, base + 1, base + 2);
-    m.add_triangle(base, base + 2, base + 3);
-}
-
-fn block_geometry(p: &track::kit::Placed) -> Block {
-    let (s0, s1) = p.deck_range();
-    let n = ((s1 - s0) / 3.0).ceil().max(2.0) as usize;
-    let rows: Vec<Row> = (0..=n)
-        .map(|k| {
-            let f = p.frame(s0 + (s1 - s0) * k as f32 / n as f32);
-            let c = W::new(f.horiz.x, f.horiz.z);
-            let l = W::new(f.left.x, f.left.z);
-            Row {
-                left: c + l * f.half_width,
-                right: c - l * f.half_width,
-                centre: c,
-                forward: W::new(f.forward.x, f.forward.z),
-                height: f.centre().y,
-                dirt: f.deck == Surface::Dirt,
-            }
-        })
-        .collect();
-    let gate = p.piece.gate.map(|g| {
-        let f = p.frame(p.gate_s());
-        let c = W::new(f.horiz.x, f.horiz.z);
-        let l = W::new(f.left.x, f.left.z) * (f.half_width + 1.0);
-        (g, c + l, c - l)
-    });
-    let climbs = (p.exit.pos.y - p.entry.pos.y).abs() > 0.5 || matches!(p.piece.kind, Kind::JumpRamp { .. });
-    let label = climbs.then(|| {
-        let mid = &rows[rows.len() / 2];
-        let text = match p.piece.kind {
-            Kind::JumpRamp { .. } => "SAUT".to_string(),
-            _ => format!("{} m", (p.exit.pos.y / LEVEL).round() as i32 * LEVEL as i32),
-        };
-        (mid.centre, text)
-    });
-    let top = rows.iter().map(|r| r.height).fold(0.0, f32::max);
-    Block { rows, boost: p.piece.boost, gate, label, top }
 }
 
 /// Where the draft is kept: `MARS_DRAFT`, the app's Documents folder on iOS, `tuning/draft.json`

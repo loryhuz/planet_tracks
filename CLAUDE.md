@@ -132,11 +132,20 @@ link the main checkout's `track` (missing a new block or surface).
   its surface, a level up or down (a slope at each end), a hump, a jump, whoops, banked or flat
   turns, a checkpoint, or the draft cut off there. Pinch zooms, two fingers (or the trackpad's
   scroll) move the view; Enter or "Jouer" races the draft (`Game::race_map`), Escape or the race
-  settings' "Menu" comes back. The draft is saved as a map after every change
-  (`tuning/draft.json`, on iOS the app's Documents, or `MARS_DRAFT=path`): copied into
-  `crates/track/maps/` and added to `BUILTIN_MAPS`, it is a circuit. Self-tests:
-  `MARS_EDITOR_DEMO=1` draws a draft, `MARS_EDITOR_PLAY=seconds` races it. What both executables
-  draw from the game's data (the track's GPU mesh, the cars) is `scene_data.rs`.
+  settings' "Menu" comes back. `editor_view.rs` draws it with egui's painter, a camera straight
+  down or tilted in perspective (heights stretched ×2): decks, sides, stilts and gates projected
+  and sorted far to near in one mesh, shadows on the ground, decks taking their height's colour
+  (teal to magenta, never the dirt's brown), and the heights along the route over the plan while
+  a stretch is selected. Leaning the phone to the side glances at the relief in 3D
+  (`ios_motion.rs`, CoreMotion's roll; frozen under a finger, the neutral attitude following how
+  the phone is held); the round "3D" button (or T) keeps the view tilted, two fingers turning it.
+  Tilted, a stroke is drawn on the deck it starts on and a selection picked on screen. The draft
+  is saved as a map after every change (`tuning/draft.json`, on iOS the app's Documents, or
+  `MARS_DRAFT=path`): copied into `crates/track/maps/` and added to `BUILTIN_MAPS`, it is a
+  circuit. Self-tests: `MARS_EDITOR_DEMO=1` draws a draft, `MARS_EDITOR_PLAY=seconds` races it,
+  `MARS_EDITOR_3D=1` opens tilted, `MARS_EDITOR_ROLL=degrees` leans a pretend phone (with
+  `MARS_BENCH` so every frame runs). What both executables draw from the game's data (the
+  track's GPU mesh, the cars) is `scene_data.rs`.
 - `crates/app/src/weather.rs` — the weather, render only (the wind never pushes the car): a
   `Climate` per planet that every map gets (Mars: a breeze blowing from the sandstorm, light sand
   drifting in the air, a gust every few seconds; the ice planet: light snow falling and swaying

@@ -11,6 +11,7 @@ mod camera;
 mod car_model;
 mod debug;
 mod editor;
+mod editor_view;
 mod engine_sound;
 mod game;
 mod gfx;
@@ -18,6 +19,8 @@ mod hud;
 mod input;
 #[cfg(target_os = "ios")]
 mod ios;
+#[cfg(target_os = "ios")]
+mod ios_motion;
 mod marks;
 mod menu;
 mod menu_gfx;
@@ -93,6 +96,9 @@ struct App {
     audio_wanted: bool,
     frames_shown: u32,
     modifiers: ModifiersState,
+    /// The phone's motion sensors, for the editor's glance in 3D.
+    #[cfg(target_os = "ios")]
+    motion: Option<ios_motion::Motion>,
 }
 
 impl App {
@@ -201,6 +207,11 @@ impl App {
             raw.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen));
         }
         let racing = self.racing;
+        #[cfg(target_os = "ios")]
+        {
+            let now = self.egui_ctx.input(|i| i.time);
+            self.editor.sense(self.motion.as_ref().and_then(|m| m.roll()), now);
+        }
         let editor = &mut self.editor;
         let hud = &mut self.hud;
         let fps = &self.fps;
@@ -335,13 +346,15 @@ impl App {
         }
     }
 
-    /// The editor's keys: Enter races, ⌘Z / Ctrl+Z undoes, Escape drops the selection.
+    /// The editor's keys: Enter races, ⌘Z / Ctrl+Z undoes, Escape drops the selection, T tilts
+    /// the view or lays it flat.
     fn editor_key(&mut self, code: KeyCode) {
         let now = self.egui_ctx.input(|i| i.time);
         match code {
             KeyCode::Enter | KeyCode::NumpadEnter => self.editor.play(now),
             KeyCode::KeyZ if self.modifiers.super_key() || self.modifiers.control_key() => self.editor.undo(),
             KeyCode::Escape => self.editor.deselect(),
+            KeyCode::KeyT => self.editor.toggle_3d(),
             KeyCode::KeyF => self.game.fullscreen_requested = true,
             _ => {}
         }
@@ -488,6 +501,8 @@ fn main() {
         frames_shown: 0,
         debug,
         modifiers: ModifiersState::empty(),
+        #[cfg(target_os = "ios")]
+        motion: ios_motion::Motion::start(),
     };
     event_loop.run_app(&mut app).expect("run");
 }

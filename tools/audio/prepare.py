@@ -77,6 +77,36 @@ SOURCES = {
         "sustained rubbery screech with a rough scrub of the tread, steady intensity, continuous. "
         "Only the tyres and the road, no engine, no motor, no crash, no wind.",
     ),
+    # Knocks against walls, by strength (audio.rs), as foley, loop off, influence 40 %:
+    # take `impact_light_2`, a short dry knock (its hit 25 ms in, over in 250 ms).
+    "knock_light": dict(
+        trim=(0.02, 0.32), fade_in=0.003, fade_out=0.06, peak=-3.0,
+        prompt="Foley close-up: the plastic bumper of a small car bumping into a low wall of sandbags, a "
+        "short dull thud of heavy sand with a small plastic knock. Dry, no engine, no voice.",
+    ),
+    # take `impact_medium_3`, a thud and the crack of the panels from its first 5 ms (two other takes
+    # knocked twice).
+    "knock_medium": dict(
+        trim=(0.0, 0.55), fade_in=0.003, fade_out=0.1, peak=-3.0,
+        prompt="Foley close-up: the composite body of a small car hitting a wall of sandbags hard, a heavy "
+        "deep thud of sand, a crack of plastic panels and a short rattle of loose metal parts. Dry, "
+        "no engine, no voice.",
+    ),
+    # take `impact_heavy_2`, a boom then debris for most of a second, with mids a phone can play (the
+    # others were all under 150 Hz).
+    "knock_heavy": dict(
+        trim=(0.01, 1.0), fade_in=0.003, fade_out=0.2, peak=-3.0,
+        prompt="Foley close-up: a small car slamming into a barrier at high speed, a loud deep boom, "
+        "cracking composite panels and a metallic rattle of the suspension, then sand and small "
+        "debris falling. Dry, no engine, no voice, no glass.",
+    ),
+    # take `land_3`, landing a jump: the suspension's thump, then a rattle of the chassis.
+    "land": dict(
+        trim=(0.04, 0.8), fade_in=0.003, fade_out=0.15, peak=-3.0,
+        prompt="Foley close-up: a light off-road car landing hard on the ground after a jump, a deep thump "
+        "of the suspension bottoming out, the tyres slapping down and a short rattle of the "
+        "chassis. Dry, no engine, no voice.",
+    ),
     # Played once when the wheels touch a booster pad. Loop off, 2 s, prompt influence 50 %, take
     # 4 of the user's. The take opens on a click and a silence, cut away: the sound starts on the
     # whoosh building up (0.45 s) and ends once it has died out (1.6 s).

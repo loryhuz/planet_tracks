@@ -460,8 +460,8 @@ impl App {
                 audio.cue(cue);
             }
             audio.update(&if self.menu.active || self.hud.paused() { audio::SoundFrame::default() } else { game.sound_frame() });
-            for strength in game.impacts.drain(..) {
-                audio.impact(strength);
+            for knock in game.impacts.drain(..) {
+                audio.knock(knock);
             }
             for _ in 0..std::mem::take(&mut game.boosts) {
                 audio.boost();
@@ -743,8 +743,8 @@ fn audio_wav(path: &str) {
     for i in 0..3000 {
         game.tick();
         frames.push(game.sound_frame());
-        for s in game.impacts.drain(..) {
-            impacts.push((i, s));
+        for knock in game.impacts.drain(..) {
+            impacts.push((i, knock));
         }
         if std::mem::take(&mut game.boosts) > 0 {
             boosts.push(i);
@@ -770,7 +770,8 @@ fn audio_wav(path: &str) {
         bytes.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
     }
     std::fs::write(path, bytes).expect("write wav");
-    println!("{} impacts, boosters at ticks {:?}", impacts.len(), boosts);
+    let walls = impacts.iter().filter(|(_, k)| matches!(k, audio::Knock::Wall(_))).count();
+    println!("{} knocks against walls, {} on the ground, boosters at ticks {:?}", walls, impacts.len() - walls, boosts);
 }
 
 fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
@@ -797,7 +798,8 @@ fn write_wav(path: &std::path::Path, samples: &[f32], rate: u32) {
 /// `MARS_ENGINE_DEMO=path.wav`: the car's sound over a scripted lap, at the game's level: idling
 /// on the line, pulling away through the gears to 300 km/h, a lift, cruising on dirt, a drift there,
 /// braking hard (the tyres skid), full throttle again, a fast road bend at the grip limit (the tyres
-/// slide a little), and a hard stop on the road.
+/// slide a little), and a hard stop on the road; a landing and knocks against walls, light to
+/// heavy, along the way.
 fn engine_demo(path: &str) {
     let params = physics::presets().remove(0);
     let gear_of = |kmh: f32| {
@@ -843,7 +845,13 @@ fn engine_demo(path: &str) {
         }
     }
     let rate = 44_100u32;
-    write_wav(std::path::Path::new(path), &audio::render_offline(&frames, &[], &[], rate), rate);
+    let knocks = [
+        (1250, audio::Knock::Ground(0.8)),
+        (1450, audio::Knock::Wall(0.2)),
+        (1600, audio::Knock::Wall(0.5)),
+        (2250, audio::Knock::Wall(0.9)),
+    ];
+    write_wav(std::path::Path::new(path), &audio::render_offline(&frames, &knocks, &[], rate), rate);
 }
 
 fn main() {

@@ -84,17 +84,25 @@ pub struct OneShot {
     /// Where it is playing, in recording frames; `None` once it has ended.
     pos: Option<f64>,
     step: f64,
+    /// Speed it plays at for this trigger (2 is an octave up).
+    rate: f64,
 }
 
 impl OneShot {
     pub fn new(bytes: &[u8], out_rate: f32) -> Self {
         let (samples, channels, rate) = decode_wav(bytes);
         let frames = samples.len() / channels;
-        Self { samples, channels, frames, pos: None, step: rate as f64 / out_rate as f64 }
+        Self { samples, channels, frames, pos: None, step: rate as f64 / out_rate as f64, rate: 1.0 }
     }
 
     pub fn trigger(&mut self) {
+        self.trigger_at(1.0);
+    }
+
+    /// Plays it from its start `rate` times its natural speed.
+    pub fn trigger_at(&mut self, rate: f32) {
         self.pos = Some(0.0);
+        self.rate = rate as f64;
     }
 
     /// The next (left, right) sample, silence once the recording has ended.
@@ -109,7 +117,7 @@ impl OneShot {
         let (a, b) = (i * self.channels, (i + 1) * self.channels);
         let at = |c: usize| self.samples[a + c] * (1.0 - frac) + self.samples[b + c] * frac;
         let right = if self.channels > 1 { 1 } else { 0 };
-        self.pos = Some(pos + self.step);
+        self.pos = Some(pos + self.step * self.rate);
         (at(0), at(right))
     }
 }

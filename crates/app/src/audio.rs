@@ -1,7 +1,7 @@
 //! Vehicle sound: the electric drive, a motor whine over a drivetrain rumble with pops on lifting
 //! off (engine_sound.rs), the tyres rolling and sliding on dirt and skidding on the road from three
-//! more recordings, the Martian ambience, the whoosh of a booster pad, plus synthesized wind and
-//! thumps on impacts. The game writes a few values per frame; the audio thread reads them through
+//! more recordings, the knocks against walls and the landings from four more, the Martian ambience,
+//! the whoosh of a booster pad, plus synthesized wind. The game writes a few values per frame; the audio thread reads them through
 //! atomics and smooths them per sample. The menu's cues (ui_sound.rs) play on the same stream,
 //! while the car and the race ambience are silent. The music (music.rs) is the menu's theme in
 //! the menu and the planet's tracks in a race (its night track by night).
@@ -35,6 +35,14 @@ pub struct SoundFrame {
     pub airborne: bool,
 }
 
+/// A knock the car takes, 0..1: against a wall (sandbags, bumpers, rocks), or on the ground
+/// (landing a jump, the body hitting it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Knock {
+    Wall(f32),
+    Ground(f32),
+}
+
 #[derive(Default)]
 struct Shared {
     rpm: AtomicU32,
@@ -45,11 +53,13 @@ struct Shared {
     gravel: AtomicU32,
     scrub: AtomicU32,
     airborne: AtomicBool,
-    /// Incremented for each impact; the thread plays one thump per increment.
-    impacts: AtomicU32,
+    /// Incremented for each knock; the thread plays the last one's sound per change.
+    knocks: AtomicU32,
+    /// The last knock: on the ground (1) or a wall (0), and its strength.
+    knock_ground: AtomicBool,
+    knock_strength: AtomicU32,
     /// Incremented for each booster pad touched; the thread plays the whoosh from its start.
     boosts: AtomicU32,
-    impact_strength: AtomicU32,
     muted: AtomicBool,
     /// The car is heard (a race is on); off in the menu.
     race: AtomicBool,
@@ -116,9 +126,14 @@ impl Audio {
         s.airborne.store(f.airborne, Ordering::Relaxed);
     }
 
-    pub fn impact(&self, strength: f32) {
-        store(&self.shared.impact_strength, strength.clamp(0.0, 1.0));
-        self.shared.impacts.fetch_add(1, Ordering::Relaxed);
+    pub fn knock(&self, knock: Knock) {
+        let (ground, strength) = match knock {
+            Knock::Wall(s) => (false, s),
+            Knock::Ground(s) => (true, s),
+        };
+        self.shared.knock_ground.store(ground, Ordering::Relaxed);
+        store(&self.shared.knock_strength, strength.clamp(0.0, 1.0));
+        self.shared.knocks.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The wheels have touched a booster pad.
@@ -151,9 +166,9 @@ impl Audio {
     }
 }
 
-/// Renders the synth offline: one SoundFrame per 10 ms tick, impacts as (tick, strength), the
-/// ticks a booster pad was touched.
-pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], boosts: &[usize], rate: u32) -> Vec<f32> {
+/// Renders the synth offline: one SoundFrame per 10 ms tick, the knocks with their tick, the ticks
+/// a booster pad was touched.
+pub fn render_offline(frames: &[SoundFrame], knocks: &[(usize, Knock)], boosts: &[usize], rate: u32) -> Vec<f32> {
     let shared = Arc::new(Shared::default());
     shared.race.store(true, Ordering::Relaxed);
     let mut synth = Synth::new(rate as f32, shared.clone(), UiSynth::new(rate as f32, None), false);
@@ -162,9 +177,9 @@ pub fn render_offline(frames: &[SoundFrame], impacts: &[(usize, f32)], boosts: &
     for (i, f) in frames.iter().enumerate() {
         let a = Audio { shared: shared.clone(), cues: None, _stream: None };
         a.update(f);
-        for &(t, strength) in impacts {
+        for &(t, knock) in knocks {
             if t == i {
-                a.impact(strength);
+                a.knock(knock);
             }
         }
         if boosts.contains(&i) {
@@ -200,6 +215,13 @@ const ROLL_DIRT_GAIN: f32 = 0.5;
 const SLIDE_DIRT_GAIN: f32 = 0.45;
 /// Level of the tyres skidding on the road.
 const SKID_ROAD_GAIN: f32 = 0.85;
+const KNOCK_LIGHT_WAV: &[u8] = include_bytes!("../assets/audio/knock_light.wav");
+const KNOCK_MEDIUM_WAV: &[u8] = include_bytes!("../assets/audio/knock_medium.wav");
+const KNOCK_HEAVY_WAV: &[u8] = include_bytes!("../assets/audio/knock_heavy.wav");
+const LAND_WAV: &[u8] = include_bytes!("../assets/audio/land.wav");
+/// Levels of the knocks against walls (the hardest at full strength) and of the landings.
+const KNOCK_GAIN: f32 = 0.9;
+const LAND_GAIN: f32 = 0.8;
 /// Level of the booster's whoosh in the mix.
 const BOOSTER_GAIN: f32 = 0.55;
 /// Level of the menu's theme, the menu's only background (the tracks leave tools/audio/music.py
@@ -233,9 +255,14 @@ struct Synth {
     skid_road: crate::sample::Looper,
     // oscillators and filters
     wind_lp: LowPass,
-    seen_impacts: u32,
-    thump: f32,
-    thump_phase: f32,
+    /// The knocks against walls, light, medium and heavy, and the landing.
+    knock_light: crate::sample::OneShot,
+    knock_medium: crate::sample::OneShot,
+    knock_heavy: crate::sample::OneShot,
+    land: crate::sample::OneShot,
+    seen_knocks: u32,
+    /// Level of each of them for its last trigger.
+    knock_levels: [f32; 4],
     // high-pass state (removes infrasound and DC)
     hp_x: f32,
     hp_y: f32,
@@ -292,9 +319,12 @@ impl Synth {
             slide_dirt: crate::sample::Looper::new(&crate::sample::asset("slide_dirt.wav", SLIDE_DIRT_WAV), rate),
             skid_road: crate::sample::Looper::new(&crate::sample::asset("skid_road.wav", SKID_ROAD_WAV), rate),
             wind_lp: LowPass::default(),
-            seen_impacts: 0,
-            thump: 0.0,
-            thump_phase: 0.0,
+            knock_light: crate::sample::OneShot::new(&crate::sample::asset("knock_light.wav", KNOCK_LIGHT_WAV), rate),
+            knock_medium: crate::sample::OneShot::new(&crate::sample::asset("knock_medium.wav", KNOCK_MEDIUM_WAV), rate),
+            knock_heavy: crate::sample::OneShot::new(&crate::sample::asset("knock_heavy.wav", KNOCK_HEAVY_WAV), rate),
+            land: crate::sample::OneShot::new(&crate::sample::asset("land.wav", LAND_WAV), rate),
+            seen_knocks: 0,
+            knock_levels: [0.0; 4],
             hp_x: 0.0,
             hp_y: 0.0,
             ui,
@@ -336,11 +366,27 @@ impl Synth {
             self.engine.shift();
         }
         self.seen_gear = gear;
-        let impacts = s.impacts.load(Ordering::Relaxed);
-        if impacts != self.seen_impacts {
-            self.seen_impacts = impacts;
-            self.thump = self.thump.max(load(&s.impact_strength));
-            self.thump_phase = 0.0;
+        let knocks = s.knocks.load(Ordering::Relaxed);
+        if knocks != self.seen_knocks {
+            self.seen_knocks = knocks;
+            let strength = load(&s.knock_strength);
+            // A little higher or lower each time, so two knocks never sound the same.
+            let pitch = 0.92 + 0.16 * (self.noise() * 0.5 + 0.5);
+            if s.knock_ground.load(Ordering::Relaxed) {
+                self.knock_levels[3] = LAND_GAIN * (0.35 + 0.65 * strength);
+                self.land.trigger_at(pitch);
+            } else {
+                // The light knock's level rises to the medium's, the medium's to the heavy's.
+                let (i, level) = if strength < 0.3 {
+                    (0, 0.45 + 0.35 * strength / 0.3)
+                } else if strength < 0.65 {
+                    (1, 0.6 + 0.25 * (strength - 0.3) / 0.35)
+                } else {
+                    (2, 0.75 + 0.25 * (strength - 0.65) / 0.35)
+                };
+                self.knock_levels[i] = KNOCK_GAIN * level;
+                [&mut self.knock_light, &mut self.knock_medium, &mut self.knock_heavy][i].trigger_at(pitch);
+            }
         }
         let boosts = s.boosts.load(Ordering::Relaxed);
         if boosts != self.seen_boosts {
@@ -388,17 +434,13 @@ impl Synth {
                 * (self.speed / 8.0).clamp(0.0, 1.0)
                 * SKID_ROAD_GAIN;
 
-            // Impact thump.
-            let mut thump = 0.0;
-            if self.thump > 0.001 {
-                self.thump_phase += 1.0 / rate;
-                thump = (self.thump_phase * 70.0 * std::f32::consts::TAU).sin() * self.thump * 0.6
-                    + self.noise() * self.thump * 0.15;
-                self.thump *= (-1.0 / (0.08 * rate)).exp();
-            }
+            let knock = self.knock_light.next().0 * self.knock_levels[0]
+                + self.knock_medium.next().0 * self.knock_levels[1]
+                + self.knock_heavy.next().0 * self.knock_levels[2]
+                + self.land.next().0 * self.knock_levels[3];
 
             let ui = self.ui.next();
-            let raw = ((engine + gravel + wind + squeal + thump) * self.race + ui * 1.2) * self.master;
+            let raw = ((engine + gravel + wind + squeal + knock) * self.race + ui * 1.2) * self.master;
             // ~30 Hz high-pass: nothing below what speakers can play.
             let a = (-std::f32::consts::TAU * 30.0 / rate).exp();
             let mix = a * (self.hp_y + raw - self.hp_x);

@@ -4,6 +4,7 @@ use glam::{Mat4, Quat, Vec3, Vec4};
 use physics::{CarParams, CarState, Telemetry, World};
 use track::Track;
 
+use crate::audio::Knock;
 use crate::camera::ChaseCamera;
 use crate::car_model::{self, CornerRig, Look};
 use crate::gfx::{DrawItem, Headlights, MeshId, Tyre};
@@ -62,12 +63,15 @@ pub struct Game {
     pub marks: crate::marks::Marks,
     pub dust: crate::particles::Dust,
     pub mute_requested: bool,
-    /// Impacts to play this frame (0..1 strength).
-    pub impacts: Vec<f32>,
+    /// Knocks to play this frame.
+    pub impacts: Vec<crate::audio::Knock>,
     /// Booster pads touched since the last frame, for the sound.
     pub boosts: u32,
     last_boost: f32,
     last_impact: f32,
+    /// Ticks the car had been in the air, and how fast it was falling (m/s), at the last tick.
+    last_air: u32,
+    last_fall: f32,
     /// Debug self-test: a route-following autopilot drives instead of the player.
     pub autodrive: Option<crate::debug::Autopilot>,
     pending_respawn: bool,
@@ -103,6 +107,8 @@ impl Game {
             boosts: 0,
             last_boost: 0.0,
             last_impact: 0.0,
+            last_air: 0,
+            last_fall: 0.0,
             autodrive: None,
             pending_respawn: false,
         };
@@ -255,11 +261,21 @@ impl Game {
         }
         self.marks.update(&self.run.car.state);
         self.dust.update(&self.run.car.state, physics::DT);
-        let impact = self.run.car.telemetry().impact;
+        let state = &self.run.car.state;
+        let impact = state.impact;
+        let mut knocked = false;
         if impact > 2.0 && self.last_impact <= 2.0 {
-            self.impacts.push((impact / 15.0).clamp(0.15, 1.0));
+            let strength = (impact / 15.0).clamp(0.15, 1.0);
+            knocked = true;
+            self.impacts.push(if state.wall_contact { Knock::Wall(strength) } else { Knock::Ground(strength) });
         }
         self.last_impact = impact;
+        // Landing a jump: the wheels touch down after a quarter of a second in the air, falling.
+        if state.air_ticks == 0 && self.last_air >= 25 && self.last_fall > 3.0 && !knocked && !frame.respawn {
+            self.impacts.push(Knock::Ground((self.last_fall / 12.0).clamp(0.2, 1.0)));
+        }
+        self.last_air = state.air_ticks;
+        self.last_fall = -state.velocity.y;
         // The boost starts over (it rises) on the first touch of a pad; on the pad it holds.
         let boost = self.run.car.telemetry().boost;
         if boost > self.last_boost + 0.01 && !frame.respawn {

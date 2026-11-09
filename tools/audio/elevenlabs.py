@@ -2,7 +2,8 @@
 
 Each take is written as art/audio/takes/<name>_<n>.wav (48 kHz stereo, 16-bit; the folder is not
 kept in git), numbered after those already there: `analyse.py` measures them, the chosen one is
-copied to art/audio/src/ for prepare.py, whose SOURCES says which take each sound is. The API key is read from the macOS keychain, never printed:
+copied to art/audio/src/ for prepare.py, whose SOURCES says which take each sound is. The API
+key is read from the macOS keychain, never printed:
 
     security add-generic-password -a "$USER" -s elevenlabs-api -w
 
@@ -120,27 +121,30 @@ PROMPTS = {
         "wind.",
         10.0, 0.5, True,
     ),
-    # The road edges are sandbags and bumpers.
+    # Knocks against the road edges (sandbags and bumpers) and landings, as foley: named after a
+    # buggy, the takes of tyres had its engine in them.
     "impact_light": (
-        "Off-road buggy bumping into a low wall of sandbags: a short dull thud of heavy sand with a "
-        "light plastic knock of the body panels, close, dry, no engine.",
-        0.6, 0.4, False,
+        "Foley close-up: the plastic bumper of a small car bumping into a low wall of sandbags, a "
+        "short dull thud of heavy sand with a small plastic knock. Dry, no engine, no voice.",
+        0.8, 0.4, False,
     ),
     "impact_medium": (
-        "Off-road buggy hitting a wall of sandbags at speed: a heavy deep thud, a crack of composite "
-        "body panels and a short rattle of the suspension, close, dry, no engine.",
-        1.0, 0.4, False,
+        "Foley close-up: the composite body of a small car hitting a wall of sandbags hard, a heavy "
+        "deep thud of sand, a crack of plastic panels and a short rattle of loose metal parts. Dry, "
+        "no engine, no voice.",
+        1.2, 0.4, False,
     ),
     "impact_heavy": (
-        "Off-road buggy slamming into a barrier at high speed: a loud deep boom, cracking composite "
-        "panels, a metallic rattle of the suspension, then sand and small debris falling, dry, no "
-        "engine.",
-        1.5, 0.4, False,
+        "Foley close-up: a small car slamming into a barrier at high speed, a loud deep boom, "
+        "cracking composite panels and a metallic rattle of the suspension, then sand and small "
+        "debris falling. Dry, no engine, no voice, no glass.",
+        1.8, 0.4, False,
     ),
     "land": (
-        "Off-road buggy landing hard after a big jump: a deep thump of the suspension bottoming out, "
-        "the tyres slapping down, a short rattle of the chassis, close, dry, no engine.",
-        1.0, 0.4, False,
+        "Foley close-up: a light off-road car landing hard on the ground after a jump, a deep thump "
+        "of the suspension bottoming out, the tyres slapping down and a short rattle of the chassis. "
+        "Dry, no engine, no voice.",
+        1.2, 0.4, False,
     ),
     # A gust of the storm the car drives through (weather.rs).
     "gust": (
